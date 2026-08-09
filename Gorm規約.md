@@ -1,0 +1,116 @@
+規約
+主キーとしての ID
+GORMはデフォルトで、テーブルの主キーとして ID という名前のフィールドを使用します。
+
+type User struct {
+  ID   string //フィールドはデフォルトでは `ID` という名前のフィールドがプライマリフィールドとして使われます。
+  Name string
+}
+他のフィールドを primaryKey タグで主キーとして設定できます
+
+// Set field `UUID` as primary field
+type Animal struct {
+  ID     int64
+  UUID   string `gorm:"primaryKey"`
+  Name   string
+  Age    int64
+}
+Composite Primary Key も参照してください。
+
+複数形のテーブル名
+GORMは構造体名をテーブル名としてsnake_casesのように複数形にします。構造体 User の場合、対応するテーブル名は規約により users となります。
+
+テーブル名
+Tabler インターフェイスを実装することで、デフォルトのテーブル名を変更することができます。例：
+
+type Tabler interface {
+    TableName() string
+}
+
+// TableName overrides the table name used by User to `profiles`
+func (User) TableName() string {
+  return "profiles"
+}
+注意 メソッドの戻り値はキャッシュされるため、 TableNameは動的な名前を許可していません。動的にテーブル名を変更するには、 Scopes で解決することができます。例:
+
+func UserTable(user User) func (tx *gorm.DB) *gorm.DB {
+  return func (tx *gorm.DB) *gorm.DB {
+    if user.Admin {
+      return tx.Table("admin_users")
+    }
+
+    return tx.Table("users")
+  }
+}
+
+db.Scopes(UserTable(user)).Create(&user)
+一時的に名前を指定する
+Tableメソッドで一時的にテーブル名を指定できます。例:
+
+// Create table `deleted_users` with struct User's fields
+db.Table("deleted_users").AutoMigrate(&User{})
+
+// Query data from another table
+var deletedUsers []User
+db.Table("deleted_users").Find(&deletedUsers)
+// SELECT * FROM deleted_users;
+
+db.Table("deleted_users").Where("name = ?", "jinzhu").Delete(&User{})
+// DELETE FROM deleted_users WHERE name = 'jinzhu';
+FROM句でサブクエリを使用する方法については、 From SubQuery を参照してください。
+
+NamingStrategy
+GORM allows users to change the default naming conventions by overriding the default NamingStrategy, which is used to build TableName, ColumnName, JoinTableName, RelationshipFKName, CheckerName, IndexName, Check out GORM Config for details
+
+カラム名
+規約に従い、データベースのカラム名はフィールド名のsnake_caseを使用します。
+
+type User struct {
+  ID        uint      // column name is `id`
+  Name      string    // column name is `name`
+  Birthday  time.Time // column name is `birthday`
+  CreatedAt time.Time // column name is `created_at`
+}
+column タグか NamingStrategy を利用することでカラム名を上書きできます。
+
+type Animal struct {
+  AnimalID int64     `gorm:"column:beast_id"`         // set name to `beast_id`
+  Birthday time.Time `gorm:"column:day_of_the_beast"` // set name to `day_of_the_beast`
+  Age      int64     `gorm:"column:age_of_the_beast"` // set name to `age_of_the_beast`
+}
+タイムスタンプのトラッキング
+CreatedAt
+CreatedAtフィールドを持つモデルの場合、フィールドの値がゼロ値であれば、レコード作成時に現在時刻が設定されます。
+
+db.Create(&user) // set `CreatedAt` to current time
+
+user2 := User{Name: "jinzhu", CreatedAt: time.Now()}
+db.Create(&user2) // user2's `CreatedAt` won't be changed
+
+// To change its value, you could use `Update`
+db.Model(&user).Update("CreatedAt", time.Now())
+autoCreateTime タグを falseに設定すると、タイムスタンプのトラッキングを無効にできます。例：
+
+type User struct {
+  CreatedAt time.Time `gorm:"autoCreateTime:false"`
+}
+UpdatedAt
+UpdatedAtフィールドを持つモデルの場合、フィールドの値がゼロ値であれば、レコードの更新時または作成時に現在時刻が設定されます。
+
+db.Save(&user) // set `UpdatedAt` to current time
+
+db.Model(&user).Update("name", "jinzhu") // will set `UpdatedAt` to current time
+
+db.Model(&user).UpdateColumn("name", "jinzhu") // `UpdatedAt` won't be changed
+
+user2 := User{Name: "jinzhu", UpdatedAt: time.Now()}
+db.Create(&user2) // user2's `UpdatedAt` won't be changed when creating
+
+user3 := User{Name: "jinzhu", UpdatedAt: time.Now()}
+db.Save(&user3) // user3's `UpdatedAt` will change to current time when updating
+autoUpdateTime タグを falseに設定すると、タイムスタンプのトラッキングを無効にできます。例：
+
+type User struct {
+  UpdatedAt time.Time `gorm:"autoUpdateTime:false"`
+}
+注意 GORMでは、複数のタイムトラッキング用のフィールドを定義することや、UNIX(ナノ/ミリ)秒でタイムトラッキングすることが可能です。詳細については Models をチェックしてください。
