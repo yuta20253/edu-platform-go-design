@@ -74,7 +74,7 @@ Active Record
 
 - 主要操作がCRUD中心で、作成・取得・更新の流れが明確である
 - タスクと単元との関連付けは、データの整合性を保つために集約しやすい
-- 認可・入力検証・永続化の責務をユースケースから切り分けつつ、データアクセスの振る舞いを一元化しやすい
+- Handlerが直接Storeを呼び出し、認可・入力検証はHandler／Store側で行うことで、データアクセスの振る舞いを一元化しやすい
 
 したがって、過剰なDomain Modelや、手続き型に寄りすぎるTransaction Scriptではなく、Active Recordを採用する。
 
@@ -204,7 +204,9 @@ Active Record
 
 # 9. Repository設計
 
-## TaskRepository
+**実装上の位置づけ**: 本機能はActive Record採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はEntity相当のstructと同一packageに置くStore(例: `〇〇Store`)として直接実装する(規約: アーキテクチャ規約.md「4. 設計パターンごとの構造適用方針」)。
+
+## TaskStore
 
 - 管理対象: Task
 - 責務:
@@ -223,7 +225,7 @@ Active Record
   - 状態遷移の判断
 - 判断根拠: 永続化と検索に特化させ、業務ロジックを持たせないため
 
-## TaskUnitLinkRepository
+## TaskUnitLinkStore
 
 - 管理対象: TaskUnitLink
 - 責務:
@@ -236,16 +238,16 @@ Active Record
   - 追加・削除の可否判定
 - 判断根拠: 関連関係の同期処理を担当させるため
 
-## GoalRepository
+## GoalStore
 
 - 管理対象: Goal
 - 責務:
   - 指定のgoal_idが現在の生徒に属するか確認する
 - 保持しない責務:
   - タスクの作成可否判断そのもの
-- 判断根拠: 目標の存在確認はユースケースに必要だが、タスクドメインの中心ではないため
+- 判断根拠: 目標の存在確認はHandlerの処理に必要だが、タスクドメインの中心ではないため
 
-## UnitRepository
+## UnitStore
 
 - 管理対象: Unit
 - 責務:
@@ -259,50 +261,52 @@ Active Record
 
 # 10. UseCase設計
 
-## ListTasksUseCase
+**実装上の位置づけ**: 本機能はActive Record採用のため、UseCase層(struct)を設けない。以下はHandlerが行う業務操作の設計意図であり、実装時はHandlerがStoreを直接呼び出す処理として実装する。
+
+## ListTasks(Handler処理)
 
 - 目的: 生徒のタスク一覧を取得する
 - 入力: current user, status, page
 - 出力: タスク一覧とページ情報
 - トランザクション範囲: 読み取りのみ、トランザクションは不要
-- 呼び出すRepository:
-  - TaskRepository
+- 呼び出すStore:
+  - TaskStore
 - 判断根拠: 一覧取得は単純な読み取り処理であり、業務ルールが少ないため
 
-## ShowTaskUseCase
+## ShowTask(Handler処理)
 
 - 目的: 指定タスクの詳細を取得する
 - 入力: current user, task id
 - 出力: タスク詳細情報
 - トランザクション範囲: 読み取りのみ
-- 呼び出すRepository:
-  - TaskRepository
-  - TaskUnitLinkRepository
+- 呼び出すStore:
+  - TaskStore
+  - TaskUnitLinkStore
 - 判断根拠: 関連単元情報も含めて取得するため
 
-## CreateTaskUseCase
+## CreateTask(Handler処理)
 
 - 目的: 新しいタスクを作成する
 - 入力: current user, task creation request
 - 出力: 作成結果
 - トランザクション範囲: Task作成とTaskUnitLink同期を1トランザクションで扱う
-- 呼び出すRepository:
-  - GoalRepository
-  - UnitRepository
-  - TaskRepository
-  - TaskUnitLinkRepository
+- 呼び出すStore:
+  - GoalStore
+  - UnitStore
+  - TaskStore
+  - TaskUnitLinkStore
 - 判断根拠: 作成時にはタスク本体と関連単元の整合性を同時に保証する必要があるため
 
-## UpdateTaskUseCase
+## UpdateTask(Handler処理)
 
 - 目的: 既存タスクを更新する
 - 入力: current user, task id, update request
 - 出力: 更新結果
 - トランザクション範囲: Task更新とTaskUnitLink同期を1トランザクションで扱う
-- 呼び出すRepository:
-  - TaskRepository
-  - TaskUnitLinkRepository
-  - UnitRepository
+- 呼び出すStore:
+  - TaskStore
+  - TaskUnitLinkStore
+  - UnitStore
 - 判断根拠: 単元紐付けの差分反映と、削除禁止ルールの判定を一貫して行うため
 
 ---
@@ -311,17 +315,17 @@ Active Record
 
 ## Transaction開始位置
 
-- UseCaseの開始時にトランザクションを開始する
+- Handlerの処理単位に対応するStoreメソッド内でトランザクションを開始する
 
 ## Transaction終了位置
 
-- CreateTaskUseCase / UpdateTaskUseCase では、Taskと関連単元の同期が完了した時点でコミットする
-- ListTasksUseCase / ShowTaskUseCase ではトランザクションを使用しない
+- CreateTask / UpdateTaskの処理では、Taskと関連単元の同期が完了した時点でコミットする
+- ListTasks / ShowTaskの処理ではトランザクションを使用しない
 
 ## 理由
 
 - 1つの業務操作に対して、タスクと関連単元の整合性を保つため
-- UseCase単位で処理の境界を明確にし、テスト・保守のしやすさを確保するため
+- Handlerの処理単位で境界を明確にし、テスト・保守のしやすさを確保するため
 
 ---
 
@@ -362,12 +366,12 @@ Active Record
 ## UseCase
 
 - current userのスコープに基づいて、自分のタスクのみ取得・更新できるようにする
-- 取得対象のタスクが自分のものかどうかをユースケース側で判断する
+- 取得対象のタスクが自分のものかどうかをHandler/Store側で判断する
 
 ## Domain
 
 - Taskや関連情報に対して、所有者外のアクセスが行われないようにする
-- ただし、認可の本体はUseCase・Middleware側に寄せ、Domainは業務上の所有権ルールを補助的に扱う
+- ただし、認可の本体はHandler・Middleware側に寄せ、Domainは業務上の所有権ルールを補助的に扱う
 
 ## 判断理由
 
@@ -493,8 +497,8 @@ Active Record
 |---|---|---|
 | Controller | Handler | HTTP入力の受け取りとレスポンス整形に限定する |
 | Form Object | Request DTO + Validation | 入力検証をPresentation層で分離する |
-| Service | UseCase | 業務処理の起点として扱う |
-| Model | Entity + Repository + Active Record-like behavior | 業務ルールはEntity、永続化と関連付けはRepository/モデル責務として整理する |
+| Service | Handler + Store | 業務処理を担当（Active Record採用のためusecase層は設けない） |
+| Model | struct + Store（同一package） | 業務ルールはstructのメソッド、永続化と関連付けはStoreの責務として整理する |
 | Serializer | Presenter / Response DTO | 画面に返すレスポンス整形を分離する |
 | Form Concern | Domain Service / Validation Policy | ルールに応じて業務ポリシーとして扱う |
 
@@ -525,10 +529,10 @@ Active Record
 |---|---|---|
 | 設計パターン | Active Record | CRUD中心の業務であり、永続化・関連付けの責務を集約しやすいため |
 | Aggregate | Task単位 | タスクと関連単元の整合性を担保する単位として十分 |
-| Transaction境界 | UseCase単位 | 1業務処理と整合性保証の単位として自然 |
+| Transaction境界 | Handlerの処理単位（Storeメソッド内） | 1業務処理と整合性保証の単位として自然 |
 | Domain Event | 未採用 | 現時点で他処理への通知要件がない |
 | Value Object | 一部採用 | 状態・期限・優先度のルールを明示したいため |
-| Authorization | UseCase + Middleware | 認証と業務権限を分離して管理しやすい |
+| Authorization | Handler/Store + Middleware | 認証と業務権限を分離して管理しやすい |
 
 ---
 

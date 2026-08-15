@@ -136,6 +136,18 @@ Domain Modelを採用する場合は、
 
 ---
 
+# 設計パターンと実装構造の対応
+
+採用する設計パターンによって、実装レイヤーの構造（`規約/アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」）が以下のように変わります。本文書の「9. Repository設計」「10. UseCase設計」「11. Transaction設計」「13. Authorization設計」「19. Railsとの責務対応」を記載する際は、この対応を踏まえてください。
+
+- **Transaction Script採用時**: usecase層・Repository Interfaceを設けません。「UseCase」は`application/`直下の関数として、「Repository」は`infrastructure/`直下のデータアクセス関数として実装されます
+- **Active Record採用時**: usecase層・Repository Interfaceを設けません。「UseCase」はHandlerがStoreを直接呼び出す処理として、「Repository」はEntity相当のstructと同一packageに置くStoreとして実装されます
+- **Domain Model / Event Sourcing採用時**: UseCase struct・Repository Interfaceによる依存性逆転を、記載どおりのフルレイヤー構成で実装します
+
+「9. Repository設計」「10. UseCase設計」は、採用パターンに関わらず業務上必要な責務・操作の単位（何のためのデータアクセスか、何を行う業務操作か）を整理するセクションです。ここで整理した内容が、実際にどのGoの構造（interface/struct/関数）として実装されるかは、採用パターンに応じて③Go実装仕様書で決まります。Transaction Script/Active Record採用時にこれらのセクションを記載する場合は、冒頭で「本機能は〇〇採用のため、UseCase層／Repository Interfaceは設けない」旨を明記した上で、業務操作・データアクセスの整理を続けてください。
+
+---
+
 # 出力ファイル
 
 〇〇機能_Go移行・設計仕様書.md
