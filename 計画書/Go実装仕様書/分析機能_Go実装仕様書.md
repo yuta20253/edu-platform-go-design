@@ -24,7 +24,7 @@ Active Record・Domain Model・Event Sourcingは、②「4. 設計パターン �
 
 本書は、②で確定した設計（Bounded Context・設計パターン・Aggregate・Value Object・Domain Service・Repository・UseCase・Transaction境界・Validation方針・Authorization方針・Error設計・Domain Event・API互換方針・DB方針・テスト戦略）を変更せず、Goでの具体的なコード構成（package構成・型定義・関数シグネチャ・クエリ内容）に落とし込むことを目的とする。
 
-規約`アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」の「Transaction Script」節に従い、`{context}/application`・`infrastructure`・`presentation`の構造を適用し、domain層・usecase層（struct）・Repository Interfaceは設けない。
+規約`アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」の「Transaction Script」節に従い、`{context}/application`・`infrastructure`・`presentation`の構造を適用し、domain層・usecase層（struct）・Repository Interfaceは設けない。
 
 ①Rails実装詳細は本タスクでは提供されていないため、①の実装コードそのものを根拠とする記載は行わない（①未提供のため参照不可）。②に明記された「Rails現行仕様の要約」の範囲でのみ言及する。
 
@@ -45,7 +45,7 @@ Transaction Script
 
 ## 作成するディレクトリ一覧
 
-規約「4. 設計パターンごとの構造適用方針」の「Transaction Script」構造に従う。domain層・usecase層（struct）・Repository Interfaceは作成しない。
+規約「3. 設計パターンごとの構造適用方針」の「Transaction Script」構造に従う。domain層・usecase層（struct）・Repository Interfaceは作成しない。
 
 ```
 internal/analytics/
@@ -90,7 +90,7 @@ internal/analytics/presentation/routes.go
 
 # 3. Domain層設計
 
-対象外（Transaction Script採用のため、Domain層（`domain/`ディレクトリ）を設けない。規約「4. 設計パターンごとの構造適用方針」の「Transaction Script」節に従う）。
+対象外（Transaction Script採用のため、Domain層（`domain/`ディレクトリ）を設けない。規約「3. 設計パターンごとの構造適用方針」の「Transaction Script」節に従う）。
 
 ただし②「7. Value Object設計」「8. Domain Service」は、Transaction Script採用を前提としつつも`AnalyticsType`・`CompletionRate`・`UnderstandingScore`・`RankCalculationService`という4つの概念を明示的な設計判断として採用しており、本書はこの判断を変更しない。各概念の実装位置は以下のとおりとし、具体的な型定義・メソッド一覧は「4. Application層設計」に記載する。
 
@@ -102,7 +102,7 @@ internal/analytics/presentation/routes.go
 |`CompletionRate`|`application/completion_rate.go`|タスク完了率の集計結果に対する型付け・範囲検証であり、UseCase（Transaction Script関数）の出力値の意味付けにあたるため、application層に置く（配置場所自体は②に明記がなく推測）|
 |`UnderstandingScore`|`application/understanding_score.go`|同上（理解度スコアの集計結果に対する型付け・範囲検証）|
 
-`AnalyticsType`・`CompletionRate`・`UnderstandingScore`はいずれも、規約「4. 設計パターンごとの構造適用方針」の「Transaction Script」節が定める「Value Object等の型は作らず、関数内のガード節で行う」という原則から見ると例外的な位置づけになる。②が明示的にこれらをValue Objectとして採用と判断根拠を記載しているため（②「7. Value Object設計」）、本書ではこの判断を維持しつつ、構造としては最小限（コンストラクタ関数＋型を持つだけの単純な型）に留め、domain層やInterfaceによる抽象化は追加しない。
+`AnalyticsType`・`CompletionRate`・`UnderstandingScore`はいずれも、規約「3. 設計パターンごとの構造適用方針」の「Transaction Script」節が定める「Value Object等の型は作らず、関数内のガード節で行う」という原則から見ると例外的な位置づけになる。②が明示的にこれらをValue Objectとして採用と判断根拠を記載しているため（②「7. Value Object設計」）、本書ではこの判断を維持しつつ、構造としては最小限（コンストラクタ関数＋型を持つだけの単純な型）に留め、domain層やInterfaceによる抽象化は追加しない。
 
 ## Domain Service（実装位置の整理）
 
@@ -126,7 +126,7 @@ internal/analytics/presentation/routes.go
 
 # 4. Application層設計
 
-**実装上の位置づけ**: 本機能はTransaction Script採用のため、UseCase層（struct）を設けない。1つの業務操作を1つの関数として`application/`直下に置く（規約「4. 設計パターンごとの構造適用方針」）。
+**実装上の位置づけ**: 本機能はTransaction Script採用のため、UseCase層（struct）を設けない。1つの業務操作を1つの関数として`application/`直下に置く（規約「3. 設計パターンごとの構造適用方針」）。
 
 ## DTO（Query）
 
@@ -474,7 +474,7 @@ infrastructure層で発生したエラーは`fmt.Errorf`でラップしてapplic
 
 # 13. テストケース設計
 
-②「18. テスト戦略」を、規約「4. 設計パターンごとの構造適用方針」および出力フォーマットのTransaction Script区分（「Domain Test」「Repository Test」は対象外、「UseCase Test」→「Application関数 Test」）に従って読み替える。
+②「18. テスト戦略」を、規約「3. 設計パターンごとの構造適用方針」および出力フォーマットのTransaction Script区分（「Domain Test」「Repository Test」は対象外、「UseCase Test」→「Application関数 Test」）に従って読み替える。
 
 ## Domain Test
 

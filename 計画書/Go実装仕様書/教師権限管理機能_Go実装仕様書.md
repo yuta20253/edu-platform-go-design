@@ -26,7 +26,7 @@ Transaction Script・Active Record・Event Sourcingは、②「4. 設計パタ�
 
 の3エンドポイントの実装に必要な、Domain層（Entity・Value Object・Repository Interface・Domain Service・Domain Error）、Application層（UseCase・DTO）、Infrastructure層（Repository実装）、Presentation層（Handler・Request/Response・Routing）の実装単位を規定する。①Rails実装（Controller・Form・Query・Serializerの実装詳細）は本書作成時点で未提供のため参照不可であり、該当箇所は②の記載のみを根拠とする。
 
-規約`アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」の「Domain Model」節に従い、`{context}/domain`・`application`・`infrastructure`・`presentation`のフルレイヤー構成を適用する。
+規約`アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」の「Domain Model」節に従い、`{context}/domain`・`application`・`infrastructure`・`presentation`のフルレイヤー構成を適用する。
 
 ---
 

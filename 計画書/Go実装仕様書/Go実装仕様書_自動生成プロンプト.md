@@ -29,7 +29,7 @@ Goでどのように実装するかを具体化し、
 - `規約/`ディレクトリ配下の規約ドキュメント（アーキテクチャ規約.md・コーディング規約.md・Gorm規約.md）を厳守する。実装仕様の記載内容がこれらの規約と矛盾してはならず、規約に定めのない事項について独自のルールを新設しない
 - 完全に動作するアプリケーションコード（関数本体のロジック）は書かない
 - package構成・struct定義・interfaceのメソッドシグネチャ・method一覧・クエリ内容など、実装者が迷わず着手できる粒度の設計情報を記載する
-- **②が採用した設計パターンに応じて、実装構造そのものを変える。** Domain Modelと同じフルレイヤー構成（domain/application/infrastructure/presentationのフルセット）を、Transaction ScriptやActive Recordを採用した機能にまで一律で適用しない。パターンごとの構造は`規約/アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」に従う
+- **②が採用した設計パターンに応じて、実装構造そのものを変える。** Domain Modelと同じフルレイヤー構成（domain/application/infrastructure/presentationのフルセット）を、Transaction ScriptやActive Recordを採用した機能にまで一律で適用しない。パターンごとの構造は`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」に従う
 
 ---
 
@@ -70,7 +70,7 @@ Goでどのように実装するかを具体化し、
 - GORM
 - MySQL
 
-ディレクトリ構成は、②が採用した設計パターンによって異なります。詳細は`規約/アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」を参照してください。以下に各パターンの構造を示します。
+ディレクトリ構成は、②が採用した設計パターンによって異なります。詳細は`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」を参照してください。以下に各パターンの構造を示します。
 
 ## Domain Model / Event Sourcing採用時
 
@@ -211,7 +211,7 @@ internal/dashboard/presentation/handler/dashboard_handler.go
 
 本節はDomain Model / Event Sourcing採用時に適用します。
 
-- **Transaction Script採用時**: 本節は「対象外（Transaction Script採用のため、Domain層を設けない）」と記載し、代わりに「4. Application層設計」で関数の入出力・処理ステップを記載してください
+- **Transaction Script採用時**: 本節は「対象外（Transaction Script採用のため、Domain層を設けない）」と記載し、代わりに「6. Application層設計」で関数の入出力・処理ステップを記載してください
 - **Active Record採用時**: 「Entity」の代わりに「Model（Entity相当）」として、struct定義・フィールド・Validate()等の検証メソッドを記載してください。「Value Object」「Repository Interface」「Domain Service」は原則「対象外」とし、検証ルールはModelのメソッドとして記載してください。「Domain Error」は「struct/Storeが返すエラー」として記載してください
 
 ## Entity
@@ -264,12 +264,26 @@ Repositoryごとに以下を記載してください。
 
 ---
 
-# 4. Application層設計
+# 4. クラス図
+
+「3. Domain層設計」で記載したEntity・Value Object・Repository Interface・Domain Serviceの関係を、Mermaidのクラス図（`classDiagram`）でGoのstruct/interfaceレベルの粒度で可視化してください。コードブロックの言語指定は`mermaid`としてください。②のクラス図（②文書に記載がある場合）より具体的に、実際に定義するstruct名・フィールド・メソッドシグネチャを反映してください。
+
+Active Record採用時はModel（Entity相当のstruct）とStoreの関係を、Transaction Script採用時は主要なstruct（あれば）と関数群の呼び出し関係を示してください。単純すぎて図示する意味がない場合は省略し、理由を記載してください。
+
+---
+
+# 5. 状態遷移図
+
+②の状態遷移図（記載がある場合）をもとに、実際のstructのフィールド値（例: `TaskStatus`という独自型の各定数）を用いてMermaidの状態遷移図（`stateDiagram-v2`）を記載してください。コードブロックの言語指定は`mermaid`としてください。状態を持たない機能では省略し、理由を記載してください。
+
+---
+
+# 6. Application層設計
 
 本節の「UseCase」は、②が採用した設計パターンに応じて以下のように読み替えてください。
 
 - **Domain Model / Event Sourcing採用時**: 以下の記載どおり、UseCase struct + Repository Interfaceとして記載する
-- **Active Record採用時**: usecase層を設けないため、「UseCase」の代わりに「Handlerが直接呼び出すStoreのメソッド」として、Handler側の処理ステップの中で記載する（本節では「対象外（Active Record採用のため、usecase層を設けない）」と明記し、「6. Presentation層設計」のHandler処理順序に統合して記載する）
+- **Active Record採用時**: usecase層を設けないため、「UseCase」の代わりに「Handlerが直接呼び出すStoreのメソッド」として、Handler側の処理ステップの中で記載する（本節では「対象外（Active Record採用のため、usecase層を設けない）」と明記し、「9. Presentation層設計」のHandler処理順序に統合して記載する）
 - **Transaction Script採用時**: 「UseCase」の代わりに、`application/`直下に置く関数として記載する（struct化しない）。関数ごとに以下と同等の項目（関数名・引数・戻り値・処理ステップ・呼び出すinfrastructure関数）を記載する
 
 ## DTO（Command / Query）
@@ -293,7 +307,19 @@ UseCaseごとに以下を記載してください。
 
 ---
 
-# 5. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
+
+## シーケンス図
+
+主要なUseCase（Active Record採用時はHandler処理、Transaction Script採用時は関数）について、Handler → UseCase/Store/関数 → Repository/Storeという実際の呼び出し関係をMermaidのシーケンス図（`sequenceDiagram`）で記載してください。コードブロックの言語指定は`mermaid`としてください。②のシーケンス図（記載がある場合）より、実際に定義するstruct/関数名を用いて具体化してください。
+
+## 処理フロー図
+
+分岐の多い処理（複数の検証・条件判定を経るUseCase等）について、Mermaidのフローチャート（`flowchart TD`）で処理の分岐を記載してください。コードブロックの言語指定は`mermaid`としてください。単純なCRUDで分岐がほとんどない場合は省略し、理由を記載してください。
+
+---
+
+# 8. Infrastructure層設計
 
 ## Repository実装（Domain Model / Event Sourcing採用時）
 
@@ -331,7 +357,7 @@ Mail・Cache・Queue等が②で必要とされている場合、以下を記載
 
 ---
 
-# 6. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
@@ -354,9 +380,9 @@ Handlerごとに以下を記載してください。
 
 ---
 
-# 7. API仕様
+# 10. API仕様
 
-②のAPI互換方針をもとに、実装対象のEndpointを一覧化してください。
+②のAPI仕様（②文書「19. API仕様」）をもとに、実装対象のEndpointを一覧化してください。
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
@@ -368,7 +394,7 @@ Handlerごとに以下を記載してください。
 
 ---
 
-# 8. Transaction実装方針
+# 11. Transaction実装方針
 
 ②で定義したTransaction境界を、具体的にどのレイヤー・どのコードで開始／終了するか記載してください。
 
@@ -380,13 +406,16 @@ Handlerごとに以下を記載してください。
 
 ---
 
-# 9. Validation実装方針
+# 12. Validation実装方針
 
-②のValidation設計を実装レベルに落とし込んでください。
+②のValidation設計（②文書「15. Validation設計」の「バリデーション仕様」表）を実装レベルに落とし込んでください。
 
 ## Presentation
 
 - Request DTOでのチェック内容（型・必須・フォーマット）
+
+|フィールド|struct名|バリデーションタグ|エラーメッセージ|
+|-|-|-|-|
 
 ## 業務ルール検証
 
@@ -396,7 +425,7 @@ Handlerごとに以下を記載してください。
 
 ---
 
-# 10. Authorization実装方針
+# 13. Authorization実装方針
 
 ②のAuthorization設計を実装レベルに落とし込んでください。
 
@@ -410,24 +439,24 @@ Handlerごとに以下を記載してください。
 
 ---
 
-# 11. Error実装方針
+# 14. Error実装方針
 
-②のError設計を実装レベルに落とし込んでください。
+②のError設計（②文書「17. Error設計」の「エラー仕様」表）を実装レベルに落とし込んでください。
 
 記載内容:
 
-- Domain Error → Application Errorへの変換方針
+- Domain Error → Application Errorへの変換方針（アーキテクチャ規約「12. Error変換パターン（AppError）」に従う）
 - Application Error → HTTPレスポンスへの変換方針（Status Code対応表）
 - Infrastructure Errorのハンドリング方針
 
-|Error種別|発生層|HTTP Status|
-|-|-|-|
+|業務シナリオ|Error変数名／型|発生層|HTTP Status|
+|-|-|-|-|
 
 ---
 
-# 12. GORM / DBクエリ設計
+# 15. GORM / DBクエリ設計
 
-②のDB方針（既存Schema利用／変更有無）をもとに、実装で必要なクエリ・モデル定義方針を整理してください。
+②のDB操作仕様（②文書「21. DB操作仕様」）をもとに、実装で必要なクエリ・モデル定義方針を整理してください。
 
 記載内容:
 
@@ -435,11 +464,14 @@ Handlerごとに以下を記載してください。
 - 主要クエリの条件・ソート・ページネーション方針
 - 既存Schemaに対する変更が②で提案されている場合、その反映方針
 
+|Repository/Store|メソッド|対象テーブル|条件|結合|
+|-|-|-|-|-|
+
 SQL文そのものは記載しないでください。
 
 ---
 
-# 13. テストケース設計
+# 16. テストケース設計
 
 ②のテスト戦略を、具体的なテストケース単位に落とし込んでください。テスト区分の名称は、②が採用した設計パターンに応じて読み替えてください。
 
@@ -469,7 +501,7 @@ SQL文そのものは記載しないでください。
 
 ---
 
-# 14. ②からの補足事項
+# 17. ②からの補足事項
 
 ②に明記がなく、実装のために追加で判断した内容があれば記載してください。
 

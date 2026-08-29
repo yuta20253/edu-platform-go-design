@@ -37,7 +37,7 @@ Active Record・Domain Model・Event Sourcingは、更新責務がない／状�
 
 - Transaction Script（②「4. 設計パターン」）
 
-規約「4. 設計パターンごとの構造適用方針」の Transaction Script構造（domain層・usecase層・Repository Interfaceを設けない）を適用する。
+規約「3. 設計パターンごとの構造適用方針」の Transaction Script構造（domain層・usecase層・Repository Interfaceを設けない）を適用する。
 
 ## ディレクトリ一覧
 
@@ -193,7 +193,7 @@ internal/student_directory/presentation/routes.go
 ## Handler
 
 - struct名: `StudentHandler`
-- 対応する呼び出し先: `application`パッケージの`ListStudents`関数・`ShowStudent`関数（Transaction Script採用のためusecase層を経由しない。規約「4. 設計パターンごとの構造適用方針」の「Handlerは`application/`の関数を直接呼び出す」に従う）
+- 対応する呼び出し先: `application`パッケージの`ListStudents`関数・`ShowStudent`関数（Transaction Script採用のためusecase層を経由しない。規約「3. 設計パターンごとの構造適用方針」の「Handlerは`application/`の関数を直接呼び出す」に従う）
 - 依存: なし（`application`パッケージの関数を直接呼び出すため、DIするRepository・Store等を持たない）
 - メソッド一覧:
 
@@ -217,7 +217,7 @@ internal/student_directory/presentation/routes.go
 
 ## Request / Response DTO
 
-**②からの補足**: 規約「4. 設計パターンごとの構造適用方針」のTransaction Script構造には`request/`ディレクトリが定義されていない。本書では正式なDTO packageを設けず、Handler内でクエリ・パスパラメータを直接バインドする方針とする（推測、実装判断）。
+**②からの補足**: 規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造には`request/`ディレクトリが定義されていない。本書では正式なDTO packageを設けず、Handler内でクエリ・パスパラメータを直接バインドする方針とする（推測、実装判断）。
 
 - `page`（クエリパラメータ）: `int`。バインド方式・必須有無は14章参照
 - `id`（パスパラメータ）: `uint`。整数への変換が必要（②12章「必須チェック: 詳細取得時のid（route由来）を検証する」）
@@ -435,7 +435,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 | No. | 判断した内容 | 判断理由 | 推測かどうか |
 |-|-|-|-|
 | 1 | `internal/`配下のディレクトリ名を`internal/student_directory`とした | ②のContext名`student-directory`とディレクトリ名の対応関係が②に明記がないため、規約「9. 命名規約」の変換ルールに基づき判断した | 推測 |
-| 2 | ②7章のGradeScope（Value Object）を独立した型として実装せず、application関数内の引数・ローカル変数として表現することとした | 規約「4. 設計パターンごとの構造適用方針」のTransaction Script構造では、Value Object等の型を作らず関数内のガード節で検証を行う方針が定められているため。②の設計判断（絞り込み条件という概念）自体は変更していない | 実装構造上の判断（規約に基づく） |
+| 2 | ②7章のGradeScope（Value Object）を独立した型として実装せず、application関数内の引数・ローカル変数として表現することとした | 規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造では、Value Object等の型を作らず関数内のガード節で検証を行う方針が定められているため。②の設計判断（絞り込み条件という概念）自体は変更していない | 実装構造上の判断（規約に基づく） |
 | 3 | current teacher情報を表す`RequestingTeacher`の具体的なフィールド構成（`TeacherID`・`HighSchoolID`・`HasGradeAuthority`・`AuthorizedGradeID`） | ②13章の記述から導出したが、具体的な型・フィールド名の明記は②にない | 推測 |
 | 4 | `page`パラメータが不正な形式の場合の挙動（400を返す、またはデフォルト値を適用する等） | ②12章では「型チェック」を行うことのみ記載され、具体的な失敗時挙動の記載がない | 推測 |
 | 5 | `id`パラメータが不正な形式の場合、400として扱う方針 | ②12章では「必須チェック」を行うことのみ記載され、具体的な失敗時挙動の記載がない | 推測 |
@@ -444,4 +444,4 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 | 8 | DB接続障害等のInfrastructure Errorを500として扱う方針 | ②にInfrastructure Errorに対応するHTTP Statusの記載がなく、一般的なエラーハンドリング方針として補った | 推測 |
 | 9 | 生徒詳細レスポンス（`StudentDetailResponse`）の関連情報フィールドの具体的な内容を確定していない | ②16章は「生徒の基本情報と関連情報を維持する」とのみ記載し、具体的なフィールドはRails実装（①）に依存する。①は本書作成時点で未提供のため参照不可 | ①未提供のため参照不可（推測ではなく未確定として明記） |
 | 10 | 生徒データ（`users`テーブル）に対応するGORMモデルを本Contextが独自定義するか、User Context側の既存定義を参照するかを確定していない | 規約「5. Bounded Context構成」により、User Context自体の②文書がまだ存在しないため、参照方法を本書時点で確定できない | 推測 |
-| 11 | Request DTOを正式なpackageとして持たず、Handler内でクエリ・パスパラメータを直接バインドする方針とした | 規約「4. 設計パターンごとの構造適用方針」のTransaction Script構造には`request/`ディレクトリが定義されていないため | 実装構造上の判断（規約に基づく） |
+| 11 | Request DTOを正式なpackageとして持たず、Handler内でクエリ・パスパラメータを直接バインドする方針とした | 規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造には`request/`ディレクトリが定義されていないため | 実装構造上の判断（規約に基づく） |

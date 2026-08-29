@@ -19,7 +19,7 @@
 
 Transaction Scriptは権限・担当学年同期ロジックがUseCaseに偏り再利用性が下がることを理由に、Domain Modelは複雑な状態遷移が存在しないことを理由に、Event Sourcingは非同期通知・監査要件が現行仕様に明記されていないことを理由に、②でいずれも不採用と判断されている。本書はこれらの判断を変更しない。
 
-本書は、`規約/アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」の **Active Record** 節の構造（Entity相当のstruct定義＋Store、usecase層なし、Repository Interfaceの分離なし）に従って実装レベルへ落とし込む。
+本書は、`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」の **Active Record** 節の構造（Entity相当のstruct定義＋Store、usecase層なし、Repository Interfaceの分離なし）に従って実装レベルへ落とし込む。
 
 ## 本書が対象とする実装範囲
 
@@ -46,7 +46,7 @@ Transaction Scriptは権限・担当学年同期ロジックがUseCaseに偏り�
 
 ## 採用パターンに対応する構造
 
-`規約/アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」Active Record節に従い、domain/infrastructureのレイヤー分離およびusecase層を設けない。Entity相当のstructと永続化操作（Store）を同一package（`internal/teacher_management`）に置く。
+`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節に従い、domain/infrastructureのレイヤー分離およびusecase層を設けない。Entity相当のstructと永続化操作（Store）を同一package（`internal/teacher_management`）に置く。
 
 ## 作成するディレクトリ一覧
 
@@ -628,7 +628,7 @@ SQL文そのものは本書に記載しない。
 |-|-|-|
 |Bounded Context `teacher-management` の内部ディレクトリ名を`internal/teacher_management`とした|②はContext名（teacher-management）のみを記載し、内部ディレクトリ名を明記していない。`規約/アーキテクチャ規約.md`「9. 命名規約」の「Context名とディレクトリ名が一致しない場合は②文書内で対応関係を明記する」に該当する明記がないため、既存の他機能（student-directory→internal/student_directory）の対応方針にならい、Context名のハイフンをアンダースコアに置き換えたディレクトリ名を採用した|推測（既存の他②③文書での対応付けからの類推であり、②文書内に明示的な対応付けの記載はない）|
 |②「9. Repository設計」HighSchoolStore・GradeStoreをteacher-management内で実装せず、teacher_management package側に参照用interface（`HighSchoolExistenceChecker`／`GradeReferenceChecker`）を定義し、実装はHighSchool Context・Grade Context側に委ねる構成とした|②「9. Repository設計」はHighSchoolStore・GradeStoreをteacher-managementの節内で記載しているが、`規約/アーキテクチャ規約.md`「6. Context間連携ルール」により他Contextの内部実装に直接依存できないため、コーディング規約「5. インターフェース」（利用側での定義）に従って整理した。②の「責務」「保持しない責務」の記載内容自体は変更していない|補足（規約の適用による構造上の具体化であり、推測ではなく規約遵守のための判断）|
-|②「8. Domain Service」TeacherGradeAssignmentPolicyを、独立したstruct/interfaceではなく`internal/teacher_management`パッケージ内のpackageレベル関数`ValidateGradeAssignment`として実装した|`規約/アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
+|②「8. Domain Service」TeacherGradeAssignmentPolicyを、独立したstruct/interfaceではなく`internal/teacher_management`パッケージ内のpackageレベル関数`ValidateGradeAssignment`として実装した|`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
 |②「7. Value Object設計」TeacherPermission・GradeAssignmentSetを、独立層としてではなくstruct・メソッドとして`internal/teacher_management`パッケージ内に実装した|同上、規約4章Active Record節により、Value Objectは原則「対象外」とされているため|補足（規約適用）|
 |`Teacher`のGORMテーブル名を`users`として`TableName()`で明示的に上書きする必要がある点、および`TeacherGradeAssignment`のGORMテーブル名を`teacher_grades`として同様に上書きする必要がある点|②「17. DB設計方針」はテーブル名`users`・`teacher_grades`を利用する旨のみ記載しており、Go構造体名のデフォルト複数形との不一致には触れていない。Gorm規約「テーブル名」に基づき③側で明示した|補足（Gorm規約の適用によりテーブル不一致を検出したもの）|
 |`Teacher`structが`users`テーブルの一部カラム（教員管理に必要な最小限のフィールド）のみを保持し、パスワードハッシュ・ロール等他Contextが管理すると想定されるカラムを含めていない点|②はUserテーブルの全カラム構成を記載しておらず、①も未提供のため、`users`テーブルの完全な定義を参照できない。教員管理の業務範囲（②「6. Entity設計」Teacher）に必要な範囲のみをフィールド化した|推測（実装着手前に`users`テーブルの完全なカラム定義・NOT NULL制約等の確認が必要）|

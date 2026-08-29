@@ -38,7 +38,7 @@
 
 Transaction Script
 
-アーキテクチャ規約「4. 設計パターンごとの構造適用方針」に従い、domain層・usecase層・Repository Interfaceは設けない。
+アーキテクチャ規約「3. 設計パターンごとの構造適用方針」に従い、domain層・usecase層・Repository Interfaceは設けない。
 
 ## 作成するディレクトリ一覧
 
@@ -69,7 +69,7 @@ internal/teacher_dashboard/presentation/routes.go
 
 # 3. Domain層設計
 
-対象外（Transaction Script採用のため、Domain層を設けない。アーキテクチャ規約「4. 設計パターンごとの構造適用方針」）。
+対象外（Transaction Script採用のため、Domain層を設けない。アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）。
 
 Entity・Repository Interface・Domain Service・Domain Event・Domain Errorのいずれも設けない。②で定義された内容の実装上の扱いは以下のとおり読み替える。
 
@@ -382,7 +382,7 @@ SQL文そのものはここでは記載しない。
 
 | 判断した内容 | 判断理由 | 推測かどうか |
 |-|-|-|
-| `GradeStudentCounts`をdomain層のValue Objectではなく、application層のDTO（struct）として実装する | ②はValue Objectとして設計しているが、Transaction Script採用時はアーキテクチャ規約「4. 設計パターンごとの構造適用方針」によりdomain層を設けないため、同等の構造をapplication層のDTOとして実装する必要がある | 推測ではない（規約の機械的な読み替え） |
+| `GradeStudentCounts`をdomain層のValue Objectではなく、application層のDTO（struct）として実装する | ②はValue Objectとして設計しているが、Transaction Script採用時はアーキテクチャ規約「3. 設計パターンごとの構造適用方針」によりdomain層を設けないため、同等の構造をapplication層のDTOとして実装する必要がある | 推測ではない（規約の機械的な読み替え） |
 | `application.ShowTeacherDashboard`、`infrastructure.CountStudentsByGrade`、`infrastructure.ListVisibleAnnouncementsForTeacher`という具体的な関数名・シグネチャ | ②「10. UseCase設計」「9. Repository設計」は業務操作の設計意図のみを記載しており、実装レベルの関数名・引数構成までは規定していない。アーキテクチャ規約「9. 命名規約」（Transaction Scriptの関数は「動詞+対象」）に基づき本書で命名した | 推測 |
 | 生徒数集計の参照先が、Student/School Context側のどの`internal/`配下Context（例: `school-directory`等）に実装されるか | ②「3. Bounded Context」は「Student/School Context」という抽象名のみを記載し、アーキテクチャ規約「5. Bounded Context構成」の一覧上のどのContextに対応するかは明記がない | 推測 |
 | お知らせ取得の呼び出し方式（同一プロセス内のGo関数呼び出しを前提とする） | ②「9. Repository設計」に「AnnouncementRepository（Announcement Contextの提供機能を利用）」とあるが、呼び出し方式（同一プロセス内関数呼び出しか、別プロセス経由か）は明記がない。モノリシックなGo実装を前提とし、同一プロセス内の関数呼び出しと仮定した | 推測 |

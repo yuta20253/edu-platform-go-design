@@ -36,7 +36,7 @@
 
 ## 作成するディレクトリ一覧
 
-アーキテクチャ規約「4. 設計パターンごとの構造適用方針」のActive Record構造に従う。domain/infrastructureのレイヤー分離・usecase層は設けない。
+アーキテクチャ規約「3. 設計パターンごとの構造適用方針」のActive Record構造に従う。domain/infrastructureのレイヤー分離・usecase層は設けない。
 
 ```
 internal/goal/
@@ -69,7 +69,7 @@ internal/goal/presentation/routes.go
 
 # 3. Domain層設計
 
-**実装上の位置づけ**: 本機能はActive Record採用のため、domain層・infrastructure層のレイヤー分離を行わない。以下は「Entity」の代わりに「Model（Entity相当）」として、`internal/goal`パッケージ直下のstructとして扱う（アーキテクチャ規約「4. 設計パターンごとの構造適用方針」Active Record節）。
+**実装上の位置づけ**: 本機能はActive Record採用のため、domain層・infrastructure層のレイヤー分離を行わない。以下は「Entity」の代わりに「Model（Entity相当）」として、`internal/goal`パッケージ直下のstructとして扱う（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Active Record節）。
 
 ## Model（Entity相当）
 
@@ -457,7 +457,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、Go
 
 # 13. テストケース設計
 
-②「18. テスト戦略」を、Active Record採用に合わせて読み替える（アーキテクチャ規約「4. 設計パターンごとの構造適用方針」の読み替えルールに従い、Domain Test→Model Test、UseCase Test→対象外、Repository Test→Store Test）。
+②「18. テスト戦略」を、Active Record採用に合わせて読み替える（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の読み替えルールに従い、Domain Test→Model Test、UseCase Test→対象外、Repository Test→Store Test）。
 
 ## Model Test
 

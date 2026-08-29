@@ -12,13 +12,13 @@
 
 ②4章にて **Domain Model** を採用している。理由は、正誤判定・回答履歴の更新・提出時の進捗状態決定が学習成果に直結する中核業務ルールであり、単なるCRUDではなく回答内容・正誤結果・履歴の整合性を一貫して扱う必要があるためである。Transaction Script（ルールが手続きに散在しやすい）・Active Record寄りの設計（判定ロジックがモデルに散りやすい）・Event Sourcing（イベント再構築の要件がない）はいずれも採用しないと②に明記されている。
 
-本書は②の採用パターン判断を変更しない。アーキテクチャ規約「4. 設計パターンごとの構造適用方針」の「Domain Model」節に従い、`domain/application/infrastructure/presentation` のフルレイヤー構成を適用する。
+本書は②の採用パターン判断を変更しない。アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の「Domain Model」節に従い、`domain/application/infrastructure/presentation` のフルレイヤー構成を適用する。
 
 ## 本書が対象とする実装範囲
 
 - Bounded Context: `question-answering`（②3章）
-- 対象UseCase: ListQuestionsUseCase / CreateAnswerUseCase / UpdateAnswerUseCase / ShowConfirmationUseCase / SubmitTaskUseCase（②10章）
-- 対象API: ②16章に記載の5エンドポイント
+- 対象UseCase: ListQuestionsUseCase / CreateAnswerUseCase / UpdateAnswerUseCase / ShowConfirmationUseCase / SubmitTaskUseCase（②12章）
+- 対象API: ②19章に記載の5エンドポイント
 - ①Rails実装（Controller/Service/Model等のコード詳細）は本タスクでは提供されていないため、「①未提供のため参照不可」として扱い、必要箇所ではその旨を明記する。
 
 ---
@@ -29,7 +29,7 @@
 
 - `question-answering`（②3章）
 
-Context名はkebab-caseだが、アーキテクチャ規約9章により `internal/` 配下は英単語1語または短いスネークケースとする。②には `internal/` 配下のディレクトリ名が明記されていないため、本書では `question_answering` をディレクトリ名として採用する（**②からの補足**。判断理由は14章参照）。
+Context名はkebab-caseだが、アーキテクチャ規約9章により `internal/` 配下は英単語1語または短いスネークケースとする。②には `internal/` 配下のディレクトリ名が明記されていないため、本書では `question_answering` をディレクトリ名として採用する（**②からの補足**。判断理由は17章参照）。
 
 ## ②で採用した設計パターン
 
@@ -37,7 +37,7 @@ Context名はkebab-caseだが、アーキテクチャ規約9章により `intern
 
 ## 採用パターンに対応する構造
 
-アーキテクチャ規約「2. ディレクトリ構成」「4. 設計パターンごとの構造適用方針」のDomain Model標準構成をそのまま適用する。
+アーキテクチャ規約「2. レイヤー責務と依存方向」「3. 設計パターンごとの構造適用方針」のDomain Model標準構成を適用する（具体的なディレクトリ構成は、①Rails現行仕様書の整理が完了していないため未定。アーキテクチャ規約「1. 全体方針」の注記を参照）。
 
 ## 作成するディレクトリ一覧
 
@@ -65,7 +65,7 @@ internal/question_answering/
     └── routes.go
 ```
 
-`domain/specification/` `domain/event/` `infrastructure/mail/` `infrastructure/cache/` `infrastructure/queue/` は本機能では **対象外**（②15章「Domain Eventは現時点で採用しない」、非同期通知・メール・キャッシュ・キューの要件が②に記載されていないため）。
+`domain/specification/` `domain/event/` `infrastructure/mail/` `infrastructure/cache/` `infrastructure/queue/` は本機能では **対象外**（②18章「Domain Eventは現時点で採用しない」、非同期通知・メール・キャッシュ・キューの要件が②に記載されていないため）。
 
 ## 作成するファイル一覧
 
@@ -120,7 +120,7 @@ internal/question_answering/presentation/response/submission_response.go
 internal/question_answering/presentation/routes.go
 ```
 
-Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go` の3ファイルに分割する構成は②に明記がないため、**②からの補足**として扱う（6章参照）。
+Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go` の3ファイルに分割する構成は②に明記がないため、**②からの補足**として扱う（9章参照）。
 
 ---
 
@@ -145,7 +145,7 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
   - `answeredAt AnsweredAt`: 解答時刻（Value Object）
   - `timeSpentSec int`: 解答所要時間（秒）
   - `explanationViewed bool`: 解説閲覧フラグ
-- 各フィールドの意味: ②12章Validation設計に列挙された `task_id / unit_id / question_id / question_choice_id / answer_text / time_spent_sec / explanation_viewed` を根拠に整理した（フィールド一覧自体は**②からの補足**。具体的な型・nil許容の有無は本書で判断した）
+- 各フィールドの意味: ②15章Validation設計に列挙された `task_id / unit_id / question_id / question_choice_id / answer_text / time_spent_sec / explanation_viewed` を根拠に整理した（フィールド一覧自体は**②からの補足**。具体的な型・nil許容の有無は本書で判断した）
 - 公開するmethod一覧:
   - `NewQuestionHistory(userID, taskID, unitID, questionID uint, choiceID *uint, answerText *string) (*QuestionHistory, error)`: 新規解答登録時のファクトリ。責務は初期状態（未判定）の履歴を生成すること
   - `ApplyResult(result AnswerResult) error`: 判定結果を反映する。責務は判定結果と回答内容の整合を保証すること（②6章AnswerResultの責務「回答内容との整合を管理する」に対応）
@@ -153,11 +153,11 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
   - `MarkExplanationViewed() error`: 解説閲覧フラグを立てる
   - `Status() AnswerStatus`: 現在の正誤状態を返す参照系メソッド
   - `UserID() uint` / `TaskID() uint` / `UnitID() uint` / `QuestionID() uint`: 所有権確認等に用いる参照系メソッド
-- 不変条件（コンストラクタで保証する内容）: `questionChoiceID` と `answerText` は少なくとも一方が設定されていること（②12章「回答が対象問題の選択肢であること」の整合性チェックに対応する入力レベルの不変条件。①未提供のため、選択式・テキスト解答の排他関係の詳細は推測）
+- 不変条件（コンストラクタで保証する内容）: `questionChoiceID` と `answerText` は少なくとも一方が設定されていること（②15章「回答が対象問題の選択肢であること」の整合性チェックに対応する入力レベルの不変条件。①未提供のため、選択式・テキスト解答の排他関係の詳細は推測）
 
 ### AnswerResult（Aggregate内Entity）
 
-②6章では正誤判定の結果を表すEntityとされ、②7章ではAnswerStatusを正誤を表すValue Objectとしている。両者は矛盾しないよう、AnswerResultをAnswerStatusを内包するEntityとして整理する（**②からの補足**。判断理由は14章参照）。
+②6章では正誤判定の結果を表すEntityとされ、②7章ではAnswerStatusを正誤を表すValue Objectとしている。両者は矛盾しないよう、AnswerResultをAnswerStatusを内包するEntityとして整理する（**②からの補足**。判断理由は17章参照）。
 
 - struct名: `AnswerResult`
 - 保持するフィールド:
@@ -173,10 +173,10 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
 
 ### Question / QuestionChoice / Task の扱い
 
-②6章ではTaskを「提出時の状態更新対象として参照される」Entityとして挙げている。ただし、②3章「他Contextとの依存関係」・アーキテクチャ規約6章「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」により、Task・Question・QuestionChoiceは他Bounded Contextが所有するデータである。本書では、これらを **QuestionHistory Aggregateの外部参照用データ型（Ref型）** として、Entityとは区別して定義する（**②からの補足**。詳細は14章参照）。
+②6章ではTaskを「提出時の状態更新対象として参照される」Entityとして挙げている。ただし、②3章「他Contextとの依存関係」・アーキテクチャ規約6章「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」により、Task・Question・QuestionChoiceは他Bounded Contextが所有するデータである。本書では、これらを **QuestionHistory Aggregateの外部参照用データ型（Ref型）** として、Entityとは区別して定義する（**②からの補足**。詳細は17章参照）。
 
 - `QuestionRef`: `id uint`, `unitID uint`, `taskID uint`, `body string` 等、問題一覧表示・正誤判定に必要な最小限の参照フィールドを持つ読み取り専用データ
-- `QuestionChoiceRef`: `id uint`, `questionID uint`, `isCorrect bool` 等、選択肢の妥当性確認・正誤判定に必要な参照フィールドを持つ読み取り専用データ（`isCorrect` は②に明記のない**推測**フィールド。14章参照）
+- `QuestionChoiceRef`: `id uint`, `questionID uint`, `isCorrect bool` 等、選択肢の妥当性確認・正誤判定に必要な参照フィールドを持つ読み取り専用データ（`isCorrect` は②に明記のない**推測**フィールド。17章参照）
 - `TaskRef`: `id uint`, `userID uint`, `status string` 等、所有権確認・状態更新に必要な参照フィールドを持つ読み取り専用データ
 
 これらはEntityのようにmethodで不変条件を強制するものではなく、Repositoryが返す読み取り専用の値である。ドメインルール判定（正誤判定・所有権確認）の入力として、Domain Service・UseCaseに渡す。
@@ -210,7 +210,7 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
 
 ### QuestionHistoryRepository
 
-②9章の責務・検索機能に基づく。
+②11章の責務・検索機能に基づく。
 
 - interface名: `QuestionHistoryRepository`
 - メソッドシグネチャ一覧:
@@ -218,7 +218,7 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
   - `FindAllByTaskAndUnit(ctx context.Context, userID, taskID, unitID uint) ([]*entity.QuestionHistory, error)`: 一覧取得・確認表示用の検索
   - `Save(ctx context.Context, history *entity.QuestionHistory) error`: 新規履歴の保存
   - `Update(ctx context.Context, history *entity.QuestionHistory) error`: 既存履歴の更新
-- 各メソッドの責務: 永続化と検索に限定し、正誤判定・提出状態の決定・認可判定は持たない（②9章「保持しない責務」）
+- 各メソッドの責務: 永続化と検索に限定し、正誤判定・提出状態の決定・認可判定は持たない（②11章「保持しない責務」）
 
 ### QuestionRepository
 
@@ -226,7 +226,7 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
 - メソッドシグネチャ一覧:
   - `FindByID(ctx context.Context, questionID uint) (*entity.QuestionRef, error)`: 問題の存在確認
   - `FindAllByUnitAndTask(ctx context.Context, taskID, unitID uint) ([]*entity.QuestionRef, error)`: unit_id/task_idに紐づく問題取得
-- 各メソッドの責務: 問題情報の参照に特化し、回答の正誤判定そのものは持たない（②9章）
+- 各メソッドの責務: 問題情報の参照に特化し、回答の正誤判定そのものは持たない（②11章）
 
 ### QuestionChoiceRepository
 
@@ -234,7 +234,7 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
 - メソッドシグネチャ一覧:
   - `FindByID(ctx context.Context, choiceID uint) (*entity.QuestionChoiceRef, error)`: 選択肢の存在確認
   - `ExistsForQuestion(ctx context.Context, questionID, choiceID uint) (bool, error)`: 選択肢が対象問題に属するかの確認
-- 各メソッドの責務: 選択肢の参照と妥当性確認に集中させ、正誤判定の最終決定は持たない（②9章）
+- 各メソッドの責務: 選択肢の参照と妥当性確認に集中させ、正誤判定の最終決定は持たない（②11章）
 
 ### TaskRepository
 
@@ -242,7 +242,7 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
 - メソッドシグネチャ一覧:
   - `FindByID(ctx context.Context, taskID uint) (*entity.TaskRef, error)`: 指定タスクの取得
   - `UpdateStatus(ctx context.Context, taskID uint, status string) error`: タスク状態の更新
-- 各メソッドの責務: 永続化と状態更新の責務に限定し、提出状態の判断ロジックは持たない（②9章）
+- 各メソッドの責務: 永続化と状態更新の責務に限定し、提出状態の判断ロジックは持たない（②11章）
 
 これら4つのRepository Interfaceは `domain/repository/` に定義する（規約「5. インターフェース」の「利用するパッケージ側で定義する」原則、および本規約アーキテクチャ規約3章の依存性逆転に従う）。
 
@@ -262,17 +262,123 @@ Handlerを `question_handler.go` / `answer_handler.go` / `submission_handler.go`
 
 ## Domain Error
 
-②14章の分類に基づき、`domain/errors/` に集約する。
+②17章の分類に基づき、`domain/errors/` に集約する。
 
 - エラー種別ごとの型／変数定義方針: sentinel error（`var Err〇〇 = errors.New(...)`）を基本形とし、必要に応じて `errors.Is` で判定できるカスタムエラー型を用いる。具体的な実装方法（sentinel/カスタム型の使い分け）は②・規約のいずれにも明記がなく、コーディング規約21章「`errors.New`と`fmt.Errorf`の使い分けについて独自ルールを追加しない」に従い、本書では実装者の判断に委ねる方針だけを示す
-- 発生条件（②14章）:
+- 発生条件（②17章）:
   - `ErrChoiceNotBelongToQuestion`: 選択肢が対象問題に属さない
   - `ErrHistoryNotFound`: 既存履歴が存在しない（更新対象の再解答時等）
   - `ErrInvalidSubmissionTransition`: 提出状態の遷移が不正である
 
 ---
 
-# 4. Application層設計
+# 4. クラス図
+
+```mermaid
+classDiagram
+    class QuestionHistory {
+        -uint id
+        -uint userID
+        -uint taskID
+        -uint unitID
+        -uint questionID
+        -uint questionChoiceID
+        -string answerText
+        -AnswerResult result
+        -AnsweredAt answeredAt
+        -int timeSpentSec
+        -bool explanationViewed
+        +NewQuestionHistory(...) (*QuestionHistory, error)
+        +ApplyResult(result) error
+        +UpdateAnswer(choiceID, answerText, timeSpentSec) error
+        +MarkExplanationViewed() error
+        +Status() AnswerStatus
+    }
+    class AnswerResult {
+        -uint id
+        -AnswerStatus status
+        -time.Time judgedAt
+        +NewAnswerResult(status, judgedAt) (AnswerResult, error)
+        +IsCorrect() bool
+    }
+    class AnswerStatus {
+        <<ValueObject>>
+        -string value
+        +NewAnswerStatus(value) (AnswerStatus, error)
+        +IsCorrect() bool
+    }
+    class AnsweredAt {
+        <<ValueObject>>
+        -time.Time value
+        +NewAnsweredAt(t) (AnsweredAt, error)
+    }
+    class QuestionRef {
+        <<外部Context参照>>
+        +uint id
+        +uint unitID
+        +uint taskID
+        +string body
+    }
+    class QuestionChoiceRef {
+        <<外部Context参照>>
+        +uint id
+        +uint questionID
+        +bool isCorrect
+    }
+    class TaskRef {
+        <<外部Context参照>>
+        +uint id
+        +uint userID
+        +string status
+    }
+    class QuestionHistoryRepository {
+        <<interface>>
+        +FindByUserAndQuestion(...) (*QuestionHistory, error)
+        +FindAllByTaskAndUnit(...) ([]*QuestionHistory, error)
+        +Save(history) error
+        +Update(history) error
+    }
+    class AnswerEvaluationPolicy {
+        <<DomainService>>
+        +Evaluate(question, choice, answerText) (AnswerResult, error)
+    }
+    class SubmissionProgressPolicy {
+        <<DomainService>>
+        +Determine(histories, task) (string, error)
+    }
+
+    QuestionHistory "1" *-- "0..1" AnswerResult : result
+    AnswerResult --> AnswerStatus : status
+    QuestionHistory --> AnsweredAt : answeredAt
+    QuestionHistory ..> QuestionRef : 参照
+    QuestionHistory ..> QuestionChoiceRef : 参照
+    QuestionHistory ..> TaskRef : 参照（提出時）
+    QuestionHistoryRepository ..> QuestionHistory : 永続化
+    AnswerEvaluationPolicy ..> AnswerResult : 生成
+    SubmissionProgressPolicy ..> TaskRef : 進捗を決定
+```
+
+「3. Domain層設計」のstruct/interface定義をそのまま反映した。QuestionRef／QuestionChoiceRef／TaskRefは他Bounded Contextが所有するデータの参照用データ型であるため、外部参照として示している。
+
+---
+
+# 5. 状態遷移図
+
+QuestionHistoryは以下の状態を持つ（②文書「10. 状態遷移図」と一致）。
+
+```mermaid
+stateDiagram-v2
+    [*] --> 未回答
+    未回答 --> 回答済み : NewQuestionHistory + ApplyResult（CreateAnswerUseCase）
+    回答済み --> 再解答済み : UpdateAnswer + ApplyResult（UpdateAnswerUseCase）
+    再解答済み --> 再解答済み : UpdateAnswer + ApplyResult（再々解答）
+```
+
+遷移条件・禁止される組み合わせは②文書「10. 状態遷移図」のとおり。
+
+---
+
+# 6. Application層設計
 
 Domain Model採用のため、UseCase struct + Repository Interfaceとして記載する（②の採用パターンに対応するアーキテクチャ規約4章の記載どおり）。
 
@@ -288,27 +394,27 @@ Domain Model採用のため、UseCase struct + Repository Interfaceとして記�
 - `dto.QuestionListItem`: `QuestionID uint`, `Body string`, `Choices []QuestionChoiceItem`, `AlreadyAnswered bool`, `Status *string`（UseCase出力の一部として使用）
 - `dto.ConfirmationItem`: `QuestionID uint`, `Status string`, `AnswerText *string`, `QuestionChoiceID *uint`, `ExplanationViewed bool`
 
-フィールド構成は②10章の「入力」「出力」の記述（current user, task id, unit id, question id, answer payload 等）と②12章のRequestフィールドを根拠に具体化した（**②からの補足**。フィールド名・型自体は本書で決定）。
+フィールド構成は②12章の「入力」「出力」の記述（current user, task id, unit id, question id, answer payload 等）と②15章のRequestフィールドを根拠に具体化した（**②からの補足**。フィールド名・型自体は本書で決定）。
 
 ## UseCase
 
 ### ListQuestionsUseCase
 
 - struct名: `ListQuestionsUseCase`
-- コンストラクタが受け取る依存: `QuestionRepository`, `QuestionHistoryRepository`, `TaskRepository`（②9章の呼び出すRepositoryはQuestionRepository/QuestionHistoryRepositoryのみだが、②13章「UseCaseはタスク・単元・問題に対する所有権を前提に処理を実行する」を満たすため、TaskRepositoryを所有権確認用に追加する。**②からの補足**。詳細は14章）
+- コンストラクタが受け取る依存: `QuestionRepository`, `QuestionHistoryRepository`, `TaskRepository`（②11章の呼び出すRepositoryはQuestionRepository/QuestionHistoryRepositoryのみだが、②16章「UseCaseはタスク・単元・問題に対する所有権を前提に処理を実行する」を満たすため、TaskRepositoryを所有権確認用に追加する。**②からの補足**。詳細は17章）
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, query query.ListQuestionsQuery) (*dto.QuestionListResult, error)`
 - 処理ステップ:
   1. TaskRepositoryでタスクを取得し、`TaskRef.UserID` がクエリの `UserID` と一致するか確認する（所有権チェック）
   2. QuestionRepositoryでtask_id/unit_idに紐づく問題一覧を取得する
   3. QuestionHistoryRepositoryでuser_id/task_id/unit_idに紐づく既存履歴を取得する
   4. 問題一覧と既存履歴を突き合わせ、既回答状態を含む結果を組み立てる
-- トランザクション境界: なし（読み取りのみ、②11章）
+- トランザクション境界: なし（読み取りのみ、②14章）
 - 発生しうるApplication Error: タスクが存在しない／所有権がない、対象単元が存在しない
 
 ### CreateAnswerUseCase
 
 - struct名: `CreateAnswerUseCase`
-- コンストラクタが受け取る依存: `QuestionRepository`, `QuestionChoiceRepository`, `QuestionHistoryRepository`, `TaskRepository`, `AnswerEvaluationPolicy`（TaskRepositoryは所有権確認のための追加。**②からの補足**。14章参照）
+- コンストラクタが受け取る依存: `QuestionRepository`, `QuestionChoiceRepository`, `QuestionHistoryRepository`, `TaskRepository`, `AnswerEvaluationPolicy`（TaskRepositoryは所有権確認のための追加。**②からの補足**。17章参照）
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, cmd command.CreateAnswerCommand) (*dto.AnswerResultDTO, error)`
 - 処理ステップ:
   1. TaskRepositoryでタスク取得・所有権確認
@@ -317,13 +423,13 @@ Domain Model採用のため、UseCase struct + Repository Interfaceとして記�
   4. AnswerEvaluationPolicyで正誤判定を行い`AnswerResult`を生成する
   5. `QuestionHistory`エンティティを生成し、判定結果を反映する
   6. QuestionHistoryRepository.Saveで履歴を保存する
-- トランザクション境界: 履歴保存を1トランザクションで扱う（②11章）
-- 発生しうるApplication Error: 対象タスクが存在しない、対象問題が見つからない、選択肢が問題に属さない、保存処理の失敗（②14章）
+- トランザクション境界: 履歴保存を1トランザクションで扱う（②14章）
+- 発生しうるApplication Error: 対象タスクが存在しない、対象問題が見つからない、選択肢が問題に属さない、保存処理の失敗（②17章）
 
 ### UpdateAnswerUseCase
 
 - struct名: `UpdateAnswerUseCase`
-- コンストラクタが受け取る依存: `QuestionHistoryRepository`, `QuestionChoiceRepository`, `AnswerEvaluationPolicy`（②9章の呼び出すRepository一覧どおり。QuestionRepositoryは②に明記がないため含めない。正誤再判定に問題情報が必要な場合はQuestionChoiceRefのみで完結する前提とする。**推測**。14章参照）
+- コンストラクタが受け取る依存: `QuestionHistoryRepository`, `QuestionChoiceRepository`, `AnswerEvaluationPolicy`（②11章の呼び出すRepository一覧どおり。QuestionRepositoryは②に明記がないため含めない。正誤再判定に問題情報が必要な場合はQuestionChoiceRefのみで完結する前提とする。**推測**。17章参照）
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, cmd command.UpdateAnswerCommand) (*dto.AnswerResultDTO, error)`
 - 処理ステップ:
   1. QuestionHistoryRepository.FindByUserAndQuestionで既存履歴を取得する（存在しない場合は`ErrHistoryNotFound`）
@@ -331,7 +437,7 @@ Domain Model採用のため、UseCase struct + Repository Interfaceとして記�
   3. AnswerEvaluationPolicyで再判定を行う
   4. `QuestionHistory.UpdateAnswer`で回答内容を更新し、`ApplyResult`で判定結果を反映する
   5. QuestionHistoryRepository.Updateで更新を保存する
-- トランザクション境界: 既存履歴更新を1トランザクションで扱う（②11章）
+- トランザクション境界: 既存履歴更新を1トランザクションで扱う（②14章）
 - 発生しうるApplication Error: 既存履歴が存在しない、選択肢が問題に属さない、保存処理の失敗
 
 ### ShowConfirmationUseCase
@@ -344,7 +450,7 @@ Domain Model採用のため、UseCase struct + Repository Interfaceとして記�
   2. QuestionRepositoryで対象問題一覧を取得する
   3. QuestionHistoryRepositoryで既存履歴を取得する
   4. 問題と履歴を照合し、確認表示用の状態を組み立てる
-- トランザクション境界: なし（読み取りのみ、②11章）
+- トランザクション境界: なし（読み取りのみ、②14章）
 - 発生しうるApplication Error: タスクが存在しない／所有権がない
 
 ### SubmitTaskUseCase
@@ -357,19 +463,64 @@ Domain Model採用のため、UseCase struct + Repository Interfaceとして記�
   2. QuestionHistoryRepositoryで対象タスクに紐づく回答履歴一覧を取得する
   3. SubmissionProgressPolicyで回答履歴の集合とタスク状況から新しいタスク状態を決定する
   4. TaskRepository.UpdateStatusで状態を更新する
-- トランザクション境界: タスク状態更新を1トランザクションで扱う（②11章）
+- トランザクション境界: タスク状態更新を1トランザクションで扱う（②14章）
 - 発生しうるApplication Error: 対象タスクが存在しない、提出状態の遷移が不正である
 
 ---
 
-# 5. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
+
+## シーケンス図（CreateAnswerUseCase）
+
+```mermaid
+sequenceDiagram
+    participant H as AnswerHandler
+    participant UC as CreateAnswerUseCase
+    participant TR as TaskRepository
+    participant QR as QuestionRepository
+    participant QCR as QuestionChoiceRepository
+    participant EP as AnswerEvaluationPolicy
+    participant QHR as QuestionHistoryRepository
+
+    H->>UC: Execute(ctx, CreateAnswerCommand)
+    UC->>TR: FindByID(taskID)
+    TR-->>UC: TaskRef
+    UC->>QR: FindByID(questionID)
+    QR-->>UC: QuestionRef
+    UC->>QCR: ExistsForQuestion(questionID, choiceID)
+    QCR-->>UC: bool
+    UC->>EP: Evaluate(question, choice, answerText)
+    EP-->>UC: AnswerResult
+    UC->>QHR: Save(history)
+    QHR-->>UC: error
+    UC-->>H: dto.AnswerResultDTO
+```
+
+## 処理フロー図（SubmitTaskUseCase）
+
+```mermaid
+flowchart TD
+    A[SubmitTaskUseCase.Execute] --> B[TaskRepository.FindByID]
+    B --> C{TaskRef.UserID == cmd.UserID}
+    C -- No --> Z[所有権エラー]
+    C -- Yes --> D[QuestionHistoryRepository.FindAllByTaskAndUnit]
+    D --> E[SubmissionProgressPolicy.Determine]
+    E --> F{提出可能な状態か}
+    F -- No --> Y[ErrInvalidSubmissionTransition]
+    F -- Yes --> G[TaskRepository.UpdateStatus]
+    G --> H2[SubmissionResultDTOを返す]
+```
+
+---
+
+# 8. Infrastructure層設計
 
 ## Repository実装（Domain Model採用時）
 
 ### QuestionHistoryRepositoryImpl
 
 - 実装struct名: `QuestionHistoryRepositoryImpl`（package: `infrastructure/repository`）
-- 対応するGORMモデル: `gorm.QuestionHistoryModel`（テーブル: `question_histories`。②17章に明記）
+- 対応するGORMモデル: `gorm.QuestionHistoryModel`（テーブル: `question_histories`。②20章に明記）
 - 各メソッドで発行するクエリ内容:
   - `FindByUserAndQuestion`: `user_id`, `task_id`, `unit_id`, `question_id` を条件とした単一レコード取得
   - `FindAllByTaskAndUnit`: `user_id`, `task_id`, `unit_id` を条件とした一覧取得（ソート・ページネーションは②に明記なし。件数が少数のため未使用と想定。**推測**）
@@ -381,8 +532,8 @@ Domain Model採用のため、UseCase struct + Repository Interfaceとして記�
 
 ②3章「Task Context / Unit Context / Question Contextへの依存」、アーキテクチャ規約6章「他Contextのデータを利用する場合は、相手Contextが公開する参照手段を呼び出す」に基づき、これら3つのRepository実装は**question-answering Context自身のテーブルを直接操作するのではなく、依存先Contextが公開する参照手段（Repository/Storeの参照系メソッド、または参照用の関数）を呼び出す**構成とする。
 
-- `TaskRepositoryImpl`: Task Context（アーキテクチャ規約5章の一覧より `task-management` Contextに対応すると推測。**推測**、14章参照）が公開する参照・更新手段を呼び出す
-- `QuestionRepositoryImpl` / `QuestionChoiceRepositoryImpl`: ②内で「Question Context」と呼ばれる依存先の実装上の対応Contextが②・アーキテクチャ規約のいずれにも明記されていない。本書では対応関係を確定できないため、**②からの補足**として「依存先Contextが公開する参照手段を呼び出す」という方針のみを示し、具体的なパッケージ・関数名の設計は対象外とする（14章参照）
+- `TaskRepositoryImpl`: Task Context（アーキテクチャ規約5章の一覧より `task-management` Contextに対応すると推測。**推測**、17章参照）が公開する参照・更新手段を呼び出す
+- `QuestionRepositoryImpl` / `QuestionChoiceRepositoryImpl`: ②内で「Question Context」と呼ばれる依存先の実装上の対応Contextが②・アーキテクチャ規約のいずれにも明記されていない。本書では対応関係を確定できないため、**②からの補足**として「依存先Contextが公開する参照手段を呼び出す」という方針のみを示し、具体的なパッケージ・関数名の設計は対象外とする（17章参照）
 
 これらの実装がGORMモデルを直接扱うか、依存先Contextのpackage関数を経由するかは、依存先Context側の②③文書と合わせて確定する必要がある。本書のスコープでは、Repository Interfaceのシグネチャ（3章）までを規定する。
 
@@ -396,11 +547,11 @@ Domain Model採用のため、UseCase struct + Repository Interfaceとして記�
 
 ## 外部連携実装
 
-Mail・Cache・Queue等は②に必要とされる記載がないため、**対象外**とする（②15章「Domain Eventを採用しない」、②に非同期処理・外部通知の記載がないことに基づく）。
+Mail・Cache・Queue等は②に必要とされる記載がないため、**対象外**とする（②18章「Domain Eventを採用しない」、②に非同期処理・外部通知の記載がないことに基づく）。
 
 ---
 
-# 6. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
@@ -440,7 +591,7 @@ Mail・Cache・Queue等は②に必要とされる記載がないため、**対�
 
 - struct名: `CreateAnswerRequest`
 - フィールドと型: `TaskID uint`, `UnitID uint`, `QuestionID uint`, `QuestionChoiceID *uint`, `AnswerText *string`, `TimeSpentSec int`, `ExplanationViewed bool`
-- バリデーションタグ／チェック内容（②12章Presentation節に対応）:
+- バリデーションタグ／チェック内容（②15章Presentation節に対応）:
   - `TaskID` / `UnitID` / `QuestionID`: 必須・型チェック（`binding:"required"`）
   - `QuestionChoiceID` / `AnswerText`: いずれか一方が必須（構造体レベルのカスタムバリデーションを想定）
   - `TimeSpentSec`: フォーマットチェック（0以上の整数）
@@ -473,18 +624,18 @@ Response DTOはEntityを直接返さず、UseCaseの出力DTOから変換する�
 |GET|/api/v1/student/tasks/:task_id/units/:unit_id/confirmation|QuestionHandler.ShowConfirmation|
 |PATCH|/api/v1/student/tasks/:task_id/submission|SubmissionHandler.SubmitTask|
 
-これらのルートは、認証・studentロール確認Middlewareを適用したRouterGroup配下に登録する（②13章、10章参照）。
+これらのルートは、認証・studentロール確認Middlewareを適用したRouterGroup配下に登録する（②16章、10章参照）。
 
 ---
 
-# 7. API仕様
+# 10. API仕様
 
-②16章のAPI互換方針に基づく実装対象Endpoint一覧。
+②19章のAPI仕様に基づく実装対象Endpoint一覧。
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
 |GET|/api/v1/student/tasks/:task_id/units/:unit_id/questions|QuestionHandler.ListQuestions|なし（パスパラメータのみ）|QuestionListResponse|200|
-|POST|/api/v1/student/answers|AnswerHandler.CreateAnswer|CreateAnswerRequest|AnswerResponse|200（②に成功時ステータスの明記は「200: 取得成功」のみで作成系の明記なし。本書では既存レスポンス互換のため200とする。**推測**。14章参照）|
+|POST|/api/v1/student/answers|AnswerHandler.CreateAnswer|CreateAnswerRequest|AnswerResponse|200（②に成功時ステータスの明記は「200: 取得成功」のみで作成系の明記なし。本書では既存レスポンス互換のため200とする。**推測**。17章参照）|
 |PATCH|/api/v1/student/answers|AnswerHandler.UpdateAnswer|UpdateAnswerRequest|AnswerResponse|200|
 |GET|/api/v1/student/tasks/:task_id/units/:unit_id/confirmation|QuestionHandler.ShowConfirmation|なし（パスパラメータのみ）|ConfirmationResponse|200|
 |PATCH|/api/v1/student/tasks/:task_id/submission|SubmissionHandler.SubmitTask|なし（パスパラメータのみ）|SubmissionResponse|200|
@@ -495,23 +646,23 @@ Response DTOはEntityを直接返さず、UseCaseの出力DTOから変換する�
 |-|-|-|
 |認証なし・トークン無効|401（②に明記なし。一般的なMiddleware認証失敗として想定。**推測**）|認証エラー|
 |studentロールでない|403（②に明記なし。**推測**）|権限エラー|
-|対象タスク・単元・問題が存在しない|404|対象データ不存在（②16章）|
-|自分のタスクに属さない対象への操作|404（存在しない扱いとして統一するか403にするかは②に明記なし。**推測**。14章参照）|所有権エラー|
-|入力値の型・必須・フォーマット不正|422|入力検証エラー（②16章）|
-|選択肢が対象問題に属さない等の業務ルール違反|422|業務ルール違反（②16章、②14章Domain Error）|
+|対象タスク・単元・問題が存在しない|404|対象データ不存在（②19章）|
+|自分のタスクに属さない対象への操作|404（存在しない扱いとして統一するか403にするかは②に明記なし。**推測**。17章参照）|所有権エラー|
+|入力値の型・必須・フォーマット不正|422|入力検証エラー（②19章）|
+|選択肢が対象問題に属さない等の業務ルール違反|422|業務ルール違反（②19章、②17章Domain Error）|
 |既存履歴が存在しない（更新時）|422または404（②に明記なし。**推測**。本書では404を推奨）|履歴不存在|
-|提出状態の遷移が不正|422|状態遷移エラー（②14章）|
+|提出状態の遷移が不正|422|状態遷移エラー（②17章）|
 |保存処理・DB接続の失敗|500（②に明記なし。一般的なInfrastructure Errorとして想定。**推測**）|内部エラー|
 
 ---
 
-# 8. Transaction実装方針
+# 11. Transaction実装方針
 
-②11章のTransaction境界を実装単位に落とし込む。
+②14章のTransaction境界を実装単位に落とし込む。
 
 ## Transaction開始箇所
 
-- UseCase内の、Repository書き込み操作を開始する直前（②11章「UseCaseの開始時にトランザクションを開始する」）で開始する
+- UseCase内の、Repository書き込み操作を開始する直前（②14章「UseCaseの開始時にトランザクションを開始する」）で開始する
 - 対象: `CreateAnswerUseCase.Execute` / `UpdateAnswerUseCase.Execute` / `SubmitTaskUseCase.Execute`
 
 具体的な実装パターンは規約に定めがないため、一例として、Infrastructure層に `TransactionManager` インターフェース（`WithinTransaction(ctx context.Context, fn func(ctx context.Context) error) error`）を用意し、UseCaseがこれをコンストラクタ依存として受け取って処理全体をラップする方式を示す（**②からの補足**。規約に具体的なトランザクション実装パターンの定めがないため、実装者が別の一貫した方式を採用してもよい）。
@@ -520,66 +671,66 @@ Response DTOはEntityを直接返さず、UseCaseの出力DTOから変換する�
 
 - コミット条件: 保存・更新（`QuestionHistoryRepository.Save/Update`、`TaskRepository.UpdateStatus`）が正常に完了した時点
 - ロールバック条件: Domain Error・Application Errorが発生した時点、またはRepository呼び出しがエラーを返した時点
-- `ListQuestionsUseCase` / `ShowConfirmationUseCase` はトランザクションを使用しない（②11章、読み取りのみ）
+- `ListQuestionsUseCase` / `ShowConfirmationUseCase` はトランザクションを使用しない（②14章、読み取りのみ）
 
 ## 複数Repositoryにまたがる場合の扱い
 
 - `CreateAnswerUseCase`: `QuestionHistoryRepository.Save`のみが書き込み対象であり、`QuestionRepository`/`QuestionChoiceRepository`/`TaskRepository`は参照のみのため、書き込みを伴う`QuestionHistoryRepository`をトランザクションスコープに含める
 - `SubmitTaskUseCase`: `TaskRepository.UpdateStatus`と`QuestionHistoryRepository`（参照のみ）にまたがるが、状態更新はTaskRepositoryのみのため、TaskRepositoryの更新操作を単一トランザクションとする
-- 他Context（Task/Question）のRepository実装が依存先Contextの永続化機構を経由する場合、トランザクション境界が本Context内で完結しない可能性がある。この点は②に明記がなく、依存先Context側の実装と合わせて確認が必要（**②からの補足**、14章参照）
+- 他Context（Task/Question）のRepository実装が依存先Contextの永続化機構を経由する場合、トランザクション境界が本Context内で完結しない可能性がある。この点は②に明記がなく、依存先Context側の実装と合わせて確認が必要（**②からの補足**、17章参照）
 
 ---
 
-# 9. Validation実装方針
+# 12. Validation実装方針
 
-②12章のValidation設計を実装レベルに落とし込む。
+②15章のValidation設計を実装レベルに落とし込む。
 
 ## Presentation
 
-- `CreateAnswerRequest` / `UpdateAnswerRequest`（6章参照）で以下を検証する:
+- `CreateAnswerRequest` / `UpdateAnswerRequest`（9章参照）で以下を検証する:
   - 型チェック: `task_id` / `unit_id` / `question_id` / `question_choice_id` の型
-  - 必須チェック: 回答登録・更新時に必要な識別子（②12章）
-  - フォーマットチェック: `answer_text` / `time_spent_sec` / `explanation_viewed` の形式（②12章）
+  - 必須チェック: 回答登録・更新時に必要な識別子（②15章）
+  - フォーマットチェック: `answer_text` / `time_spent_sec` / `explanation_viewed` の形式（②15章）
 
 ## 業務ルール検証
 
 Domain Model採用のため、Entity／Value Object生成時の検証とUseCase内で判定する業務ルールに分ける。
 
 - Entity/Value Object生成時: `QuestionHistory.NewQuestionHistory`で選択肢ID・回答テキストの排他条件を検証、`AnswerStatus.NewAnswerStatus`でcorrect/incorrectのみ許容、`AnsweredAt.NewAnsweredAt`で日時整合性を検証（3章参照）
-- UseCase内: 「指定された問題・選択肢・タスク・単元が正しく紐づいているか」（②12章）を`CreateAnswerUseCase`/`UpdateAnswerUseCase`の処理ステップ内（QuestionRepository/QuestionChoiceRepositoryの参照結果を用いた検証）で判定する。「既存履歴がある場合に更新対象として妥当か」は`UpdateAnswerUseCase`のステップ1（FindByUserAndQuestion）で判定する。「提出時に回答済み状態が反映される」は`SubmissionProgressPolicy`で判定する
+- UseCase内: 「指定された問題・選択肢・タスク・単元が正しく紐づいているか」（②15章）を`CreateAnswerUseCase`/`UpdateAnswerUseCase`の処理ステップ内（QuestionRepository/QuestionChoiceRepositoryの参照結果を用いた検証）で判定する。「既存履歴がある場合に更新対象として妥当か」は`UpdateAnswerUseCase`のステップ1（FindByUserAndQuestion）で判定する。「提出時に回答済み状態が反映される」は`SubmissionProgressPolicy`で判定する
 
 ## 責務分離
 
-Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（UseCase）は「業務上妥当か」を担当する（②12章の方針を維持）。
+Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（UseCase）は「業務上妥当か」を担当する（②15章の方針を維持）。
 
 ---
 
-# 10. Authorization実装方針
+# 13. Authorization実装方針
 
-②13章のAuthorization設計を実装レベルに落とし込む。
+②16章のAuthorization設計を実装レベルに落とし込む。
 
 ## Middleware
 
-- JWT等による認証済みユーザーの特定と、studentロールであることの確認を行う（②13章）。実装は横断的なMiddleware（本Bounded Context固有の実装ではなく、`shared/`または`auth` Context側で提供されるMiddlewareを利用する想定。②に具体的なMiddleware実装の記載はないため**推測**）
+- JWT等による認証済みユーザーの特定と、studentロールであることの確認を行う（②16章）。実装は横断的なMiddleware（本Bounded Context固有の実装ではなく、`shared/`または`auth` Context側で提供されるMiddlewareを利用する想定。②に具体的なMiddleware実装の記載はないため**推測**）
 
 ## Handler
 
-- 認証失敗時のレスポンスを整える。業務権限の判定は持たない（②13章）
+- 認証失敗時のレスポンスを整える。業務権限の判定は持たない（②16章）
 
 ## UseCase
 
-- current userのタスク・単元・問題に対する所有権を前提に処理を実行する（②13章）。実装としては、各UseCaseの処理ステップの先頭で`TaskRepository.FindByID`により取得した`TaskRef.UserID`とcurrent userのIDを比較する（4章の各UseCase処理ステップ参照）
-- 取得・更新対象が自分のタスクに属するかを確認する（②13章）。`QuestionHistoryRepository`の検索条件に`user_id`を含めることで、対象データ自体を自分の範囲に限定する（3章のRepository設計）
+- current userのタスク・単元・問題に対する所有権を前提に処理を実行する（②16章）。実装としては、各UseCaseの処理ステップの先頭で`TaskRepository.FindByID`により取得した`TaskRef.UserID`とcurrent userのIDを比較する（4章の各UseCase処理ステップ参照）
+- 取得・更新対象が自分のタスクに属するかを確認する（②16章）。`QuestionHistoryRepository`の検索条件に`user_id`を含めることで、対象データ自体を自分の範囲に限定する（3章のRepository設計）
 
 ## Domain
 
-- 回答履歴や提出処理に対して、所有者外の操作が行われないようにする。ただし認可の本体はUseCase側に寄せる（②13章）。Domain層では所有者IDの比較ロジック自体は持たず、UseCaseから渡された正当なQuestionHistory/TaskRefのみを扱う前提とする
+- 回答履歴や提出処理に対して、所有者外の操作が行われないようにする。ただし認可の本体はUseCase側に寄せる（②16章）。Domain層では所有者IDの比較ロジック自体は持たず、UseCaseから渡された正当なQuestionHistory/TaskRefのみを扱う前提とする
 
 ---
 
-# 11. Error実装方針
+# 14. Error実装方針
 
-②14章のError設計を実装レベルに落とし込む。
+②17章のError設計を実装レベルに落とし込む。
 
 ## Domain Error → Application Errorへの変換方針
 
@@ -587,11 +738,11 @@ Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（
 
 ## Application Error → HTTPレスポンスへの変換方針
 
-- Handlerまたは共通のエラーハンドリングMiddlewareで、Application Errorの種別に応じてHTTP Status Codeを決定し、統一されたエラーレスポンス形式（②16章「既存のerrors構造を意識しつつGoの実装に合わせて整形する」）に変換する
+- Handlerまたは共通のエラーハンドリングMiddlewareで、Application Errorの種別に応じてHTTP Status Codeを決定し、統一されたエラーレスポンス形式（②19章「既存のerrors構造を意識しつつGoの実装に合わせて整形する」）に変換する
 
 ## Infrastructure Errorのハンドリング方針
 
-- DB接続失敗・永続化失敗等のInfrastructure Errorは、Repository実装内でApplication Error相当（例: 汎用的な「保存処理の失敗」エラー）にラップしてApplication層に伝播させ、ドメインには漏らさない（②14章）
+- DB接続失敗・永続化失敗等のInfrastructure Errorは、Repository実装内でApplication Error相当（例: 汎用的な「保存処理の失敗」エラー）にラップしてApplication層に伝播させ、ドメインには漏らさない（②17章）
 
 |Error種別|発生層|HTTP Status|
 |-|-|-|
@@ -606,30 +757,30 @@ Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（
 
 ---
 
-# 12. GORM / DBクエリ設計
+# 15. GORM / DBクエリ設計
 
-②17章「既存Rails DBを継続利用、Schema変更なし」に基づく。
+②20章「既存Rails DBを継続利用、Schema変更なし」に基づく。
 
 ## 利用するGORMモデルとテーブルの対応
 
-- `gorm.QuestionHistoryModel` ⇔ `question_histories`テーブル（②17章に明記）
+- `gorm.QuestionHistoryModel` ⇔ `question_histories`テーブル（②20章に明記）
 - `Question` / `QuestionChoice` / `Task`のテーブル対応（`questions` / `question_choices` / `tasks`）は②に明記がなく、Gorm規約「構造体名の複数形をテーブル名とする」規約に基づく**推測**である。これらは他Context所有データのため、本Context側で新規GORMモデルを定義せず、依存先Contextが提供する参照手段を経由する想定（5章参照）
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
-- `question_histories`検索: `user_id` + `task_id` + `unit_id`（一覧・確認表示用）、または`user_id` + `task_id` + `unit_id` + `question_id`（単一履歴取得用）で絞り込む（②9章「保持する検索機能」）
+- `question_histories`検索: `user_id` + `task_id` + `unit_id`（一覧・確認表示用）、または`user_id` + `task_id` + `unit_id` + `question_id`（単一履歴取得用）で絞り込む（②11章「保持する検索機能」）
 - ソート・ページネーション: ②に明記がなく、1タスク・1単元あたりの問題数は限定的であることを前提に、本書ではページネーションを設けない方針とする（**推測**）
 - GORMモデルの`CreatedAt`/`UpdatedAt`はGorm規約のタイムスタンプ自動トラッキングに従う
 
 ## 既存Schemaに対する変更
 
-- ②17章「変更なし」の方針をそのまま維持する。本書でも新規カラム・テーブルの追加提案は行わない
+- ②20章「変更なし」の方針をそのまま維持する。本書でも新規カラム・テーブルの追加提案は行わない
 
 ---
 
-# 13. テストケース設計
+# 16. テストケース設計
 
-②18章のテスト戦略をテストケース単位に具体化する。Domain Model採用のため、区分はそのまま使用する。
+②22章のテスト戦略をテストケース単位に具体化する。Domain Model採用のため、区分はそのまま使用する。
 
 ## Domain Test
 
@@ -674,7 +825,7 @@ Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（
 
 |対象|テストケース|
 |-|-|
-|問題一覧取得→回答登録→回答更新→確認表示→提出|一連の操作がエンドポイント経由で一貫して動作し、最終的にタスク状態が更新されること（②18章Integration Test方針）|
+|問題一覧取得→回答登録→回答更新→確認表示→提出|一連の操作がエンドポイント経由で一貫して動作し、最終的にタスク状態が更新されること（②22章Integration Test方針）|
 
 ---
 
@@ -685,18 +836,18 @@ Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（
 |判断した内容|判断理由|推測／補足の別|
 |-|-|-|
 |Bounded Context名`question-answering`のディレクトリ名を`question_answering`（スネークケース）とする|アーキテクチャ規約9章はディレクトリ名を「英単語1語または短いスネークケース」とするが、複数語Context名の具体的な変換規則は明記がないため|補足（実装のための判断）|
-|`QuestionHistory`/`AnswerResult`の具体的なフィールド構成・型|②はEntityの役割・責務を概念的に記述するのみで、フィールド一覧は明記がない。②12章Validation設計に列挙された`task_id/unit_id/question_id/question_choice_id/answer_text/time_spent_sec/explanation_viewed`を手がかりに具体化した|補足（②記載事項からの具体化）|
+|`QuestionHistory`/`AnswerResult`の具体的なフィールド構成・型|②はEntityの役割・責務を概念的に記述するのみで、フィールド一覧は明記がない。②15章Validation設計に列挙された`task_id/unit_id/question_id/question_choice_id/answer_text/time_spent_sec/explanation_viewed`を手がかりに具体化した|補足（②記載事項からの具体化）|
 |`AnswerResult`を`AnswerStatus`（VO）を内包するEntityとして整理|②6章（AnswerResultをEntityとする）と②7章（AnswerStatusを正誤のVOとする）が共存しており、そのままでは正誤情報の持ち方が重複する。両者を矛盾なく統合するため、AnswerResult EntityがAnswerStatus VOを内包する構造とした|補足（②内の記述整合のための構造化）|
 |`Question`/`QuestionChoice`/`Task`を本Context内では「他Context所有の参照用データ型（Ref型）」として扱い、Entityとして本Contextのドメインに含めない|アーキテクチャ規約6章「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」に基づく。②6章はTaskをEntityとして挙げているが、これは概念説明であり実装構造への変換は③（本書）の役割（アーキテクチャ規約11章）|補足|
 |Task Contextを`task-management`、Unit Contextを`curriculum`と推測し、Question Contextの実装上の対応Contextは確定できないとした|アーキテクチャ規約5章のBounded Context一覧を根拠とするが、②内の「Question Context」に一致するContext名が一覧に見当たらないため|推測（Task/Unitのみ）・確認不可（Question）|
 |`TaskRepositoryImpl`/`QuestionRepositoryImpl`/`QuestionChoiceRepositoryImpl`は依存先Contextの公開参照手段を経由し、本Context内でGORMモデルを直接定義しない|アーキテクチャ規約6章のContext間連携ルールに基づく。②のRepository設計は責務を概念的に記述するのみで、実装連携方式は明記がない|補足|
-|`ListQuestionsUseCase`/`ShowConfirmationUseCase`/`CreateAnswerUseCase`にTaskRepositoryを追加で依存させ、タスク所有権を確認する|②9章の「呼び出すRepository」一覧にはTaskRepositoryが明記されていないが、②13章Authorization設計「UseCaseは所有権を前提に処理を実行する」を満たすために必要と判断した。既存のRepository Interface自体を変更するものではない|補足（①未提供のため実装時要確認）|
-|`UpdateAnswerUseCase`の再判定はQuestionChoiceRepositoryの情報のみで完結する前提とした（QuestionRepositoryは追加しない）|②9章の呼び出すRepository一覧にQuestionRepositoryが明記されていないため、②の記載どおりに留めた。ただし再判定に問題本体の情報が必要な場合は不足する可能性がある|推測（①未提供のため確認不可）|
+|`ListQuestionsUseCase`/`ShowConfirmationUseCase`/`CreateAnswerUseCase`にTaskRepositoryを追加で依存させ、タスク所有権を確認する|②11章の「呼び出すRepository」一覧にはTaskRepositoryが明記されていないが、②16章Authorization設計「UseCaseは所有権を前提に処理を実行する」を満たすために必要と判断した。既存のRepository Interface自体を変更するものではない|補足（①未提供のため実装時要確認）|
+|`UpdateAnswerUseCase`の再判定はQuestionChoiceRepositoryの情報のみで完結する前提とした（QuestionRepositoryは追加しない）|②11章の呼び出すRepository一覧にQuestionRepositoryが明記されていないため、②の記載どおりに留めた。ただし再判定に問題本体の情報が必要な場合は不足する可能性がある|推測（①未提供のため確認不可）|
 |`QuestionChoiceRef`が正解フラグ（`isCorrect`相当）を保持する前提とした|②はAnswerEvaluationPolicyの責務（正誤判定）のみを記述し、正解情報の保持元を明記していない。選択式問題である以上、選択肢側が正解フラグを持つ構成を仮定した|推測（①未提供のため確認不可）|
-|GORMモデルのテーブル対応（`questions`/`question_choices`/`tasks`）|②17章では`question_histories`のみ明記されている。他はGorm規約「構造体名の複数形」規約に基づく推測|推測|
-|POST/PATCH系エンドポイントの成功時HTTP Status Codeを200とした|②16章は「200: 取得成功」「422」「404」のみを明記し、作成・更新系の成功時コード（200/201の別）は記載がない。①未提供のため確認不可|推測|
-|認証エラー401・権限エラー403・所有権エラー404・DB障害500等、②に明記のないStatus Codeの割当|②16章に明記のない一般的なHTTP実装慣行に基づく|推測|
+|GORMモデルのテーブル対応（`questions`/`question_choices`/`tasks`）|②20章では`question_histories`のみ明記されている。他はGorm規約「構造体名の複数形」規約に基づく推測|推測|
+|POST/PATCH系エンドポイントの成功時HTTP Status Codeを200とした|②19章は「200: 取得成功」「422」「404」のみを明記し、作成・更新系の成功時コード（200/201の別）は記載がない。①未提供のため確認不可|推測|
+|認証エラー401・権限エラー403・所有権エラー404・DB障害500等、②に明記のないStatus Codeの割当|②19章に明記のない一般的なHTTP実装慣行に基づく|推測|
 |トランザクション実装をInfrastructure層の`TransactionManager`インターフェース方式で例示した|規約にトランザクションの具体的な実装パターンの定めがないため、一例として提示した。他の一貫した方式を実装者が採用してもよい|補足|
 |Handler構成を`QuestionHandler`/`AnswerHandler`/`SubmissionHandler`の3ファイルに分割した|②はHandler構成そのものを規定していないため、エンドポイントの業務内容単位で分割した|補足|
 
-上記以外の②記載内容（採用パターン・Bounded Context・Aggregate構成・Entity/Value Object/Repository/UseCaseの責務・Transaction境界・Validation方針・Authorization方針・Error設計・Domain Event方針・API互換方針・DB方針・テスト戦略）については、②の決定をそのまま前提とし、変更していない。
+上記以外の②記載内容（採用パターン・Bounded Context・Aggregate構成・Entity/Value Object/Repository/UseCaseの責務・Transaction境界・Validation方針・Authorization方針・Error設計・Domain Event方針・API仕様・DB方針・テスト戦略）については、②の決定をそのまま前提とし、変更していない。

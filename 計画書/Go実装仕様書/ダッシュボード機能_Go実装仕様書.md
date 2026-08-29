@@ -21,7 +21,7 @@
 
 - 対象Bounded Context: `dashboard`（生徒向けダッシュボード）
 - 対象エンドポイント: `GET /api/v1/student/dashboard`
-- Transaction Script構造（アーキテクチャ規約「4. 設計パターンごとの構造適用方針」）に基づく、application層の関数、infrastructure層のクエリ関数、presentation層のHandler/Response/Routingの実装単位までを具体化する
+- Transaction Script構造（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）に基づく、application層の関数、infrastructure層のクエリ関数、presentation層のHandler/Response/Routingの実装単位までを具体化する
 - goal-management（目標管理機能）自体の実装仕様（目標の作成・更新・状態遷移等）は対象外。本書はgoal-managementが管理するデータを読み取り専用で参照する側の実装のみを扱う
 - ①Rails実装（Controller/Query Object/Serializer等の詳細実装）は本タスクでは未提供のため、実装仕様の根拠として参照していない（「①未提供のため参照不可」として扱う）
 
@@ -31,7 +31,7 @@
 
 - 対象Bounded Context名: `dashboard`
 - ②で採用した設計パターン: **Transaction Script**
-- 採用パターンに対応する構造: アーキテクチャ規約「4. 設計パターンごとの構造適用方針」の Transaction Script構成をそのまま適用する（domain層・usecase層・Repository Interfaceは設けない）
+- 採用パターンに対応する構造: アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Transaction Script構成をそのまま適用する（domain層・usecase層・Repository Interfaceは設けない）
 
 ## 作成するディレクトリ一覧
 

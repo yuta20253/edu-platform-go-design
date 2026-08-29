@@ -44,7 +44,7 @@ Aggregate・Value Object・Domain Service・Domain Eventはいずれも②で「
 
 ## ②で採用した設計パターン
 
-Transaction Script（②4章）。アーキテクチャ規約「4. 設計パターンごとの構造適用方針」の「Transaction Script」構造をそのまま適用する。domain層・usecase層（struct/interface）・Repository Interfaceは設けない。
+Transaction Script（②4章）。アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の「Transaction Script」構造をそのまま適用する。domain層・usecase層（struct/interface）・Repository Interfaceは設けない。
 
 ## 作成するディレクトリ一覧
 
@@ -89,7 +89,7 @@ internal/school_directory/presentation/routes.go
 
 # 3. Domain層設計
 
-対象外（Transaction Script採用のため、Domain層を設けない。アーキテクチャ規約「4. 設計パターンごとの構造適用方針」）。
+対象外（Transaction Script採用のため、Domain層を設けない。アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）。
 
 Entity・Value Object・Repository Interface・Domain Service・Domain Event・Domain Errorはいずれも②5〜8章・15章の判断どおり設計しない。業務ルール検証・存在確認等の処理内容は「4. Application層設計」に記載する。
 

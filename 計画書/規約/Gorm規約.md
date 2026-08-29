@@ -64,7 +64,7 @@ for _, c := range courses {
 
 ### 配置（ディレクトリ構成との対応）
 
-GORM用のモデルstruct・タグ定義は、アーキテクチャ規約「2. ディレクトリ構成」の`infrastructure/persistence/gorm/`に置く。Domain Modelパターン採用時、Domain層の`entity/`にはGORMタグを持つstructを直接置かず、Infrastructure層のGORMモデルとDomain Entityを分離する。Active Recordパターン採用時は、アーキテクチャ規約「4. 設計パターンごとの構造適用方針」の簡略構造（`model.go`にGORMタグ付きstructを直接定義）に従う。
+GORM用のモデルstruct・タグ定義は、Infrastructure層に置く（具体的な配置ディレクトリはアーキテクチャ規約のディレクトリ構成が確定次第定める）。Domain Modelパターン採用時、Domain層の`entity/`にはGORMタグを持つstructを直接置かず、Infrastructure層のGORMモデルとDomain Entityを分離する。Active Recordパターン採用時は、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の簡略構造（`model.go`にGORMタグ付きstructを直接定義）に従う。
 
 ---
 
@@ -291,7 +291,7 @@ GORMはデフォルトで書き込み操作をトランザクションでラッ�
 
 ### 本プロジェクトでの方針
 
-* Active Record採用機能: Storeメソッド内で`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`を直接使用する（アーキテクチャ規約「12. Transaction実装パターン（TransactionManager）」の適用範囲のとおり）
+* Active Record採用機能: Storeメソッド内で`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`を直接使用する（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の適用範囲のとおり）
 * Domain Model採用機能: `TransactionManager`の実装（`infrastructure/repository`配下）が内部で`db.WithContext(ctx).Transaction(...)`をラップする。UseCase側がこのAPIを直接呼び出すことはない
 
 ---
@@ -392,8 +392,8 @@ GORMは`BeforeSave` / `BeforeCreate` / `AfterCreate` / `BeforeUpdate` / `AfterUp
 
 **Hooksは使用しない。** 理由は以下のとおり。
 
-* Hooksはモデルstruct（Infrastructure層のGORMモデル、Active Record採用時はEntity相当のstruct）に業務ロジックを埋め込む機構であり、アーキテクチャ規約「3. レイヤー責務と依存方向」の禁止事項「Repository実装に業務ルール判定を持たせる」に抵触する
-* 業務ルール検証はDomain（Domain Model採用時）またはstruct/関数（Active Record/Transaction Script採用時）で行うという、アーキテクチャ規約「8. 横断的関心事の置き場所」の方針と重複・競合する経路になる
+* Hooksはモデルstruct（Infrastructure層のGORMモデル、Active Record採用時はEntity相当のstruct）に業務ロジックを埋め込む機構であり、アーキテクチャ規約「2. レイヤー責務と依存方向」の禁止事項「Repository実装に業務ルール判定を持たせる」に抵触する
+* 業務ルール検証はDomain（Domain Model採用時）またはstruct/関数（Active Record/Transaction Script採用時）で行うという、アーキテクチャ規約「7. 横断的関心事の置き場所」の方針と重複・競合する経路になる
 
 `CreatedAt` / `UpdatedAt`の自動設定、`DeletedAt`による論理削除といったGORM標準機能（Hooksではなく規約に基づく自動化）は、業務ルールではなく永続化の関心事であるため、この禁止の対象外として通常どおり使用する。
 
@@ -444,3 +444,84 @@ func (s *TaskStore) FindByID(id uint) (*Task, error) {
     return &t, nil
 }
 ```
+
+---
+
+## 12. 楽観ロック（Optimistic Locking）
+
+複数ユーザーが同じレコードを同時に更新しうる機能では、`gorm.io/plugin/optimisticlock`を使用する。GORM本体と同じ`go-gorm` Organizationが提供する第一級プラグインであり、サードパーティ実装より優先する。
+
+### 使用方法
+
+対象のGORMモデルに`optimisticlock.Version`型のフィールドを追加する。`Model(&m).Updates(...)`実行時、GORMが自動的に`WHERE version = ?`を付与し、成功時に`version`をインクリメントする。
+
+```go
+type taskModel struct {
+    ID      uint
+    Name    string
+    Version optimisticlock.Version // カラム名は規約どおり `version`
+}
+```
+
+```sql
+-- 生成されるSQL（イメージ）
+UPDATE `tasks` SET `name`='...', `version`=`version`+1 WHERE `tasks`.`version` = 1 AND `id` = 1
+```
+
+### 競合の検出とエラー変換
+
+更新のRowsAffectedが0件の場合、バージョン不一致（他ユーザーによる更新が先に成功した）とみなし、共有の`ErrOptimisticLockConflict`（配置例: `internal/shared/domainerror`）を返す。GORM自身のエラー（`result.Error`）とは区別する。
+
+```go
+// Good
+func (r *taskRepository) Update(ctx context.Context, t *domain.Task) error {
+    m := fromDomain(t) // Versionを含めて変換する
+
+    result := r.db.WithContext(ctx).Model(&m).Updates(m)
+    if result.Error != nil {
+        return fmt.Errorf("タスクの更新に失敗しました: %w", result.Error)
+    }
+
+    if result.RowsAffected == 0 {
+        return domainerror.ErrOptimisticLockConflict
+    }
+
+    return nil
+}
+```
+
+```go
+// Bad
+func (r *taskRepository) Update(ctx context.Context, t *domain.Task) error {
+    m := fromDomain(t)
+
+    result := r.db.WithContext(ctx).Model(&m).Updates(m)
+    return result.Error // RowsAffected == 0 のケース（競合）を見逃し、更新成功として扱ってしまう
+}
+```
+
+UseCase（またはTransaction Script/Active Recordの場合は該当関数・Store呼び出し元）は、`errors.Is(err, domainerror.ErrOptimisticLockConflict)`で判定し、アーキテクチャ規約「12. Error変換パターン（AppError）」の`AppError`へ変換する（`StatusCode()`は`http.StatusConflict`（409）とする）。Presentation層側の処理は既存のAppError変換フローをそのまま利用でき、個別対応は不要である。
+
+### Domain EntityとGORMモデルの分離
+
+Domain Model採用機能では、`optimisticlock.Version`型（GORM依存）をDomain Entityに直接持たせない（3章「DomainはGin・GORMのimportを持たない」）。Domain Entityは`Version int64`のようなプレーンな型で保持し、Repository実装（`toDomain` / `fromDomain`）で相互変換する。
+
+```go
+// Good
+// domain/entity/task.go（Domainはoptimisticlockに依存しない）
+type Task struct {
+    ID      uint
+    Name    string
+    Version int64
+}
+```
+
+Active Record採用機能では、Entity相当のstructとGORMモデルが同一のため、そのまま`optimisticlock.Version`型のフィールドを持たせてよい。
+
+### 適用範囲
+
+すべてのテーブルに一律で`Version`列を追加しない。複数ユーザーが同じレコードを同時に更新しうる機能（例：管理者による同一リソースの並行編集）にのみ適用する。単純な参照専用データや、同時更新が業務上起こり得ないデータには適用しない。
+
+### リトライ方針
+
+競合発生時、アプリケーション側での自動リトライは行わない。409をそのままクライアントへ返し、最新データの再取得・再送信をクライアント側に委ねる。UseCase内での自動リトライが必要な機能がある場合は、その機能のGo実装仕様書で理由とともに個別に定める。

@@ -196,7 +196,85 @@ Domain Model
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
+
+```mermaid
+classDiagram
+    class QuestionHistory {
+        +uint id
+        +uint userID
+        +uint taskID
+        +uint unitID
+        +uint questionID
+        +uint questionChoiceID
+        +string answerText
+        +AnswerResult result
+        +AnsweredAt answeredAt
+        +int timeSpentSec
+        +bool explanationViewed
+    }
+    class AnswerResult {
+        +AnswerStatus status
+        +time judgedAt
+    }
+    class AnswerStatus {
+        <<ValueObject>>
+        correct
+        incorrect
+    }
+    class AnsweredAt {
+        <<ValueObject>>
+        +time value
+    }
+    class Task {
+        <<外部Context参照>>
+        +uint id
+    }
+    class AnswerEvaluationPolicy {
+        <<DomainService>>
+        +evaluate(question, choice, answer) AnswerResult
+    }
+    class SubmissionProgressPolicy {
+        <<DomainService>>
+        +decideProgress(histories, task) TaskStatus
+    }
+
+    QuestionHistory "1" *-- "1" AnswerResult : 保持
+    AnswerResult --> AnswerStatus : 保持
+    QuestionHistory --> AnsweredAt : 保持
+    QuestionHistory ..> Task : 参照（提出時）
+    AnswerEvaluationPolicy ..> AnswerResult : 生成
+    SubmissionProgressPolicy ..> Task : 進捗を決定
+```
+
+Question / QuestionChoiceは他Context（Question Context）が所有するデータであり、本機能からは参照のみ行うため、クラス図には含めていない（「3. Bounded Context」の依存関係を参照）。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
+
+---
+
+# 10. 状態遷移図
+
+QuestionHistoryは以下の状態を持つ（「6. Entity設計」の状態変化を可視化したもの）。
+
+```mermaid
+stateDiagram-v2
+    [*] --> 未回答
+    未回答 --> 回答済み : CreateAnswerUseCase（回答登録）
+    回答済み --> 再解答済み : UpdateAnswerUseCase（再解答）
+    再解答済み --> 再解答済み : UpdateAnswerUseCase（再々解答）
+```
+
+遷移条件:
+
+- 「未回答→回答済み」は、対象問題・選択肢が正しく紐づいている場合のみ許可する
+- 「回答済み→再解答済み」は、既存履歴が存在する場合のみ許可する
+
+禁止される組み合わせ:
+
+- 「未回答」から直接「再解答済み」への遷移はない（必ず一度「回答済み」を経る）
+
+---
+
+# 11. Repository設計
 
 ## QuestionHistoryRepository
 
@@ -248,7 +326,7 @@ Domain Model
 
 ---
 
-# 10. UseCase設計
+# 12. UseCase設計
 
 ## ListQuestionsUseCase
 
@@ -308,7 +386,48 @@ Domain Model
 
 ---
 
-# 11. Transaction設計
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図（CreateAnswerUseCase）
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant UC as CreateAnswerUseCase
+    participant QR as QuestionRepository
+    participant QCR as QuestionChoiceRepository
+    participant EP as AnswerEvaluationPolicy
+    participant QHR as QuestionHistoryRepository
+
+    H->>UC: Execute(currentUser, taskID, unitID, questionID, answer)
+    UC->>QR: 問題の存在確認
+    UC->>QCR: 選択肢が対象問題に属するか確認
+    UC->>EP: 正誤判定
+    EP-->>UC: AnswerResult
+    UC->>QHR: 解答履歴を保存
+    QHR-->>UC: 保存結果
+    UC-->>H: 判定結果と保存結果
+```
+
+## 処理フロー図（SubmitTaskUseCase）
+
+提出時の進捗判定は、対象タスクに紐づく全QuestionHistoryの状態に依存する分岐処理のため、フローチャートで可視化する。
+
+```mermaid
+flowchart TD
+    A[提出リクエスト受付] --> B{対象タスクは自分のものか}
+    B -- No --> E[権限エラー]
+    B -- Yes --> C[タスクに紐づく全QuestionHistoryを取得]
+    C --> D{すべて回答済みか}
+    D -- No --> F[未完了として処理を終了]
+    D -- Yes --> G[SubmissionProgressPolicyで進捗を決定]
+    G --> H[タスク状態を更新]
+    H --> I[更新後のタスク状態を返す]
+```
+
+---
+
+# 14. Transaction設計
 
 ## Transaction開始位置
 
@@ -326,7 +445,7 @@ Domain Model
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
@@ -346,9 +465,20 @@ Domain Model
 - Domainは「業務上妥当か」を担当する
 - これにより、HTTP依存の検証と業務ルールを分離できる
 
+## バリデーション仕様
+
+|フィールド|検証層|ルール|エラーメッセージ方針|
+|-|-|-|-|
+|task_id / unit_id / question_id|Presentation|必須・数値形式|「タスク・単元・問題の指定が不正です」|
+|question_choice_id|Presentation|選択式の場合は必須|「選択肢を指定してください」|
+|answer_text|Presentation|テキスト解答の場合は必須|「解答内容を入力してください」|
+|question_choice_id と answer_text|Domain|少なくとも一方が設定されていること|「解答形式が不正です」|
+|question_choice_id|Domain|対象問題に属する選択肢であること|「選択肢が対象の問題と一致しません」|
+|task_id / unit_id / question_id|Domain|current userのタスクに紐づく組み合わせであること|「指定された問題にアクセスできません」|
+
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
 ## Middleware
 
@@ -375,7 +505,7 @@ Domain Model
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
@@ -394,9 +524,20 @@ Domain Model
 - 責務: DB接続失敗・永続化失敗・外部依存の不整合を表現する
 - 判断理由: 永続化層の失敗をドメインに漏らさず、技術的な障害として切り分けるため
 
+## エラー仕様
+
+|業務シナリオ|エラー種別|発生層|想定するHTTPステータス|
+|-|-|-|-|
+|対象タスク・単元・問題が存在しない|NotFound|Domain|404|
+|選択肢が対象問題に属さない|Validation|Domain|422|
+|既存履歴が存在しないのに更新しようとした|Validation|Domain|422|
+|提出状態の遷移が不正（未回答分がある等）|Validation|Domain|422|
+|対象タスクが自分のものでない|Forbidden|UseCase|403|
+|保存・更新処理の失敗|Internal|Infrastructure|500|
+
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
 本機能では現時点でDomain Eventを採用しない。理由は、回答登録・提出に対して他処理へ通知するような非同期副作用が明示されていないためである。
 
@@ -404,45 +545,47 @@ Domain Model
 
 ---
 
-# 16. API互換方針
+# 19. API仕様
 
-## URL
+## エンドポイント一覧
 
-- Rails現行仕様と同じエンドポイントを維持する
-  - GET /api/v1/student/tasks/:task_id/units/:unit_id/questions
-  - POST /api/v1/student/answers
-  - PATCH /api/v1/student/answers
-  - GET /api/v1/student/tasks/:task_id/units/:unit_id/confirmation
-  - PATCH /api/v1/student/tasks/:task_id/submission
+|エンドポイント|HTTP Method|概要|
+|-|-|-|
+|/api/v1/student/tasks/:task_id/units/:unit_id/questions|GET|問題一覧取得|
+|/api/v1/student/answers|POST|解答登録|
+|/api/v1/student/answers|PATCH|解答更新|
+|/api/v1/student/tasks/:task_id/units/:unit_id/confirmation|GET|確認表示|
+|/api/v1/student/tasks/:task_id/submission|PATCH|提出|
 
-## HTTP Method
+## 各エンドポイントの仕様
 
-- 既存仕様どおりに維持する
+- 問題一覧取得: パスパラメータ`task_id`/`unit_id`。レスポンスは問題一覧と既回答状態
+- 解答登録: ボディに`task_id`/`unit_id`/`question_id`/`question_choice_id`または`answer_text`。レスポンスは判定結果
+- 解答更新: 解答登録と同様のボディ。既存履歴を更新し、再判定結果を返す
+- 確認表示: パスパラメータ`task_id`/`unit_id`。レスポンスは問題ごとの回答状況
+- 提出: パスパラメータ`task_id`。レスポンスは提出後のタスク状態
 
-## Request
-
-- Railsのパラメータ形式は維持しつつ、Go側では入力DTOとして吸収する
-- 既存のtask_id / unit_id / question_id / question_choice_idの意味は維持する
-
-## Response
-
-- 取得・登録・更新・提出の成功時に、Rails現行仕様と同等の意味を持つレスポンスを返す
-- 失敗時は422/404のステータスを維持する
-
-## Status Code
+Status Code:
 
 - 200: 取得成功
 - 422: 入力・業務ルール違反
 - 404: 対象データ不存在
+- 403: 対象タスクが自分のものでない
 
-## Error Response
+Error Response方針: 既存のerrors構造を意識しつつ、Goの実装に合わせて整形する。フロントエンド互換性を優先する。
 
-- 既存のerrors構造を意識しつつ、Goの実装に合わせて整形する
-- フロントエンド互換性を優先する
+## Railsとの差分
+
+- Rails仕様: 上記5エンドポイントをそのまま維持する
+- Go設計での変更: なし（URL・HTTP Method・意味を維持する）
+- 変更理由: フロントエンドとの互換性を優先するため
+- 影響範囲: なし
+
+JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で扱う。
 
 ---
 
-# 17. DB設計方針
+# 20. DB設計方針
 
 ## 現行DBを利用するか
 
@@ -463,7 +606,20 @@ Domain Model
 
 ---
 
-# 18. テスト戦略
+# 21. DB操作仕様
+
+|Repository|対象テーブル|操作種別|主な検索条件|結合|ページネーション/ソート|
+|-|-|-|-|-|-|
+|QuestionHistoryRepository|question_histories|参照・作成・更新|user_id, task_id, unit_id, question_id|なし|不要（問題単位で1件）|
+|QuestionRepository|questions|参照|unit_id, task_id|選択肢・ヒントとの結合が必要|問題の表示順でソート|
+|QuestionChoiceRepository|question_choices|参照|question_id|questionsとの結合で対象問題への帰属を確認|不要|
+|TaskRepository|tasks|参照・更新|task_id|なし|不要|
+
+具体的なSQL・GORMのクエリコードは③Go実装仕様書（`規約/Gorm規約.md`）で扱う。
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
@@ -487,7 +643,7 @@ Domain Model
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
 | Rails | Go | 設計方針 |
 |---|---|---|
@@ -500,7 +656,7 @@ Domain Model
 
 ---
 
-# 20. 採用しなかった設計
+# 24. 採用しなかった設計
 
 ## Transaction Script
 
@@ -519,7 +675,7 @@ Domain Model
 
 ---
 
-# 21. 設計判断サマリー
+# 25. 設計判断サマリー
 
 | 項目 | 採用 | 判断理由 |
 |---|---|---|

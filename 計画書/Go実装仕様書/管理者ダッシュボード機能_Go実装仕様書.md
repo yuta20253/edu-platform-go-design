@@ -21,7 +21,7 @@
 
 - 対象Bounded Context: `admin-dashboard`（②「3. Bounded Context」）
 - 対象エンドポイント: `GET /api/v1/admin/dashboard`
-- Transaction Script構造（アーキテクチャ規約「4. 設計パターンごとの構造適用方針」）に基づく、application層の関数、infrastructure層のクエリ関数、presentation層のHandler/Response/Routingの実装単位までを具体化する
+- Transaction Script構造（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）に基づく、application層の関数、infrastructure層のクエリ関数、presentation層のHandler/Response/Routingの実装単位までを具体化する
 - User Context（ユーザー種別ごとの人数）・Question Context（総問題数）・Import Context（直近インポート履歴）自体が管理するデータの作成・更新・状態遷移の実装仕様は対象外。本書はこれらのContextが保持するデータを読み取り専用で参照し、集約して返す側の実装のみを扱う
 - ①Rails実装（Controller/Serializer等の詳細実装）は本タスクでは未提供のため、実装仕様の根拠として参照していない（「①未提供のため参照不可」として扱う）
 
@@ -31,7 +31,7 @@
 
 - 対象Bounded Context名: `admin-dashboard`
 - ②で採用した設計パターン: **Transaction Script**
-- 採用パターンに対応する構造: アーキテクチャ規約「4. 設計パターンごとの構造適用方針」の Transaction Script構成をそのまま適用する（domain層・usecase層・Repository Interfaceは設けない）
+- 採用パターンに対応する構造: アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Transaction Script構成をそのまま適用する（domain層・usecase層・Repository Interfaceは設けない）
 
 ## 作成するディレクトリ一覧
 

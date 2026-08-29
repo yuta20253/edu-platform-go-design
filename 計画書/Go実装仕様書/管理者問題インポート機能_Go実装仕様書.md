@@ -32,7 +32,7 @@ Transaction Script（ルールが散在し保守性が低下する）、Active R
 
 - 対象 Bounded Context名: `question-import`（`internal/` 配下のディレクトリ名は `question_import` とする。アーキテクチャ規約「5. 命名規則」に基づき、Context名の kebab-case とディレクトリ名のスネークケースの対応をここに明記する）
 - ②で採用した設計パターン: Domain Model
-- アーキテクチャ規約「4. 設計パターンごとの構造適用方針」の Domain Model 構造（標準フルレイヤー構成）をそのまま適用する
+- アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Domain Model 構造（標準フルレイヤー構成）をそのまま適用する
 - 本機能で `specification/`・`mail/`・`cache/` は対象外とする（②に該当する業務ルールの記載がないため。理由は本書「5. Infrastructure層設計」に後述）
 
 ## 作成するディレクトリ一覧

@@ -36,7 +36,7 @@
 
 ## ディレクトリ一覧（採用パターンに対応する構造）
 
-アーキテクチャ規約「4. 設計パターンごとの構造適用方針」のTransaction Script構造に従う。
+アーキテクチャ規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造に従う。
 
 ```
 internal/curriculum/
@@ -59,7 +59,7 @@ internal/curriculum/presentation/response/course_response.go
 internal/curriculum/presentation/routes.go
 ```
 
-**②からの補足**: Transaction Script構造にはRequest DTO専用ディレクトリ（`presentation/request/`）が規約の例に含まれていない。クエリパラメータをバインドする小さなstructは`presentation/handler/course_handler.go`内に定義する方針とした（規約「4. 設計パターンごとの構造適用方針」のTransaction Script構成例に基づく判断。②に明記なし）。
+**②からの補足**: Transaction Script構造にはRequest DTO専用ディレクトリ（`presentation/request/`）が規約の例に含まれていない。クエリパラメータをバインドする小さなstructは`presentation/handler/course_handler.go`内に定義する方針とした（規約「3. 設計パターンごとの構造適用方針」のTransaction Script構成例に基づく判断。②に明記なし）。
 
 ---
 

@@ -22,7 +22,7 @@
 
 - Bounded Context: `teacher-directory`（教員名簿・着任管理コンテキスト）
 - 対象UseCase相当の操作: 教員一覧取得（ListTeachers）、教員詳細取得（ShowTeacher）、新規教員作成（CreateTeacher）
-- 規約（`規約/アーキテクチャ規約.md`「4. 設計パターンごとの構造適用方針」）に従い、Active Record採用機能としてdomain層・application層（usecase層）・Repository Interfaceを設けない構造で実装する
+- 規約（`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」）に従い、Active Record採用機能としてdomain層・application層（usecase層）・Repository Interfaceを設けない構造で実装する
 - ①Rails実装の詳細（`CreateTeacherForm`等のコード内容）は本タスクでは提供されておらず、参照が必要な箇所は「①未提供のため参照不可」と明記する
 
 ---
@@ -39,7 +39,7 @@
 
 ## 採用パターンに対応する構造
 
-アーキテクチャ規約「4. 設計パターンごとの構造適用方針」のActive Record構造に従う。domain層・infrastructure層のレイヤー分離、usecase層は設けない。Entity相当のstruct（Model）と永続化操作（Store）を同一packageに置く。
+アーキテクチャ規約「3. 設計パターンごとの構造適用方針」のActive Record構造に従う。domain層・infrastructure層のレイヤー分離、usecase層は設けない。Entity相当のstruct（Model）と永続化操作（Store）を同一packageに置く。
 
 ②「9. Repository設計」の記載どおり、②文書中の「Repository」「UseCase」という表記は、本書では以下の簡略構造へ読み替える（②文書自体は変更しない）。
 
@@ -78,7 +78,7 @@ internal/teacher_directory/
 
 # 3. Domain層設計
 
-**対象外（Active Record採用のため、domain層を設けない）。** 以下、②「6. Entity設計」「7. Value Object設計」「8. Domain Service」「14. Error設計」を、アーキテクチャ規約「4. 設計パターンごとの構造適用方針」に従いActive Record向けに読み替えて記載する。
+**対象外（Active Record採用のため、domain層を設けない）。** 以下、②「6. Entity設計」「7. Value Object設計」「8. Domain Service」「14. Error設計」を、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」に従いActive Record向けに読み替えて記載する。
 
 ## Model（Entity相当）
 
@@ -355,7 +355,7 @@ Mail・Cache・Queueは②15節「Domain Event」の記載のとおり本機能�
 - `TeacherPermissionInitializationStore.Create`・`TeacherGradeAssignmentStore.Create`は、トランザクション制御を持たず、呼び出し元（`TeacherDirectoryStore.CreateTeacherWithInitialSetup`）から渡された`*gorm.DB`（トランザクションコンテキスト）を用いて実行する
 - `GradeStore`（School/Gradeコンテキスト）への問い合わせは学年の存在・所属校確認のための読み取り専用アクセスであり、書き込みトランザクションの外（Handler側、手順5の時点）で実行する
 
-**②からの補足（推測）**: ②11節は「CreateTeacherの処理に対応するStoreメソッド内でトランザクションを開始する」と記載するのみで、3つのStoreにまたがる処理をどのStoreメソッドに集約するかは明記されていない。本書では`TeacherDirectoryStore`（教員アカウント自体を管理する中心的Store）にトランザクション制御を集約する設計とした。Active Record採用機能ではusecase層・Repository Interfaceによる依存性逆転を追加しない方針（規約「4. 設計パターンごとの構造適用方針」）のため、複数Storeを束ねる別structを新設せず、既存Storeの1メソッドとして実装する。
+**②からの補足（推測）**: ②11節は「CreateTeacherの処理に対応するStoreメソッド内でトランザクションを開始する」と記載するのみで、3つのStoreにまたがる処理をどのStoreメソッドに集約するかは明記されていない。本書では`TeacherDirectoryStore`（教員アカウント自体を管理する中心的Store）にトランザクション制御を集約する設計とした。Active Record採用機能ではusecase層・Repository Interfaceによる依存性逆転を追加しない方針（規約「3. 設計パターンごとの構造適用方針」）のため、複数Storeを束ねる別structを新設せず、既存Storeの1メソッドとして実装する。
 
 ---
 
@@ -457,7 +457,7 @@ Mail・Cache・Queueは②15節「Domain Event」の記載のとおり本機能�
 
 # 13. テストケース設計
 
-②「18. テスト戦略」を、アーキテクチャ規約「4. 設計パターンごとの構造適用方針」・出力フォーマット指示（Active Record: 「Domain Test」→「Model Test」、「UseCase Test」は対象外、「Repository Test」→「Store Test」）に従い読み替えて具体化する。
+②「18. テスト戦略」を、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」・出力フォーマット指示（Active Record: 「Domain Test」→「Model Test」、「UseCase Test」は対象外、「Repository Test」→「Store Test」）に従い読み替えて具体化する。
 
 ## Model Test（②「Domain Test」相当）
 

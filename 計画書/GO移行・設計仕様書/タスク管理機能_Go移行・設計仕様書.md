@@ -202,9 +202,95 @@ Active Record
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
 
-**実装上の位置づけ**: 本機能はActive Record採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はEntity相当のstructと同一packageに置くStore(例: `〇〇Store`)として直接実装する(規約: アーキテクチャ規約.md「4. 設計パターンごとの構造適用方針」)。
+Active Record採用のため実装時はTask/TaskUnitLinkが同一packageのstructとメソッドに統合されるが（4章参照）、業務概念としての関係は以下のとおり整理する。
+
+```mermaid
+classDiagram
+    class Task {
+        +uint id
+        +uint userID
+        +uint goalID
+        +string title
+        +string content
+        +DueDate dueDate
+        +Priority priority
+        +string memo
+        +TaskStatus status
+        +time completedAt
+    }
+    class TaskUnitLink {
+        +uint id
+        +uint taskID
+        +uint unitID
+    }
+    class TaskStatus {
+        <<ValueObject>>
+        not_started
+        in_progress
+        completed
+    }
+    class DueDate {
+        <<ValueObject>>
+        +time value
+    }
+    class Priority {
+        <<ValueObject>>
+        +string normalized
+    }
+    class Goal {
+        <<外部Context参照>>
+        +uint id
+    }
+    class Unit {
+        <<外部Context参照>>
+        +uint id
+    }
+    class TaskUnitRelationPolicy {
+        <<DomainService>>
+        +canRemove(unit) bool
+    }
+
+    Task "1" *-- "0..*" TaskUnitLink : 保持
+    Task --> TaskStatus : 保持
+    Task --> DueDate : 保持
+    Task --> Priority : 保持
+    Task ..> Goal : 参照
+    TaskUnitLink ..> Unit : 参照
+    TaskUnitRelationPolicy ..> TaskUnitLink : 削除可否を判定
+```
+
+Goalは他Context（Goal Context）、Unitは他Context（Unit/curriculum Context）が所有するデータであり、参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
+
+---
+
+# 10. 状態遷移図
+
+Task.statusは以下の状態を持つ（「6. Entity設計」の状態変化を可視化したもの）。
+
+```mermaid
+stateDiagram-v2
+    [*] --> not_started
+    not_started --> in_progress
+    in_progress --> completed
+    completed --> in_progress
+    in_progress --> not_started
+    not_started --> completed
+```
+
+遷移条件:
+
+- `completed`への遷移時は`completed_at`を設定する
+- `completed`以外への遷移時は`completed_at`をクリアする
+
+厳密な遷移制約（元の状態に応じて許可される遷移の組み合わせ）は①未提供のため参照不可であり、`UpdateTask`が任意の状態値を受け付ける前提とした（推測。詳細は既存の②文書の記載範囲に準じる）。
+
+---
+
+# 11. Repository設計
+
+**実装上の位置づけ**: 本機能はActive Record採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はEntity相当のstructと同一packageに置くStore(例: `〇〇Store`)として直接実装する(規約: アーキテクチャ規約.md「3. 設計パターンごとの構造適用方針」)。
 
 ## TaskStore
 
@@ -259,7 +345,7 @@ Active Record
 
 ---
 
-# 10. UseCase設計
+# 12. UseCase設計
 
 **実装上の位置づけ**: 本機能はActive Record採用のため、UseCase層(struct)を設けない。以下はHandlerが行う業務操作の設計意図であり、実装時はHandlerがStoreを直接呼び出す処理として実装する。
 
@@ -311,7 +397,48 @@ Active Record
 
 ---
 
-# 11. Transaction設計
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図（CreateTask）
+
+Active Record採用のためUseCase層はなく、Handlerが各Storeを直接呼び出す（4章参照）。
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant GS as GoalStore
+    participant US as UnitStore
+    participant TS as TaskStore
+    participant TULS as TaskUnitLinkStore
+
+    H->>GS: goal_idが自分の目標か確認
+    H->>US: unit_idsの存在確認
+    H->>TS: Taskを作成
+    TS-->>H: 作成結果
+    H->>TULS: TaskUnitLinkを一括作成
+    TULS-->>H: 作成結果
+    H-->>H: レスポンス整形
+```
+
+## 処理フロー図（UpdateTask）
+
+単元紐付けの差分反映と削除禁止ルールの判定は分岐が多いため、フローチャートで可視化する。
+
+```mermaid
+flowchart TD
+    A[更新リクエスト受付] --> B{対象タスクは自分のものか}
+    B -- No --> Z[権限エラー]
+    B -- Yes --> C[Task本体を更新]
+    C --> D[追加対象単元・削除対象単元を算出]
+    D --> E{削除対象単元は学習開始済みか}
+    E -- Yes --> Y[削除禁止エラー]
+    E -- No --> F[TaskUnitLinkを追加・削除]
+    F --> G[更新結果を返す]
+```
+
+---
+
+# 14. Transaction設計
 
 ## Transaction開始位置
 
@@ -329,7 +456,7 @@ Active Record
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
@@ -349,9 +476,20 @@ Active Record
 - Domainは「業務的に妥当か」を担当する
 - これにより、HTTP依存の検証と業務ルールを分離できる
 
+## バリデーション仕様
+
+|フィールド|検証層|ルール|エラーメッセージ方針|
+|-|-|-|-|
+|title / content / due_date / priority|Presentation|必須・型チェック|「必須項目が未入力です」|
+|priority|Presentation|文字列または整数の形式|「優先度の形式が不正です」|
+|unit_ids|Presentation|配列形式|「単元の指定が不正です」|
+|goal_id|Domain|current userの目標であること|「指定された目標にアクセスできません」|
+|status（completed）|Domain|completed_atとの整合性|「完了日時の整合性が取れていません」|
+|unit_ids（削除対象）|Domain|学習開始済み単元は削除不可|「学習を開始した単元は削除できません」|
+
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
 ## Middleware
 
@@ -379,7 +517,7 @@ Active Record
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
@@ -398,9 +536,19 @@ Active Record
 - 責務: DB接続失敗・永続化失敗・外部依存の不整合を表現する
 - 判断理由: 永続化層の失敗をドメインに漏らさず、技術的な障害として切り分けるため
 
+## エラー仕様
+
+|業務シナリオ|エラー種別|発生層|想定するHTTPステータス|
+|-|-|-|-|
+|対象タスクが存在しない、または自分のものでない|NotFound|Domain|404|
+|不正な状態遷移|Validation|Domain|422|
+|学習開始済み単元を削除しようとした|Validation|Domain|422|
+|指定goal_idが自分の目標でない|Forbidden|Domain|403|
+|作成・更新処理の失敗|Internal|Infrastructure|500|
+
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
 本機能では現時点でDomain Eventを採用しない。理由は、タスク作成・更新に対して他処理へ通知するような非同期の副作用が明示されていないためである。
 
@@ -408,45 +556,45 @@ Active Record
 
 ---
 
-# 16. API互換方針
+# 19. API仕様
 
-## URL
+## エンドポイント一覧
 
-- Rails現行仕様と同じエンドポイントを維持する
-  - GET /api/v1/student/tasks
-  - GET /api/v1/student/tasks/:id
-  - POST /api/v1/student/tasks
-  - PATCH /api/v1/student/tasks/:id
+|エンドポイント|HTTP Method|概要|
+|-|-|-|
+|/api/v1/student/tasks|GET|タスク一覧取得|
+|/api/v1/student/tasks/:id|GET|タスク詳細取得|
+|/api/v1/student/tasks|POST|タスク作成|
+|/api/v1/student/tasks/:id|PATCH|タスク更新|
 
-## HTTP Method
+## 各エンドポイントの仕様
 
-- 既存仕様どおりに維持する
+- タスク一覧取得: クエリパラメータ`status`/`page`。レスポンスはタスク一覧とページ情報
+- タスク詳細取得: パスパラメータ`id`。レスポンスはタスク詳細と関連単元
+- タスク作成: ボディに`title`/`content`/`due_date`/`priority`/`memo`/`goal_id`/`unit_ids`。レスポンスは作成結果
+- タスク更新: 作成と同様のボディ。レスポンスは更新結果
 
-## Request
-
-- 既存のtask[xxx]形式の意味は維持しつつ、Go側では入力DTOとして吸収する
-- 画面依存のパラメータ名はGoの内部表現に変換するが、APIの外部仕様はできるだけ維持する
-
-## Response
-
-- 一覧・詳細・作成・更新の成功時は、Rails現行仕様に近い意味のレスポンスを維持する
-- 失敗時は422/404といったHTTPステータスを維持する
-
-## Status Code
+Status Code:
 
 - 200: 取得成功
 - 201/200: 作成・更新成功の扱いは既存仕様に合わせて統一する
 - 422: 入力・業務ルール違反
 - 404: 対象タスク不存在
 
-## Error Response
+Error Response方針: 既存のerrors形式をそのまま踏襲するか、Goの実装に合わせて再構成する。フロントエンド互換性を優先し、エラーメッセージのキー構造は可能な限り維持する。
 
-- 既存のerrors形式をそのまま踏襲するか、Goの実装に合わせて再構成する
-- フロントエンド互換性を優先し、エラーメッセージのキー構造は可能な限り維持する
+## Railsとの差分
+
+- Rails仕様: 上記4エンドポイントをそのまま維持する
+- Go設計での変更: なし（URL・HTTP Method・意味を維持する）。`task[xxx]`形式のリクエストパラメータはGo側で入力DTOとして吸収する
+- 変更理由: フロントエンドとの互換性を優先するため
+- 影響範囲: なし
+
+JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で扱う。
 
 ---
 
-# 17. DB設計方針
+# 20. DB設計方針
 
 ## 現行DBを利用するか
 
@@ -467,7 +615,20 @@ Active Record
 
 ---
 
-# 18. テスト戦略
+# 21. DB操作仕様
+
+|Store|対象テーブル|操作種別|主な検索条件|結合|ページネーション/ソート|
+|-|-|-|-|-|-|
+|TaskStore|tasks|参照・作成・更新|user_id, status|なし|due_date昇順、ページネーションあり|
+|TaskUnitLinkStore|task_units|参照・作成・削除|task_id|なし|不要|
+|GoalStore|goals|参照|goal_id, user_id|なし|不要|
+|UnitStore|units|参照|unit_id|学習履歴との結合で開始済み判定が必要|不要|
+
+具体的なSQL・GORMのクエリコードは③Go実装仕様書（`規約/Gorm規約.md`）で扱う。
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
@@ -491,7 +652,7 @@ Active Record
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
 | Rails | Go | 設計方針 |
 |---|---|---|
@@ -504,7 +665,7 @@ Active Record
 
 ---
 
-# 20. 採用しなかった設計
+# 24. 採用しなかった設計
 
 ## Domain Model
 
@@ -523,7 +684,7 @@ Active Record
 
 ---
 
-# 21. 設計判断サマリー
+# 25. 設計判断サマリー
 
 | 項目 | 採用 | 判断理由 |
 |---|---|---|
