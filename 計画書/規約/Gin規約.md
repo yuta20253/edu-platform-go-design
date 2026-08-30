@@ -10,7 +10,7 @@
 
 ### Bindingの方針
 
-入力バインドには`ShouldBind`系（`ShouldBindJSON`等）のみを使用し、`Bind`系（`BindJSON`等の自動400応答）は使用しない。エラーハンドリングをアプリケーション側で一元的に制御するため（詳細は「6. エラーハンドリングミドルウェア」）。
+入力バインドには`ShouldBind`系（`ShouldBindJSON`等）のみを使用し、`Bind`系（`BindJSON`等の自動400応答）は使用しない。エラーハンドリングをアプリケーション側で一元的に制御するため（詳細は「8. エラーハンドリングミドルウェア」）。
 
 ### エラーハンドリングの方針
 
@@ -216,11 +216,67 @@ func RequireRole(role string) gin.HandlerFunc {
 }
 ```
 
-`enforcer`は`main.go`でファイルアダプタ（`casbin.NewEnforcer("model.conf", "configs/casbin_policy.csv")`）を用いて1つ生成し、アーキテクチャ規約「13. 依存関係の組み立て（DI配線）」に従ってコンストラクタ引数として各Contextの`NewContext`に渡す。
+`enforcer`は`main.go`でファイルアダプタ（`casbin.NewEnforcer("model.conf", "configs/casbin_policy.csv")`）を用いて1つ生成し、アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従ってコンストラクタ引数として各Contextの`NewContext`に渡す。
 
 ---
 
-## 5. Model BindingとValidation
+## 5. CSRF対策
+
+認証機能はJWTをHTTP Only Cookieでクライアントに渡す方式を採用している（②文書「Cookie仕様は維持する」）。Authorizationヘッダーでトークンを送る方式と異なり、Cookieはブラウザが同一オリジン制約を受けずに自動送信するため、CSRF（Cross-Site Request Forgery）対策が必須になる。
+
+### 方針
+
+単一の対策に依存せず、多層防御とする。
+
+1. JWT Cookieに`SameSite=Lax`（`Secure`・`HttpOnly`と併用）を設定する
+2. 状態変更を伴うリクエスト（POST/PUT/PATCH/DELETE）に対し、Double Submit Cookieパターンによる追加のCSRFトークン検証を行う
+
+SameSiteのみに依存しない理由: ブラウザの実装差異や設定によりSameSiteが期待どおりに機能しないケースがあるため、CSRFトークンによる検証を組み合わせる。
+
+### Cookieの設定
+
+```go
+// Good
+c.SetSameSite(http.SameSiteLaxMode)
+c.SetCookie("jwt", token, maxAge, "/", domain, true /* secure */, true /* httpOnly */)
+```
+
+```go
+// Bad
+c.SetCookie("jwt", token, maxAge, "/", domain, true, true) // SameSite未設定（デフォルトのDefaultModeに委ねてしまう）
+```
+
+### CSRFトークン検証
+
+サーバー側にセッションストアを持たないため、Double Submit Cookieパターンを実装する`gorilla/csrf`（`github.com/gorilla/csrf`）を使用する。`net/http`ミドルウェアとして提供されるため、Ginでは以下のようにラップする。
+
+```go
+// Good
+func CSRFMiddleware(secret []byte) gin.HandlerFunc {
+    protect := csrf.Protect(
+        secret,
+        csrf.Secure(true),
+        csrf.SameSite(csrf.SameSiteLaxMode),
+    )
+
+    return func(c *gin.Context) {
+        protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            c.Request = r
+            c.Next()
+        })).ServeHTTP(c.Writer, c.Request)
+    }
+}
+```
+
+`secret`はコーディング規約「4. パッケージ設計」の設定値読み込み方針に従い、`Config`経由で環境変数から読み込む。GET/HEAD/OPTIONSはgorilla/csrfの既定動作により検証対象外となる。
+
+### 適用範囲
+
+Cookie経由の認証を用いるルートグループにのみ`Use`する（0章の表のとおり、認証が必要なルートグループへの適用に準じる）。ログインエンドポイント自体（Cookie発行前）の扱いは、フロントエンド実装と合わせて別途確認する。
+
+---
+
+## 6. Model BindingとValidation
 
 リクエストのバインドには`ShouldBind`系メソッド（`ShouldBindJSON` / `ShouldBindQuery` / `ShouldBindUri`等）を使用する。バインドに失敗した場合の応答はアプリケーション側（エラーハンドリングミドルウェア）で制御する。
 
@@ -246,7 +302,7 @@ func (h *Handler) CreateTask(c *gin.Context) {
 }
 ```
 
-検証には`go-playground/validator`ベースの`binding`タグを使用する。型・必須・フォーマットの検証に留め、業務ルールの検証は行わない（コーディング規約「8. 関数・メソッド設計」の「入力検証とドメイン検証の責務分離」に従う）。
+検証には`go-playground/validator`ベースの`binding`タグを使用する。型・必須・フォーマットの検証に留め、業務ルールの検証は行わない（コーディング規約「9. 関数・メソッド設計」の「入力検証とドメイン検証の責務分離」に従う）。
 
 ```go
 // Good
@@ -279,9 +335,105 @@ func toValidationError(err error) *apperror.ValidationError {
 }
 ```
 
+### 一覧取得（クエリパラメータ）のバインド
+
+GETによる一覧取得等、クエリ文字列のみをバインドする場合は`ShouldBindQuery`を使用する。`ShouldBindJSON`と異なりリクエストボディは読まない。
+
+```go
+// Good
+type ListTasksRequest struct {
+    Status string `form:"status" binding:"omitempty,oneof=not_started in_progress completed"`
+    Page   int    `form:"page,default=1" binding:"omitempty,min=1"`
+}
+
+func (h *Handler) ListTasks(c *gin.Context) {
+    var req ListTasksRequest
+    if err := c.ShouldBindQuery(&req); err != nil {
+        c.Error(toValidationError(err))
+        return
+    }
+
+    // ...
+}
+```
+
+```go
+// Bad
+func (h *Handler) ListTasks(c *gin.Context) {
+    status := c.Query("status") // 個々のクエリを手動取得し、型変換・バリデーションが分散する
+    page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+    // ...
+}
+```
+
+クエリタグには`json`ではなく`form`を使用する。デフォルト値は`binding:"required"`ではなく`form:"page,default=1"`のように`form`タグ側で指定する。
+
 ---
 
-## 6. エラーハンドリングミドルウェア
+## 7. ファイルアップロード（multipart/form-data）
+
+管理者問題インポート機能のCSVアップロード等、`multipart/form-data`でファイルを受け取る機能に適用する。
+
+### 制限
+
+- ファイルサイズの上限を明示的に設定する（`router.MaxMultipartMemory`、および個々のファイルサイズは`FileHeader.Size`で検証する）
+- 許可する拡張子・Content-Typeをホワイトリストで検証する
+- 検証エラーは「6. Model BindingとValidation」の`apperror.ValidationError`として扱う
+
+```go
+// Good
+func (h *Handler) UploadCSV(c *gin.Context) {
+    fileHeader, err := c.FormFile("file")
+    if err != nil {
+        c.Error(apperror.NewValidation("ファイルが指定されていません"))
+        return
+    }
+
+    if fileHeader.Size > maxUploadSize {
+        c.Error(apperror.NewValidation("ファイルサイズが上限を超えています"))
+        return
+    }
+
+    if ext := filepath.Ext(fileHeader.Filename); ext != ".csv" {
+        c.Error(apperror.NewValidation("CSVファイルを指定してください"))
+        return
+    }
+
+    // ...
+}
+```
+
+```go
+// Bad
+func (h *Handler) UploadCSV(c *gin.Context) {
+    fileHeader, _ := c.FormFile("file") // サイズ・拡張子を検証せずそのまま保存する
+    c.SaveUploadedFile(fileHeader, dst)
+}
+```
+
+### 保存先
+
+アップロードされたファイルは、リクエスト処理中にサーバーのローカルディスク上の所定のディレクトリへ保存し、そのパス（またはファイル名）を業務データ（ImportHistory等）に記録する。オブジェクトストレージ（S3等）は現時点では導入しない。理由はアーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」と同様（追加インフラなしで完結させる、単一インスタンス運用を前提とする）であり、この2つの方針は前提を共有する。将来、複数インスタンスでの水平スケーリングを行う際は、JobQueueの排他制御見直しと合わせてファイル保存先（共有ストレージ化）も再検討する。
+
+```go
+// Good
+dst := filepath.Join(cfg.UploadDir, uuid.NewString()+filepath.Ext(fileHeader.Filename))
+
+if err := c.SaveUploadedFile(fileHeader, dst); err != nil {
+    c.Error(fmt.Errorf("ファイルの保存に失敗しました: %w", err))
+    return
+}
+```
+
+CSVの実際の解析・処理は、保存したファイルパスをジョブのpayloadに含めて「13. 非同期ジョブ実行パターン（JobQueue）」のワーカーに委譲する。同期リクエスト処理内でファイル内容を全件パースしない。
+
+### クリーンアップ
+
+処理完了（成功・失敗を問わず）後、アップロード済みファイルを削除する。削除タイミング（処理完了直後か、調査のため一定期間保持するか）は機能ごとに③Go実装仕様書で定める。放置されたアップロードファイルがディスクを圧迫しないよう、削除方針を必ず明記する。
+
+---
+
+## 8. エラーハンドリングミドルウェア
 
 Handlerは、業務処理の呼び出しで得たエラーを`c.Error(err)`でgin.Contextへ登録し、以降の処理をエラーハンドリングミドルウェアに委ねる。
 
@@ -361,9 +513,40 @@ func (h *Handler) CreateTask(c *gin.Context) {
 }
 ```
 
+### `c.Errors`に複数のエラーが蓄積される場合
+
+`c.Error()`は複数回呼び出すと`c.Errors`に追記される（`[]*gin.Error`）。1つのHandler内で`c.Error()`を複数回呼ばない設計を基本とするが、複数のミドルウェアがそれぞれ`c.Error()`を呼ぶ構成もあり得るため、`ErrorHandler`は`c.Errors.Last()`で最後（＝最も内側、Handlerに近い側）のエラーのみを採用する。
+
+```go
+// Good
+func (h *Handler) CreateTask(c *gin.Context) {
+    var req CreateTaskRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.Error(toValidationError(err)) // 1回だけ呼ぶ
+        return
+    }
+    // ...
+}
+```
+
+```go
+// Bad
+func (h *Handler) CreateTask(c *gin.Context) {
+    var req CreateTaskRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.Error(toValidationError(err))
+        c.Error(fmt.Errorf("bind failed")) // 同一Handler内で複数回呼び、意図が曖昧になる
+        return
+    }
+    // ...
+}
+```
+
+`c.Errors.Last()`ではなく`c.Errors`全件をレスポンスに含める設計は採用しない（内部実装の詳細やスタック情報が意図せず露出するおそれがあるため）。
+
 ---
 
-## 7. テスト
+## 9. テスト
 
 HTTPハンドラのテストには`net/http/httptest`を使用する。実際にサーバーを起動せず、`router.ServeHTTP(w, req)`でルーターへ直接リクエストを投げる。
 
@@ -387,4 +570,4 @@ func TestCreateTask(t *testing.T) {
 }
 ```
 
-`gin.SetMode(gin.TestMode)`でデバッグ出力を抑制する。ミドルウェア単体のテストは、対象のミドルウェアと簡易なハンドラのみを持つ最小構成のルーターで行い、他のミドルウェアの影響を受けないようにする。複数ケースを検証する場合は、コーディング規約「14. テスト」のテーブル駆動テストに従う。
+`gin.SetMode(gin.TestMode)`でデバッグ出力を抑制する。ミドルウェア単体のテストは、対象のミドルウェアと簡易なハンドラのみを持つ最小構成のルーターで行い、他のミドルウェアの影響を受けないようにする。複数ケースを検証する場合は、コーディング規約「26. テスト」のテーブル駆動テストに従う。

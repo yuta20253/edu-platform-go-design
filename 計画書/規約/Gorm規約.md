@@ -326,7 +326,7 @@ db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{
 
 ### 本プロジェクトでの方針
 
-コーディング規約「20. ロギング」の構造化ロギング方針（`log/slog`使用）に合わせ、GORMの`logger.Interface`を実装したアダプタを用意し、`slog.Logger`へブリッジする。アプリケーション本体のログとGORMが出すSQLログを同一の構造化フォーマット・同一の出力先に統一する。`SlowThreshold`は既定値（200ms）から開始し、実測に応じて調整する。
+コーディング規約「22. ロギング」の構造化ロギング方針（`log/slog`使用）に合わせ、GORMの`logger.Interface`を実装したアダプタを用意し、`slog.Logger`へブリッジする。アプリケーション本体のログとGORMが出すSQLログを同一の構造化フォーマット・同一の出力先に統一する。`SlowThreshold`は既定値（200ms）から開始し、実測に応じて調整する。
 
 ---
 
@@ -340,7 +340,7 @@ if err := db.Where("name = ?", "jinzhu").First(&user).Error; err != nil {
 }
 ```
 
-レコードが見つからない場合は`gorm.ErrRecordNotFound`が返る。判定には文字列比較や`==`ではなく`errors.Is`を使用する（コーディング規約「6. エラーハンドリング」に従う）。
+レコードが見つからない場合は`gorm.ErrRecordNotFound`が返る。判定には文字列比較や`==`ではなく`errors.Is`を使用する（コーディング規約「18. エラーハンドリング」に従う）。
 
 ```go
 // Good
@@ -382,6 +382,27 @@ func (r *userRepository) FindByID(ctx context.Context, id uint) (*domain.User, e
 }
 ```
 
+`Create`時に一意制約違反が発生するケース（メールアドレスの重複登録等）では`gorm.ErrDuplicatedKey`を判定する。
+
+```go
+// Good
+func (r *userRepository) Create(ctx context.Context, u *domain.User) error {
+    m := fromDomain(u)
+
+    if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+        if errors.Is(err, gorm.ErrDuplicatedKey) {
+            return domain.ErrEmailAlreadyRegistered
+        }
+
+        return fmt.Errorf("ユーザーの作成に失敗しました: %w", err)
+    }
+
+    return nil
+}
+```
+
+複数のUNIQUE制約を持つテーブルで、どの制約に違反したかをエラーメッセージから判別する必要がある場合は、`gorm.ErrDuplicatedKey`のような共通型では区別できない点に注意する。区別が必要な場合は、事前に`Where`で存在確認してから`Create`する、またはDB固有のエラー詳細（`TranslateError`を無効化した場合の生エラー）を参照する。
+
 ---
 
 ## 10. Hooks
@@ -417,7 +438,7 @@ tx.Model(&user).Update("role", "admin")
 
 ### 本プロジェクトでの方針
 
-コーディング規約「11. context.Context」のとおり、Repository/Store/DBアクセス関数はすべて第一引数に`ctx context.Context`を受け取り、GORM呼び出しの直前で必ず`db.WithContext(ctx)`を経由する。`ctx`を受け取らずにパッケージ変数の`db`を直接使うメソッドは作らない。
+コーディング規約「20. context.Context」のとおり、Repository/Store/DBアクセス関数はすべて第一引数に`ctx context.Context`を受け取り、GORM呼び出しの直前で必ず`db.WithContext(ctx)`を経由する。`ctx`を受け取らずにパッケージ変数の`db`を直接使うメソッドは作らない。
 
 ```go
 // Good
@@ -501,6 +522,31 @@ func (r *taskRepository) Update(ctx context.Context, t *domain.Task) error {
 ```
 
 UseCase（またはTransaction Script/Active Recordの場合は該当関数・Store呼び出し元）は、`errors.Is(err, domainerror.ErrOptimisticLockConflict)`で判定し、アーキテクチャ規約「12. Error変換パターン（AppError）」の`AppError`へ変換する（`StatusCode()`は`http.StatusConflict`（409）とする）。Presentation層側の処理は既存のAppError変換フローをそのまま利用でき、個別対応は不要である。
+
+### レコード自体が存在しない場合との区別
+
+`RowsAffected == 0`は「バージョン不一致」だけでなく「対象レコードそのものが存在しない（既に削除された等）」場合にも発生する。両者を区別する必要がある場合は、更新前に`FindByID`等で対象の存在を確認してから`Update`を実行する。
+
+```go
+// Good
+func (r *taskRepository) Update(ctx context.Context, t *domain.Task) error {
+    m := fromDomain(t)
+
+    result := r.db.WithContext(ctx).Model(&m).Updates(m)
+    if result.Error != nil {
+        return fmt.Errorf("タスクの更新に失敗しました: %w", result.Error)
+    }
+
+    if result.RowsAffected == 0 {
+        // 事前にFindByIDで存在確認済みの前提であれば、ここはバージョン不一致と断定できる
+        return domainerror.ErrOptimisticLockConflict
+    }
+
+    return nil
+}
+```
+
+事前の存在確認を省略する場合は、`RowsAffected == 0`を「レコード不存在」と「競合」のどちらかに一律で寄せる方針を機能ごとに③Go実装仕様書で明記し、呼び出し元の判定を一貫させる。
 
 ### Domain EntityとGORMモデルの分離
 
