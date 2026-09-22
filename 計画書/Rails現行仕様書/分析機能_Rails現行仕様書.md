@@ -69,6 +69,7 @@
   - `grade_average`
   - `course_rank`
   - `unit_rank`
+- `course_rank`・`unit_rank`は、対象コース・単元に対して生徒が解答した問題の正答率（在籍中の生徒に限り、正答数 ÷ 解答数で算出する値）を比較指標とし、同じコース・単元に解答履歴を持つ生徒集団の中で正答率の高い順に順位付けを行う。理解度スコア（`understanding_score`）や成績平均（`grade_average`）とは独立した算出処理であり、これらの分析結果を合成した指標ではない。
 
 ### Database変更
 

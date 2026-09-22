@@ -18,6 +18,8 @@
 
 ②「9. Repository設計」〜「18. テスト戦略」で示された、goal-management Bounded ContextにおけるGoalの一覧・詳細・作成・更新のActive Record実装（`model.go`相当のstruct定義、`store.go`相当の永続化処理、Presentation層のHandler/Request/Response/Routing）。①Rails実装の詳細は未提供のため参照できず、本書では言及箇所を「①未提供のため参照不可」として明示する。
 
+②「3. Bounded Context」他Contextとの依存関係には、Task Contextに加えてdraft-task Context（下書きタスク）への参照依存が記載されている（目標に下書きタスクが紐づき得るため）。ただし②「10. UseCase設計」のShowGoal出力は「目標詳細情報とタスク一覧」のみであり、下書きタスクを含む具体的な入出力仕様までは定義されていない。本書もこの範囲に従い、DraftTaskの参照実装（Store・Response DTO）は本書の実装対象に含めない（詳細は「3. Domain層設計」「5. Infrastructure層設計」「14. ②からの補足事項」参照）。
+
 ---
 
 # 2. ディレクトリ構成
@@ -198,6 +200,10 @@ internal/goal/presentation/routes.go
 ②「9. Repository設計」のとおり、TaskStoreはタスクの作成・更新責務を持たない。
 
 **②からの補足**: アーキテクチャ規約「6. Context間連携ルール」では、他Contextのデータ利用時は相手Contextが公開する参照手段（Storeの参照系メソッド）を呼び出す方針が示されている。②「9. Repository設計」は本Context内にTaskStore（参照用）を配置する設計をすでに決定しているため、本書もその決定をそのまま踏襲する。将来的にtask-management Context側が公開APIとして参照系メソッドを整備した場合は、TaskStoreの実装をそちらの呼び出しに置き換える余地がある点を留意事項として補足する。
+
+### draft-task Context（下書きタスク）参照について
+
+②「3. Bounded Context」他Contextとの依存関係には、Task Contextに加えてdraft-task Contextへの参照依存（目標に下書きタスクが紐づき得るため）が記載されている。しかし②「9. Repository設計」「10. UseCase設計」のいずれにも、DraftTaskを取得するStore・呼び出し手順の具体的な記載はない（TaskStoreに相当する`DraftTaskStore`は②に定義されていない）。そのため本書では、DraftTaskの参照実装（Store・Response DTOへの下書きタスク一覧の追加等）を本機能の実装対象に含めない。将来②側でShowGoalの出力に下書きタスク一覧が明記された場合、TaskStoreと同様の読み取り専用Store（例: `DraftTaskStore`）をdraft-task Context側の公開参照手段に基づき追加することを想定する（**②からの補足**。詳細は「14. ②からの補足事項」参照）。
 
 ## 外部連携実装
 
@@ -529,5 +535,6 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、Go
 |作成成功時のHTTPステータスを201、更新成功時を200とした|②「16. API互換方針」に「作成・更新成功時のステータスは既存仕様に合わせて統一する」とあるのみで具体的な値の記載がなく、①未提供のため参照不可|推測|
 |認証エラー・認可エラーのHTTPステータスをそれぞれ401・403とした|②「13. Authorization設計」に具体的なステータスコードの記載がないため、一般的なHTTP実践に基づく|推測|
 |DueDateのGORM永続化方式（Scanner/Valuer実装か、Store内での相互変換か）を確定していない|②にはValue ObjectとGORMモデルの変換方式についての明記がなく、実装時の判断に委ねる必要があるため|推測（方式の選択肢を示すにとどめ、確定は実装時判断とした）|
+|②「3. Bounded Context」に追加されたdraft-task Context（下書きタスク）への参照依存を、具体的なStore・Response DTOとしては実装対象に含めなかった|②はdraft-task Contextへの参照依存を概念レベルで記載しているが、②「10. UseCase設計」ShowGoalの出力定義（目標詳細情報とタスク一覧）には下書きタスクが含まれておらず、`DraftTaskStore`に相当するRepository設計も②「9. Repository設計」に存在しない。②に記載のない業務ルール・出力項目を本書側で新設しないため、参照実装は見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|
 
 上記以外の項目（Bounded Context・Aggregate・Entity/Model構成・Repository（Store）責務・UseCase（Handler処理）の内容・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の大枠）は②の記載内容をそのまま実装レベルに落とし込んだものであり、追加の判断は行っていない。

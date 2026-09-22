@@ -20,6 +20,7 @@
 - 対象UseCase: ListQuestionsUseCase / CreateAnswerUseCase / UpdateAnswerUseCase / ShowConfirmationUseCase / SubmitTaskUseCase（②12章）
 - 対象API: ②19章に記載の5エンドポイント
 - ①Rails実装（Controller/Service/Model等のコード詳細）は本タスクでは提供されていないため、「①未提供のため参照不可」として扱い、必要箇所ではその旨を明記する。
+- ②3章「関連Context（依存関係ではないもの）」に、study-log Context（学習ログ機能）が同じタスク・単元配下で並行提供される旨の記載が追加されている。②が明記するとおり、question-answering Contextとstudy-log Contextは互いのデータを参照・更新しない独立した関係であるため、本書ではstudy-log Context側のEntity・Repository・エンドポイントへの依存を一切追加しない（依存関係ではなく、単に同じタスク・単元を対象とする別関心事として記載されているのみである）。
 
 ---
 
@@ -829,7 +830,7 @@ Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（
 
 ---
 
-# 14. ②からの補足事項
+# 17. ②からの補足事項
 
 ②に明記がなく、実装のために追加で判断した内容を以下に整理する。①（Rails実装）は本タスクでは未提供のため、参照が必要な箇所も併せて明記する。
 
@@ -849,5 +850,6 @@ Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（
 |認証エラー401・権限エラー403・所有権エラー404・DB障害500等、②に明記のないStatus Codeの割当|②19章に明記のない一般的なHTTP実装慣行に基づく|推測|
 |トランザクション実装をInfrastructure層の`TransactionManager`インターフェース方式で例示した|規約にトランザクションの具体的な実装パターンの定めがないため、一例として提示した。他の一貫した方式を実装者が採用してもよい|補足|
 |Handler構成を`QuestionHandler`/`AnswerHandler`/`SubmissionHandler`の3ファイルに分割した|②はHandler構成そのものを規定していないため、エンドポイントの業務内容単位で分割した|補足|
+|study-log Context（学習ログ機能）とのコード上の連携・共有処理を一切設けなかった|②3章「関連Context（依存関係ではないもの）」に、question-answering Contextとstudy-log Contextが同じタスク・単元配下で並行提供されるが、互いのデータを参照・更新しない旨が明記されている。②の記載どおり依存関係ではないため、Repository・UseCase・Handlerのいずれにもstudy-log Context側への参照を追加していない|補足（②の記載を忠実に反映したもの。推測ではない）|
 
 上記以外の②記載内容（採用パターン・Bounded Context・Aggregate構成・Entity/Value Object/Repository/UseCaseの責務・Transaction境界・Validation方針・Authorization方針・Error設計・Domain Event方針・API仕様・DB方針・テスト戦略）については、②の決定をそのまま前提とし、変更していない。

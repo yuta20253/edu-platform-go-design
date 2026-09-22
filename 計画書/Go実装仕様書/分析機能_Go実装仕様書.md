@@ -219,7 +219,7 @@ internal/analytics/presentation/routes.go
   4. `RankResult{Rank, TotalCount: len(entries)}`を返す
 - `GetCourseRankAnalytics`・`GetUnitRankAnalytics`の双方から呼び出され、順位算出ロジックの重複を避ける（②「8. Domain Service 判断根拠」に対応）
 
-  > **②からの補足**: course_rank/unit_rankで比較対象とする指標（理解度スコアか成績平均か、あるいは両者を統合した指標か）が②に明記されていない（②「9. Repository設計」RankRepositoryは「成績/理解度データ」とのみ記載）。①未提供のため参照不可であり、本書でも指標を確定できない。infrastructure層の`FetchCourseRankCohort`/`FetchUnitRankCohort`が返す`float64`スコアの算出元は、curriculum/Grade・Assessment Context側の③文書確定後に確認する必要がある（推測不可・要確認事項として「14. ②からの補足事項」にも記載する）。
+  > **②からの補足**: course_rank/unit_rankで比較対象とする指標は、対象コース・単元に対して生徒が解答した問題の正答率（正答数÷解答数）である（①「分析機能 Rails現行仕様書」「5. API / 処理詳細」業務ルール、②「9. Repository設計」RankRepository補足に対応）。理解度スコア（`understanding_score`）・成績平均（`grade_average`）とは独立した算出処理であり、両者を合成した指標ではない。infrastructure層の`FetchCourseRankCohort`/`FetchUnitRankCohort`が返す`float64`スコアは、対象コース・単元に解答履歴を持つ生徒（在籍中のユーザーに限る）ごとの正答率を表す。
 
 ## トランザクション境界
 
@@ -522,7 +522,7 @@ infrastructure層で発生したエラーは`fmt.Errorf`でラップしてapplic
 |`AnalyticsType`・`CompletionRate`・`UnderstandingScore`・`RankCalculationService`（②のVO/Domain Service）の実装位置を、domain層ではなく`presentation/request`・`application`直下の単純な型・関数として確定した|規約「11. ①②③文書との関係」の「②文書内のRepository/UseCase等の記載は概念的な設計意図であり、実装構造への変換は③で行う」方針、および禁止事項「TS/AR採用機能へのDomain Model相当の過剰な構造追加の禁止」に基づく判断|規約に基づく判断（推測ではない）|
 |`AnalyticsType`を`presentation/request`層に配置した|②「12. Validation設計」がAnalyticsTypeの許容値チェックをPresentation層の責務として明記しているため|②内の記載を整合させた判断（推測ではない）|
 |`RankCalculationService`をstruct＋interfaceではなく、`application/rank_calculation.go`内の非公開共有関数として実装した|禁止事項「TS/AR採用機能へのDomain Model相当のusecase層・Repository Interface・依存性逆転の不要な追加」を避けるための判断|規約に基づく判断（推測ではない）|
-|course_rank/unit_rankの順位算出で比較する指標（理解度スコアか成績平均か、統合指標か）を確定しなかった|②「9. Repository設計」RankRepositoryが「成績/理解度データ」とのみ記載し、指標を確定していない。①未提供のため参照不可|①未提供のため参照不可（推測不可・要確認事項）|
+|course_rank/unit_rankの順位算出で比較する指標を、対象コース・単元に対する解答の正答率（正答数÷解答数）と確定した|①「分析機能 Rails現行仕様書」「5. API / 処理詳細」業務ルールにより、順位算出は理解度スコア・成績平均とは独立した正答率の算出処理であることが確認できたため|①の記載に基づく確定（推測ではない）|
 |タスク完了率0/0時・成績データ0件時のデフォルト値を0として扱う実装判断とした|②に該当ケースの取り扱いの明記がないため|推測|
 |`analytics[type]`のブラケット記法クエリパラメータを、Ginの構造体タグ自動バインドではなく`c.Query("analytics[type]")`による明示的な取得で実装する方針とした|Ginの標準的なタグベースバインドがブラケット記法キーを確実に処理できるかについて②・規約いずれにも記載がない技術的判断であるため|推測|
 |Response DTOのフィールド名（`CompletionRate`, `Score`, `Average`, `Rank`, `TotalCount`等）を②「6. Entity設計」「7. Value Object設計」の概念名からそのまま決定した|②「16. API互換方針」は「既存仕様に近い構造を維持する」とのみ記載し、フィールド名までは規定していない。①未提供のため既存Railsレスポンスのフィールド名を根拠にできない|推測|
