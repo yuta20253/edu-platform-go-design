@@ -8,7 +8,7 @@
   - 管理者が高校と学年の一覧および詳細を参照できるようにすること。
 - システム上の役割
   - 高校情報の一覧と詳細を提供する。
-  - 各高校の生徒数・教員数を集計する。
+  - 各高校の生徒数・教員数を集計する。生徒数は退会済みの生徒を除いた在籍生徒数として集計する。
   - 各高校の学年一覧を提供する。
 - 利用者
   - `admin` ロールのユーザー（管理者）
@@ -62,12 +62,13 @@
 ### 処理内容
 
 1. `HighSchool.includes(:prefecture).order(:id).by_prefecture(params[:prefecture_id]).page(params[:page]).per(20)` で高校を取得する。
-2. 対象高校の `id` を抽出し、生徒数・教員数を `User.students.by_high_school` / `User.teachers.by_high_school` で集計する。
+2. 対象高校の `id` を抽出し、生徒数を `User.students.active.by_high_school`、教員数を `User.teachers.by_high_school` で集計する。
 3. `Admin::HighSchoolSerializer` に `student_counts` / `teacher_counts` を渡して返却する。
 
 ### 業務ルール
 
 - `prefecture_id` が指定された場合は都道府県で絞り込む。
+- 生徒数の集計は退会済み（論理削除済み）の生徒を除外し、在籍中の生徒のみを対象とする。教員数の集計には退会状態による絞り込みは行わない。
 
 ### Database変更
 
@@ -101,12 +102,12 @@
 ### 処理内容
 
 1. `HighSchool.includes(:prefecture).find(params[:id])` で高校を取得する。
-2. `User.students.by_high_school(school.id).count` と `User.teachers.by_high_school(school.id).count` を集計する。
+2. `User.students.active.by_high_school(school.id).count` と `User.teachers.by_high_school(school.id).count` を集計する。
 3. `Admin::HighSchoolSerializer` を返却する。
 
 ### 業務ルール
 
-- なし
+- 生徒数の集計は退会済みの生徒を除外し、在籍中の生徒のみを対象とする。
 
 ### Database変更
 
@@ -173,6 +174,7 @@
 # 7. 権限制御
 
 - 管理者はすべての高校・学年を参照可能。
+- 生徒数は在籍中（退会していない）の生徒のみが集計対象となる。
 
 ---
 

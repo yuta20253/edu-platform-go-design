@@ -44,11 +44,14 @@
 
 - User Context: 教員としてのユーザーアカウント本体（氏名・メールアドレス・ロール）の作成に依存する
 - School/Grade Context: 担当学年の存在確認、同校判定に依存する
-- Teacher Permission Context: 着任時に初期権限（`grade_scope` / `manage_other_teachers`）を設定する。ただし作成後の権限変更ライフサイクルはTeacher Permission Contextが所有する
+- Teacher Permission Context: 着任時に初期権限（`grade_scope` / `manage_other_teachers`）を設定する。ただし作成後の権限変更ライフサイクルはTeacher Permission Contextが所有する。また、新規教員作成の実行可否そのものを判定する「他職員操作権限」の参照元でもある
+- Teacher Notification Context（teacher-notification）: 教員一覧取得時に、各教員への直近の招待通知状況（招待未送信／送信成功／送信失敗）を参照するために依存する（参照専用）
 
 ## 依存する理由
 
 教員アカウントの作成は、ユーザー登録（User Context）・学年情報（School/Grade Context）という他Contextの情報を前提として成立する。また、初期権限の設定は行うが、以後の権限変更・保護ルール（自己更新禁止・最後の教員保護等）はTeacher Permission Contextの責務であるため、作成時点のみ本Contextが関与し、以降の権限ライフサイクル管理はTeacher Permission Contextへ委譲する。
+
+教員一覧には各教員への招待通知状況を併せて表示する業務要件があるが、招待通知の送信・履歴管理自体はTeacher Notification Context（教員招待通知機能）が所有する責務である。本Contextは一覧表示のために招待状況を参照するのみとし、招待通知に関する業務ルール（送信対象の絞り込み、送信結果の記録等）はTeacher Notification Context側に置く。これにより、招待通知の仕様変更が本Contextに波及する範囲を「参照結果の表示」のみに限定できる。
 
 ---
 
@@ -249,13 +252,14 @@ Active Record
 
 ## ListTeachers(Handler処理)
 
-- 目的: 同校の教員一覧を取得する
+- 目的: 同校の教員一覧を、各教員の招待通知状況とあわせて取得する
 - 入力: current user, page
-- 出力: current userの情報、教員一覧、ページ情報
+- 出力: current userの情報、教員一覧（各教員の招待状況`invitation_status`を含む）、ページ情報
 - トランザクション範囲: 読み取りのみ、トランザクションは不要
 - 呼び出すStore:
   - TeacherDirectoryStore
-- 判断根拠: 単純な絞り込み・ページネーションのみであるため
+  - TeacherNotificationStatusStore（Teacher Notification Context提供・参照専用。教員ごとの直近の招待通知状況を取得する）
+- 判断根拠: 単純な絞り込み・ページネーションに加え、Teacher Notification Contextへの参照を組み合わせるだけの処理であり、招待通知自体の送信・記録ロジックは持たないため
 
 ## ShowTeacher(Handler処理)
 
@@ -275,11 +279,12 @@ Active Record
 - 出力: 作成結果
 - トランザクション範囲: TeacherAccount・InitialTeacherPermission・TeacherGradeAssignmentの作成を1トランザクションで扱う
 - 呼び出すStore:
+  - TeacherPermissionInitializationStore（current userの`manage_other_teachers`権限確認。権限がない場合はここで処理を中断し、以降のStore呼び出しは行わない）
   - GradeStore（学年の存在・所属校確認）
   - TeacherDirectoryStore（アカウント作成）
   - TeacherPermissionInitializationStore（初期権限作成）
   - TeacherGradeAssignmentStore（担当学年作成）
-- 判断根拠: TeacherGradeAssignmentPolicyによる同校判定を踏まえ、3レコードを一貫して作成する必要があるため
+- 判断根拠: TeacherGradeAssignmentPolicyによる同校判定に加え、操作者（current user）が「他職員操作権限（`manage_other_teachers`）」を保持していることを作成処理の前提条件として確認したうえで、3レコードを一貫して作成する必要があるため。権限確認を最初のStore呼び出しとして明示することで、「誰が」「何を」実行してよいかという業務権限の判定がCreateTeacherの一部であることを明確にする
 
 ---
 
@@ -337,6 +342,7 @@ Active Record
 
 - current userの所属校IDを用いて、教員一覧・詳細の取得範囲を同校にスコープする
 - 新規教員作成時、指定学年が同校かどうかの判定材料としてcurrent userの所属校を利用する
+- 新規教員作成時、current userが「他職員操作権限（`manage_other_teachers`）」を保持しているかを確認し、保持していない場合は他のStore呼び出し（学年確認・作成処理）に進まず拒否する
 
 ## Domain
 
@@ -345,6 +351,8 @@ Active Record
 ## 判断理由
 
 「同校教員のみを対象とする」というスコープ制御はHandler側で一貫して適用し、学年割当という具体的な業務ルールはDomain（Policy）側に配置することで、認可のスコープ判定と業務ルール判定を分離する。
+
+新規教員作成における「他職員操作権限」の要否は、ロール（`teacher`であるか）のような粗い認可ではなく、教員個人が持つ業務権限（TeacherPermissionレコードの`manage_other_teachers`）に基づく判定であるため、Middlewareのロールチェックとは別に、UseCase相当の処理（CreateTeacherのHandler処理）内で確認する。これはアーキテクチャ規約7章「認可（所有権・業務権限）」の配置方針（UseCase/Domain、Active Record採用時はHandler/Store）に従った判断である。
 
 ---
 
@@ -363,6 +371,7 @@ Active Record
 
 - 対象教員が存在しない、または同校でない
 - 作成処理における関連レコードの不整合
+- 操作者（current user）が「他職員操作権限」を持たないまま新規教員作成を試みた（Forbidden）
 
 ## Infrastructure Error
 
@@ -370,7 +379,17 @@ Active Record
 
 ## 判断理由
 
-業務ルール違反（Domain）とリソース未存在（Application）を区別することで、HTTPステータス変換（422 / 404）を一貫した基準で行える。
+業務ルール違反（Domain）とリソース未存在（Application）を区別することで、HTTPステータス変換（422 / 404）を一貫した基準で行える。「他職員操作権限」の欠如は、入力値そのものの誤りではなく操作者の権限に起因する失敗であるため、Domain Error（値・状態の妥当性）ではなくApplication Error（ユースケース実行可否）として扱い、403として変換する。
+
+## エラー仕様
+
+|業務シナリオ|エラー種別|発生層|想定するHTTPステータス|
+|-|-|-|-|
+|操作者が「他職員操作権限」を持たずに新規教員作成を試みた|Forbidden（Application Error）|UseCase（CreateTeacherのHandler処理）|403|
+|指定学年が操作者の所属校でない|Validation（Domain Error）|Domain（TeacherGradeAssignmentPolicy）|422|
+|grade_scopeが許容値でない|Validation（Domain Error）|Domain（GradeScope Value Object）|422|
+|対象教員が存在しない、または同校でない|NotFound（Application Error）|UseCase|404|
+|入力形式が不正（必須項目欠如・メール形式不正等）|Validation|Presentation|422|
 
 ---
 
@@ -405,17 +424,20 @@ Rails現行仕様の業務フローには「招待メールを送信して教員
 ## Response
 
 - 一覧・詳細・作成のレスポンス構造はRails現行仕様に近い意味を維持する
+- 一覧レスポンスには、各教員の直近の招待通知状況（`invitation_status`。Teacher Notification Contextからの参照結果。通知未送信の場合は「未送信」扱い）を含める
 
 ## Status Code
 
 - 200: 取得成功
 - 201: 作成成功
+- 403: 他職員操作権限なし（新規教員作成時）
 - 422: 入力・業務ルール違反
 - 404: 対象教員不存在
 
 ## Error Response
 
 - 既存のerrors形式を踏襲し、フロントエンド互換性を優先する
+- 他職員操作権限がない場合は、Rails現行仕様と同様に「他職員操作権限がありません」に相当するメッセージとともに403を返す
 
 ---
 
@@ -443,7 +465,7 @@ Rails現行仕様の業務フローには「招待メールを送信して教員
 
 ## UseCase Test
 
-- 目的: ListTeachersUseCase / ShowTeacherUseCase / CreateTeacherUseCaseの業務振る舞いを検証する
+- 目的: ListTeachersUseCase（招待状況の参照を含む）/ ShowTeacherUseCase / CreateTeacherUseCase（他職員操作権限がない場合に作成を拒否する分岐を含む）の業務振る舞いを検証する
 
 ## Repository Test
 
@@ -466,9 +488,11 @@ Rails現行仕様の業務フローには「招待メールを送信して教員
 | Controller | Handler | HTTP入出力のみを担当する |
 | Form（CreateTeacherForm） | Request DTO + Presentation Validation + Value Object | 入力形式検証と業務的な値の妥当性検証を分離する |
 | Form内のトランザクション処理 | CreateTeacher(Handler処理) + Store | 複数レコードの同時作成をHandler+Storeの責務として明確化する（Active Record採用のためusecase層は設けない） |
+| Controller内の`manage_other_teachers`チェック | CreateTeacher(Handler処理)内の権限確認（TeacherPermissionInitializationStore経由） | ロール確認（Middleware）とは別に、業務権限の判定として明示的に配置する |
 | Query（TeachersQuery） | TeacherDirectoryStore | 検索条件の実行をStoreの責務として整理する |
 | Serializer | Presenter / Response DTO | レスポンス整形をPresentation層に分離する |
 | Model（User, TeacherPermission, TeacherGrade） | TeacherAccount / InitialTeacherPermission / TeacherGradeAssignment（struct）+ 各Store（同一package） | 業務ルールと永続化をstruct/Storeに整理する |
+| `TeacherNotification`（招待状況の参照のみ） | Teacher Notification Context（teacher-notification）への参照呼び出し | 招待通知の所有・業務ルールは別Contextに残し、本機能は参照のみ行う |
 
 ---
 
@@ -501,6 +525,8 @@ Rails現行仕様の業務フローには「招待メールを送信して教員
 | Domain Event | 未採用 | 後続処理がメール送信程度に限定され、イベント化のメリットが薄いため |
 | Value Object | 採用（NameKana/Email/GradeScope） | 形式・許容値のルールを型として明示し再利用するため |
 | Domain Service | TeacherGradeAssignmentPolicy | 同校制約の判定がTeacherAccount・TeacherGradeAssignment単体の責務に収まらないため |
+| Authorization（作成時） | Handler処理内での「他職員操作権限」確認 | ロール確認（Middleware）とは別に、業務権限としてHandler処理内で明示的に判定する必要があるため |
+| Context間連携 | Teacher Notification Context（teacher-notification）を参照専用で利用 | 招待通知の所有・業務ルールを本Contextに持ち込まず、一覧表示のための参照に限定するため |
 
 ---
 
@@ -510,12 +536,15 @@ Rails現行仕様の業務フローには「招待メールを送信して教員
 
 - CreateTeacherFormが入力検証・トランザクション制御・User/TeacherPermission/TeacherGrade作成を一括して担っている
 - TeachersQueryが検索条件の組み立てを担っている
+- Controllerのcreateアクション冒頭で「他職員操作権限」の有無をチェックしている
+- 教員一覧の取得時、各教員に紐づく`TeacherNotification`（教員招待通知機能が送信）を参照し、招待状況を付与している
 
 ## Go設計での変更内容
 
 - 入力形式検証をPresentation層、業務的な値検証をValue Object、同校制約の判定をDomain Serviceに分離する
-- 複数レコードの同時作成処理をCreateTeacherUseCaseに集約する
-- 検索条件の実行をTeacherDirectoryRepositoryに集約する
+- 複数レコードの同時作成処理をCreateTeacher（Handler処理）に集約し、その一部として「他職員操作権限」の確認を明示的な最初のステップとして位置づける
+- 検索条件の実行をTeacherDirectoryStoreに集約する
+- 招待状況の参照をTeacher Notification Context（teacher-notification）への参照呼び出しとして明確化し、招待通知自体の業務ルールは本機能側に持ち込まない
 
 ## 変更理由
 

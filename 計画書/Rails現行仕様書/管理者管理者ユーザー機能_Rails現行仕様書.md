@@ -9,6 +9,7 @@
 - システム上の役割
   - 管理者アカウントの検索とページングを提供する。
   - 管理者アカウントの詳細表示、作成、更新、論理削除を提供する。
+  - 管理者情報の更新時に、都道府県・市区町村から住所候補を検索する補助機能を提供する。
 - 利用者
   - `admin` ロールのユーザー（管理者）
 
@@ -23,6 +24,7 @@
 |新規登録|管理者ユーザーを作成する|
 |更新|管理者ユーザー情報を更新する|
 |削除|管理者ユーザーを論理削除する|
+|住所候補検索|都道府県・市区町村から住所候補を検索する|
 
 ---
 
@@ -32,7 +34,7 @@
 2. システムは検索条件とページングを適用して管理者一覧を返却する。
 3. 詳細を表示したい管理者を選択すると、その管理者情報を取得する。
 4. 新規管理者を作成する場合は名前とメールアドレスを入力する。
-5. 既存管理者を更新する場合はプロフィール情報を更新する。
+5. 既存管理者を更新する場合はプロフィール情報を更新する。住所を入力する際は、都道府県を指定して住所候補を検索し、候補の中から該当する住所を選択できる。
 6. 管理者を削除する場合は自分自身以外かつ最後の管理者でないことを確認して論理削除する。
 
 ---
@@ -46,6 +48,7 @@
 |`Api::V1::Admin::AdminsController`|`create`|POST|`/api/v1/admin/admins`|管理者を作成|
 |`Api::V1::Admin::AdminsController`|`update`|PATCH|`/api/v1/admin/admins/:id`|管理者情報を更新|
 |`Api::V1::Admin::AdminsController`|`destroy`|DELETE|`/api/v1/admin/admins/:id`|管理者を削除|
+|`Api::V1::Admin::AddressesController`|`index`|GET|`/api/v1/admin/addresses`|都道府県・市区町村から住所候補を検索|
 
 ---
 
@@ -246,6 +249,47 @@
 |最後の管理者の削除|422|`最後の管理者は削除できません`|
 |自身の削除|422|`自分自身は削除できません`|
 
+## `Api::V1::Admin::AddressesController#index`
+
+### 概要
+
+管理者情報の登録・更新画面で住所を入力する際に、都道府県・市区町村・町域から住所候補を検索する。管理者ユーザーのフォーム（`Admin::AdminForm`）が住所を紐づける際に、この検索結果から住所を選択する用途で利用される補助的な参照 API である。
+
+### Request
+
+|項目|必須|型|説明|
+|-|-|-|-|
+|`prefecture_id`|必須|integer|都道府県 ID|
+|`city`|任意|string|市区町村名（部分一致）|
+|`town`|任意|string|町域名（部分一致）|
+
+### 処理内容
+
+1. `prefecture_id` が指定されていない場合はエラーを返却する。
+2. `prefecture_id` で住所を絞り込む。
+3. `city` が指定されていれば部分一致で絞り込む。
+4. `town` が指定されていれば部分一致で絞り込む。
+5. 該当する住所候補の一覧を返却する。
+
+### 業務ルール
+
+- `prefecture_id` は必須であり、未指定の場合は候補を検索せずエラーとする。
+- `city` / `town` は部分一致で検索される。
+
+### Database変更
+
+- なし
+
+### Response
+
+- 住所候補一覧: 各住所の `id`, `postal_code`, `city`, `town`, `prefecture`（`id`, `name`）
+
+### Errorケース
+
+|条件|HTTP Status|内容|
+|-|-|-|
+|`prefecture_id` 未指定|400|`都道府県は必須です。`|
+
 ---
 
 # 6. データモデル
@@ -261,12 +305,20 @@
 - 役割: ユーザーの個人情報を管理するテーブル
 - 主なカラム: `phone_number`, `birthday`, `gender`
 
+## `addresses`
+
+- 役割: 郵便番号に紐づく住所候補を管理するテーブル
+- 主なカラム: `id`, `postal_code`, `city`, `town`, `street_address`, `prefecture_id`
+- リレーション: `belongs_to :prefecture`
+- 管理者ユーザーの `address_id` はこのテーブルの住所を参照する。
+
 ---
 
 # 7. 権限制御
 
 - 管理者本人は削除できない。
 - 最後の有効管理者は削除できない。
+- 住所候補検索は管理者であれば誰でも実行できる。
 
 ---
 
@@ -274,8 +326,9 @@
 
 |種類|実装|
 |-|-|
-|Controller|`Api::V1::Admin::AdminsController`|
+|Controller|`Api::V1::Admin::AdminsController`, `Api::V1::Admin::AddressesController`|
 |Form|`Admin::AdminForm`|
-|Serializer|`Admin::AdminListSerializer`, `Admin::AdminDetailSerializer`|
+|Query|`AdminsQuery`, `AddressesQuery`|
+|Serializer|`Admin::AdminListSerializer`, `Admin::AdminDetailSerializer`, `AddressSerializer`|
 |Service|`Admin::CreateAdminService`|
 |Model|`User`, `UserPersonalInfo`, `Address`|
