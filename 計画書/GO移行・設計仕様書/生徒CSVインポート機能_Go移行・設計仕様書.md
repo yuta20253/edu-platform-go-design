@@ -48,19 +48,19 @@
 - CSVアップロードの受付（事前検証・インポート実行の両方）
 - インポート処理の進行状態管理
 - 行単位の成功・失敗記録
-- 生徒アカウントの新規作成・既存生徒情報の更新処理の提供（教師生徒参照機能の生徒単体新規登録からも参照される、仮パスワード発行・招待メール送信を含む共通のアカウント作成処理を含む）
+- 新規行の生徒アカウント作成の依頼（`user` Contextの`CreateStudentAccount`を呼ぶ。仮パスワードの発行・生徒番号の発行・招待メール送信の依頼は`user`が行う）
+- 既存生徒情報（氏名・氏名カナ・メールアドレス・学年・クラス）の更新（`user` Contextは更新を持たないため、本Contextの責務とする。招待メールは送らず、`password_reset_required`にも触れない）
 
 ## 他Contextとの依存関係
 
-- User Context: 生徒アカウント本体（氏名・メールアドレス・ロール）の作成・更新、仮パスワード発行・招待メール送信に依存する（推測: Rails実装の`Common::CreateUserService`に相当する処理をUser Context側の責務と仮定する。User Context自体の②文書はアーキテクチャ規約が指摘するとおり未整備であるため、ここでは依存先として名称のみ参照する）
+- User Context（`user`。②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 新規行の生徒アカウント作成を、公開操作`CreateStudentAccount`の呼び出しで依頼する。この操作が、仮パスワードの発行・生徒番号の発行・招待メール送信の依頼を行い、生徒は常に招待待ち・作成時に招待メールを送る（入力で指定しない）。所属校・学年・クラスの実在と整合は、本Contextが検証済みの内容を渡す（`user`②「15. Validation設計」）。`user`は既存アカウントの更新を持たないため、既存生徒の更新は本Contextが自身で行う（`user`②「3. Bounded Context」の「アカウントの更新・論理削除の扱い」）
 - School/Grade Context: CSV上の学年名・学級名から、実在する学年・クラスを解決する（表示名からIDへの解決）ことに依存する
-- 教師生徒参照機能（`student-directory`）Context: 逆方向の依存として、student-directoryが本Contextの提供する生徒アカウント新規作成処理を呼び出す（本Context自身はstudent-directoryに依存しない）
 
 ## 依存する理由
 
-本Contextの中心はCSVの検証・インポート進行管理であり、生徒アカウントそのものの本体情報（パスワード発行・招待メール送信）はUser Contextの責務に委ねる。これにより、student-import Contextがアカウント生成の詳細（パスワードハッシュ化方式やメール送信基盤等）の知識を過度に持たずに済む。学年・クラスの名称解決はSchool/Grade Contextが真正なデータを持つため、そちらに問い合わせる。
+本Contextの中心はCSVの検証・インポート進行管理であり、新規の生徒アカウントの本体情報（仮パスワードの発行・生徒番号の発行・招待メール送信の依頼）はUser Contextの責務に委ねる。これにより、student-import Contextがアカウント生成の詳細（パスワードハッシュ化方式やメール送信基盤等）の知識を過度に持たずに済む。一方、既存生徒の氏名・氏名カナ・メールアドレス・学年・クラスの上書きは、CSVインポート固有の処理であり、`user`が更新を持たないため、本Contextが担う。学年・クラスの名称解決はSchool/Grade Contextが真正なデータを持つため、そちらに問い合わせる。
 
-なお、Rails現行仕様書には「この作成経路は、生徒CSVインポート機能と共通のアカウント作成処理（招待メール送信を含む）を利用する」という記述が教師生徒参照機能側に明記されている。この記述をもとに、生徒アカウント作成という単体レコード単位の業務ロジック（学年・クラスの同校妥当性検証済みの氏名・氏名カナ・メールアドレスから、仮パスワード発行・生徒番号採番・招待メール送信を伴う新規アカウントを1件作成する処理）は、CSV一括登録・単体登録の双方から呼び出される共有処理として、本Context（student-import）が提供する構成とした（推測: Rails側にこの共有処理の所有Context自体を明示する記述はなく、CSV一括登録が本来的にこの処理を必要とする機能であることから、本Context側の提供とみなした）。
+Rails現行実装では、生徒アカウントの新規作成（`Student::CreateStudentService`。`Common::CreateUserService`を継承）を、CSV一括登録（`Teacher::StudentCsvImportService`）と教師生徒参照機能の単体登録（`Teacher::CreateStudentForm`）の双方が呼んでいる。Goでは、この共通のアカウント作成処理を`user` Contextの`CreateStudentAccount`が担い、本Contextと`student-directory`は、それぞれ`user`を直接呼ぶ（本Contextは作成処理の提供元ではない）。既存生徒の更新（Rails現行の`Teacher::StudentCsvImportService#update_existing_user`）は、新規作成と異なり招待メールを送らず、`password_reset_required`にも触れない。この処理は`user`の範囲に含まれないため、本Contextが持つ。
 
 ---
 
@@ -113,7 +113,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 
 - ImportHistoryが「1回のインポート処理の進行状態・結果集計」を一貫して管理する単位とする
 - ImportErrorはImportHistoryに従属し、単独では存在しない
-- 生徒アカウント（User）はAggregateに含めない。生徒アカウントの真正な管理はUser Contextの責務であり、student-import Contextからは「作成・更新を依頼する対象」として外部参照する
+- 生徒アカウント（User）はAggregateに含めない。生徒アカウントの真正な管理はUser Contextの責務であり、student-import Contextからは、新規行については「作成を依頼する対象」（`user`の`CreateStudentAccount`）、既存生徒については「更新する対象」（本Contextが`users`の限定した列を書き換える）として外部参照する
 
 ## 整合性を保証する単位
 
@@ -154,7 +154,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 ## 生徒アカウント（User、外部参照）
 
 - 役割: インポートによって作成・更新される対象
-- 判断根拠: 本Contextの中心はImportHistoryであり、生徒アカウントそのものの構造・整合性管理はUser Contextの責務であるため、本機能では「作成・更新を依頼する対象」として扱う
+- 判断根拠: 本Contextの中心はImportHistoryであり、生徒アカウントそのものの構造・整合性管理はUser Contextの責務であるため、本機能では、新規行は`user`へ「作成を依頼する対象」、既存生徒は「更新する対象」として扱う
 
 ---
 
@@ -208,7 +208,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 
 - 責務: 検証済みの行データについて、メールアドレスが同校の既存生徒と一致するかどうかから、新規作成すべきか既存生徒情報を更新すべきかを判定する
 - Entityへ持たせない理由: この判定はStudentImportRow（行データ）とUser Context側の既存生徒データの両方を横断して必要とするため
-- 判断根拠: 新規作成/更新の判定は業務上重要なルールであり、UseCaseに直接書くと再利用性・テスト容易性が下がるため独立したポリシーとして切り出す。教師生徒参照機能の生徒単体新規登録は本Policyの「新規作成」経路のみを利用する
+- 判断根拠: 新規作成/更新の判定は業務上重要なルールであり、UseCaseに直接書くと再利用性・テスト容易性が下がるため独立したポリシーとして切り出す。判定結果に応じて、新規作成は`user`の`CreateStudentAccount`、既存生徒の更新は本Contextの`StudentAccountRepository`を呼び分ける
 
 ---
 
@@ -276,6 +276,9 @@ classDiagram
     class Student {
       <<外部参照 User Context>>
     }
+    class StudentAccountCreationRepository {
+      <<user Context提供・作成依頼専用>>
+    }
 
     ImportHistory "1" *-- "many" ImportError : 保有
     ImportHistory --> ImportMode : 保持
@@ -286,7 +289,8 @@ classDiagram
     AllOrNothingImportAggregationPolicy ..> StudentRowValidationResult : 集計
     AllOrNothingImportAggregationPolicy ..> ImportHistory : 終了状態を決定
     StudentAccountUpsertPolicy ..> StudentImportRow : 判定
-    StudentAccountUpsertPolicy ..> Student : 作成・更新を依頼
+    StudentAccountUpsertPolicy ..> StudentAccountCreationRepository : 新規行の作成を依頼
+    StudentAccountUpsertPolicy ..> Student : 既存生徒を更新
 ```
 
 ---
@@ -333,15 +337,21 @@ stateDiagram-v2
 - 保持しない責務: 学年・クラス自体の作成・更新
 - 判断根拠: 名称解決という参照確認に責務を限定するため
 
-## StudentAccountRepository（本Contextが提供、student-directoryからも利用される）
+## StudentAccountRepository（本Contextが提供）
 
-- 管理対象: Student（User Context所有の生徒アカウントへの書き込み代行）
+- 管理対象: Student（既存生徒アカウントの更新と照合）
 - 責務:
-  - 新規生徒アカウントの作成（仮パスワード発行・生徒番号採番・招待メール送信を伴う）
-  - 既存生徒アカウントの更新（氏名・氏名カナ・メールアドレス・学年・学級の上書き、招待メールは再送しない）
+  - 既存生徒アカウントの更新（氏名・氏名カナ・メールアドレス・学年・クラスの上書き。招待メールは送らず、`password_reset_required`にも触れない。Rails現行は、更新時に生徒番号が空であれば発行する。発行規則の共有方式は`user`②の未解決の論点6）
   - 同校内でのメールアドレス一致確認
-- 保持しない責務: CSV解析、行単位の検証（StudentRowValidationPolicyの責務）
-- 判断根拠: 生徒アカウントの新規作成・更新という実処理を1箇所に集約し、CSV一括登録・教師生徒参照機能の単体登録の双方から同一の実装を再利用できるようにするため
+- 保持しない責務: 新規生徒アカウントの作成（下記`StudentAccountCreationRepository`が`user`へ依頼する）、CSV解析、行単位の検証（StudentRowValidationPolicyの責務）
+- 判断根拠: `user` Contextは更新を持たない（`user`②「3. Bounded Context」）ため、CSVインポート固有の既存生徒の更新は本Contextに置く。作成と更新を同じRepositoryに混在させず、作成は`user`の責務として切り分ける
+
+## StudentAccountCreationRepository（`user` Context提供・作成依頼専用）
+
+- 管理対象: Student（新規の生徒アカウント。`users`の書き込み自体は`user`が行う）
+- 責務: 新規行の生徒アカウントの作成を、`user`の`CreateStudentAccount`へ依頼する（氏名・氏名カナ・メールアドレス・所属校ID・学年ID・クラスIDを渡し、作成された生徒の基本属性を受け取る）。仮パスワードの発行・生徒番号の発行・招待待ちの設定・招待メール送信の依頼は`user`が行い、本Contextは指定しない（生徒は常に招待待ち・作成時に送信）
+- 保持しない責務: 更新、既存アカウントの確認、CSV解析、行単位の検証
+- 判断根拠: 生徒アカウントの作成規則を1箇所（`user`）に集約するため。`user`の作成操作は呼び出し側のトランザクションに参加するため、全件成功・全件失敗の単一トランザクション（14章）に含まれ、ロールバック時は招待メールの送信依頼も取り消される
 
 ---
 
@@ -371,7 +381,7 @@ stateDiagram-v2
 - 入力: import history id
 - 出力: 更新後のImportHistory（状態・カウント）
 - トランザクション範囲: ヘッダー検証・全行検証・（全行有効な場合の）生徒データへの反映・ImportHistoryの終了状態更新を1つのトランザクションで扱う
-- 呼び出すRepository: ImportHistoryRepository, ImportErrorRepository, GradeClassResolutionRepository, StudentAccountRepository
+- 呼び出すRepository: ImportHistoryRepository, ImportErrorRepository, GradeClassResolutionRepository, StudentAccountRepository（既存生徒の更新）, StudentAccountCreationRepository（新規行の作成。`user`の`CreateStudentAccount`）
 - 判断根拠: 「1行でも不正な行があれば全体を失敗とし、有効な行についても一切反映しない」という全件成功・全件失敗の業務要件があるため、管理者問題インポート機能とは異なり行/バッチ単位に分割せず、UseCase全体を1トランザクションとする（詳細は「14. Transaction設計」を参照）
 
 ---
@@ -394,6 +404,7 @@ sequenceDiagram
     participant AG as AllOrNothingImportAggregationPolicy
     participant UP as StudentAccountUpsertPolicy
     participant SR as StudentAccountRepository
+    participant CR as StudentAccountCreationRepository(user)
     participant ER as ImportErrorRepository
 
     H->>SU: Execute(current teacher, file, mode)
@@ -414,7 +425,8 @@ sequenceDiagram
         AG-->>EU: 終了状態（completed/failed）
         alt 全行有効
             EU->>UP: 行ごとに新規作成/更新を判定
-            UP->>SR: 生徒アカウントを作成・更新
+            UP->>CR: 新規行はCreateStudentAccountを依頼
+            UP->>SR: 既存生徒の行は更新
             EU->>HR: statusをcompletedに更新
         else 1行でも不正
             EU->>ER: 不正行をImportErrorとして記録
@@ -437,8 +449,8 @@ flowchart TD
     E --> F1
     D -- No --> G[各行についてメール一致判定]
     G --> H{同校の既存生徒と<br/>メールが一致するか}
-    H -- Yes --> I[既存生徒情報を更新]
-    H -- No --> J[新規生徒アカウントを作成<br/>（仮パスワード発行・招待メール送信）]
+    H -- Yes --> I[既存生徒情報を更新<br/>（本Context。招待メールなし）]
+    H -- No --> J[userのCreateStudentAccountで<br/>新規生徒アカウントを作成<br/>（仮パスワード・生徒番号の発行・招待メール送信の依頼）]
     I --> K[全行の反映が完了]
     J --> K
     K --> F2[全体をcompletedとして確定]
@@ -463,7 +475,7 @@ flowchart TD
 
 ## 理由
 
-基本方針は「UseCase単位」でのトランザクション管理であり、管理者問題インポート機能とは異なり本機能はこの基本方針からの逸脱を必要としない。むしろ「1行でも不正な行があれば、有効な行についても生徒データへの反映を一切行わない」という全件成功・全件失敗の業務要件そのものが、UseCase全体を1つのトランザクションとすることと合致する。管理者問題インポート機能が行/バッチ単位にトランザクションを分割したのは「部分的成功を許容する」業務要件のためであり、本機能にはその要件がないため、単一トランザクションのままで業務要件を満たせる。
+基本方針は「UseCase単位」でのトランザクション管理であり、管理者問題インポート機能とは異なり本機能はこの基本方針からの逸脱を必要としない。むしろ「1行でも不正な行があれば、有効な行についても生徒データへの反映を一切行わない」という全件成功・全件失敗の業務要件そのものが、UseCase全体を1つのトランザクションとすることと合致する。管理者問題インポート機能が行/バッチ単位にトランザクションを分割したのは「部分的成功を許容する」業務要件のためであり、本機能にはその要件がないため、単一トランザクションのままで業務要件を満たせる。新規行の作成を依頼する`user`の`CreateStudentAccount`は、呼び出し側のトランザクションに参加する（`user`②「14. Transaction設計」）ため、1行でも失敗した場合は、それまでに作成したアカウントと招待メールの送信依頼もロールバックされる。
 
 ---
 
@@ -678,7 +690,7 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 ## StudentAccountRepository
 
 - 対象テーブル: `users`
-- 操作種別: 作成（新規生徒アカウント）、更新（既存生徒情報の上書き）、参照（メールアドレス一致確認）
+- 操作種別: 更新（既存生徒情報の上書き）、参照（メールアドレス一致確認）。新規生徒アカウントの作成（`users`への保存と、`jobs`への招待メール送信依頼の登録）は`user`の`CreateStudentAccount`が行い、本Contextの操作に含めない
 - 主な検索条件・絞り込み条件: `high_school_id`、`email`、生徒ロール
 - 関連テーブルとの結合: 不要
 - ページネーション・ソート: 不要
@@ -689,7 +701,7 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 
 ## Domain Test
 
-- 目的: ImportStatus/ImportModeの正規化ルール、CsvHeaderValidationPolicy・StudentRowValidationPolicyによる検証ロジック、AllOrNothingImportAggregationPolicyによる全件成功・全件失敗の判定ロジック、StudentAccountUpsertPolicyによる新規作成/更新判定ロジックを検証する
+- 目的: ImportStatus/ImportModeの正規化ルール、CsvHeaderValidationPolicy・StudentRowValidationPolicyによる検証ロジック、AllOrNothingImportAggregationPolicyによる全件成功・全件失敗の判定ロジック、StudentAccountUpsertPolicyによる新規作成/更新判定ロジックを検証する（新規行が`user`の`CreateStudentAccount`の呼び出しに、既存行が更新に振り分けられること）
 
 ## UseCase Test
 
@@ -697,7 +709,7 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 
 ## Repository Test
 
-- 目的: ImportHistoryRepository / ImportErrorRepositoryの永続化・検索の正確性、GradeClassResolutionRepositoryの名称解決の正確性、StudentAccountRepositoryの作成・更新・メール一致確認の正確性を検証する
+- 目的: ImportHistoryRepository / ImportErrorRepositoryの永続化・検索の正確性、GradeClassResolutionRepositoryの名称解決の正確性、StudentAccountRepositoryの更新（招待メールを送らず`password_reset_required`に触れないこと）・メール一致確認の正確性を検証する
 
 ## Handler Test
 
@@ -720,7 +732,8 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 | Csv::HeaderValidator | Domain Service（CsvHeaderValidationPolicy） | ヘッダー検証ロジックを独立させ、dry run・実行の双方から再利用する |
 | Job（Teacher::StudentCsvImportJob） | Domain Event（StudentImportRequested）購読による非同期実行 | 非同期実行のトリガーを明示的にモデル化する |
 | Model（ImportHistory / ImportError） | Entity（ImportHistory Aggregate） | 状態管理と結果集計をEntity/Aggregateに集約する |
-| Service（Student::CreateStudentService, Common::CreateUserService） | StudentAccountRepository（本Contextが提供、教師生徒参照機能からも利用） | アカウント作成の実処理を1箇所に集約し、単体登録・CSV一括登録の双方で再利用する |
+| Service（Student::CreateStudentService, Common::CreateUserService） | `user` Contextの`CreateStudentAccount`（本Contextは`StudentAccountCreationRepository`経由で呼ぶ） | アカウント作成の実処理は`user`が共通で担い、CSV一括登録・教師生徒参照機能の単体登録のそれぞれが呼ぶ |
+| Service（Teacher::StudentCsvImportService#update_existing_user） | StudentAccountRepository（既存生徒の更新） | 既存生徒の更新は本Contextの責務とする（`user`は更新を持たない）。招待メールを送らず、`password_reset_required`にも触れない |
 
 ---
 
@@ -754,7 +767,7 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 |Domain Event|採用（StudentImportRequested）|同期受付と非同期処理の境界を明示するため。規約13章の「確実に実行したい処理」に該当する|
 |Value Object|採用（ImportMode / ImportStatus / StudentRowValidationResult）|モード・状態・行結果の意味を明示するため|
 |Domain Service|CsvHeaderValidationPolicy / StudentRowValidationPolicy / AllOrNothingImportAggregationPolicy / StudentAccountUpsertPolicy|検証・集計・新規作成/更新判定という複数の業務ルールを分離するため|
-|Context間連携|教師生徒参照機能（student-directory）へ生徒アカウント作成処理を提供|単体登録・CSV一括登録の双方でアカウント作成ロジックを重複実装しないため|
+|Context間連携|新規行の生徒アカウント作成は`user`の`CreateStudentAccount`を呼ぶ。既存生徒の更新は本Contextが持つ|アカウント作成ロジックを`user`に集約して重複実装を避けるため。`user`は更新を持たないため、更新は本Contextに残す|
 
 ---
 
@@ -771,16 +784,16 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 
 - 受付処理（StartStudentImportUseCase）と実行処理（ExecuteStudentImportUseCase）、および検証専用処理（DryRunStudentImportUseCase）をUseCaseとして明確に分離する
 - ヘッダー検証・行検証・全件成功失敗の集計・新規作成/更新判定をそれぞれ独立したDomain Serviceに集約する
-- 生徒アカウント作成の実処理をStudentAccountRepositoryとして1箇所に集約し、教師生徒参照機能から参照される構成を明示する
+- 新規行の生徒アカウント作成は`user` Contextの`CreateStudentAccount`を呼ぶ構成とし、既存生徒の更新は`StudentAccountRepository`として本Contextが持つ
 - ファイル保存はActiveStorageに依存せず、import_historiesに直接ファイル参照情報を持たせる方式に変更する（管理者問題インポート機能と共通の変更）
 
 ## 変更理由
 
-- Rails実装がdry run・実行・単体登録の3経路で検証・作成ロジックを共有している構造を踏襲し、Go設計でも重複実装を避けることで、業務ルール変更時の影響範囲を最小化する
+- Rails実装がdry run・実行・単体登録の3経路で検証・作成ロジックを共有している構造を踏襲し、Go設計でも重複実装を避けることで、業務ルール変更時の影響範囲を最小化する。アカウント作成の共通処理は`user` Contextに置き、CSV一括登録と単体登録がそれぞれ呼ぶ
 - Rails固有の非同期・ファイル添付の仕組みに依存せず、Goのアーキテクチャで同等の業務要件（全件成功・全件失敗、所属校スコープ、進行状態管理）を満たすため
 
 ## 影響範囲
 
 - API外部仕様（202受付・200のdry run・エラーレスポンス）は維持する
 - DBスキーマはファイル参照方法のみ変更が必要であり、既存データのマイグレーションが必要になる（管理者問題インポート機能と共通のテーブルへの変更のため、両機能で整合させる必要がある）
-- 生徒アカウント作成処理の設計変更は、教師生徒参照機能（student-directory）の生徒単体新規登録にも影響する
+- 新規行の生徒アカウントは、`user`の`CreateStudentAccount`の規則（生徒は常に招待待ち・作成時に招待メール送信、生徒番号の発行、メールアドレス重複の扱い）に従って作成される。教師生徒参照機能（student-directory）も同じ操作を呼ぶが、両Contextの間に依存関係はない

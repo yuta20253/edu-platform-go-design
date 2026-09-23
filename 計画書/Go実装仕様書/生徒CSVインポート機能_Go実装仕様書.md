@@ -6,7 +6,7 @@
 
 ## 機能概要
 
-教師がCSVファイルを使って、同校の生徒アカウントをまとめて登録・更新できる機能である。実際のインポート前に内容を検証する事前検証（dry run、同期・DB書き込みなし）と、インポート履歴（ImportHistory）を作成した上で非同期にCSVを処理するインポート実行（202 Accepted）の2操作を提供する。行単位のエラーはImportErrorとして記録される。「1行でも不正な行があれば全体を失敗とし、有効な行についても一切反映しない」という全件成功・全件失敗（all-or-nothing）の業務ルールを持つ。新規作成された生徒アカウントには仮パスワード発行と招待メール送信が行われ、この生徒アカウント作成処理は教師生徒参照機能（`student-directory` Context）の生徒単体新規登録からも共有利用される（②「3. Bounded Context」）。
+教師がCSVファイルを使って、同校の生徒アカウントをまとめて登録・更新できる機能である。実際のインポート前に内容を検証する事前検証（dry run、同期・DB書き込みなし）と、インポート履歴（ImportHistory）を作成した上で非同期にCSVを処理するインポート実行（202 Accepted）の2操作を提供する。行単位のエラーはImportErrorとして記録される。「1行でも不正な行があれば全体を失敗とし、有効な行についても一切反映しない」という全件成功・全件失敗（all-or-nothing）の業務ルールを持つ。新規作成された生徒アカウントには仮パスワード発行と招待メール送信が行われる。新規行の生徒アカウント作成は`user` Contextの`CreateStudentAccount`を呼んで行い、既存生徒の更新は本Contextが行う（`user`は更新を持たない。②「3. Bounded Context」）。
 
 ## 採用設計パターンとその理由（②からの要約）
 
@@ -23,7 +23,7 @@ Transaction Script・Active Record・Event Sourcingは②「4. 設計パター�
 
 - Bounded Context: `student-import`
 - 対象UseCase: `DryRunStudentImportUseCase` / `StartStudentImportUseCase` / `ExecuteStudentImportUseCase`
-- 本Contextが教師生徒参照機能（`student-directory` Context）へ提供する共通の生徒アカウント作成処理（`StudentAccountRepository`）を含む
+- 既存生徒の更新と同校内のメールアドレス一致確認（`StudentAccountRepository`）、および新規行の生徒アカウント作成を`user` Contextへ依頼する処理（`StudentAccountCreationRepository`）を含む
 - 規約「3. 設計パターンごとの構造適用方針」のDomain Model構造で実装する。非同期実行はアーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」の「確実に実行したい処理」（`jobs`テーブル＋ポーリングワーカー）で実装する
 - ①Rails実装の詳細は本タスクでは提供されておらず、参照が必要な箇所は「①未提供のため参照不可」と明記する
 
@@ -67,7 +67,7 @@ internal/student_import/
     └── routes.go
 ```
 
-- `infrastructure/mail/`・`infrastructure/cache/`: 対象外（招待メール送信は`StudentAccountRepository`実装内部の責務として扱うが、独立したMailパッケージとしては切り出さず、Infrastructure層のRepository実装内に閉じる。②に他の外部連携要件の記載がないため）
+- `infrastructure/mail/`・`infrastructure/cache/`: 対象外（招待メールの送信依頼は`user` Contextの`CreateStudentAccount`が行うため、本Contextにメール送信の実装は持たない。②に他の外部連携要件の記載がないため）
 - `infrastructure/storage/`: 追加（CSVファイル本体の保存先。②「20. DB設計方針」のSchema変更に伴う実装対象。詳細は8章参照）
 
 ## 作成するファイル一覧
@@ -85,6 +85,7 @@ internal/student_import/domain/repository/import_history_repository.go
 internal/student_import/domain/repository/import_error_repository.go
 internal/student_import/domain/repository/grade_class_resolution_repository.go
 internal/student_import/domain/repository/student_account_repository.go
+internal/student_import/domain/repository/student_account_creation_repository.go
 
 internal/student_import/domain/service/csv_header_validation_policy.go
 internal/student_import/domain/service/student_row_validation_policy.go
@@ -114,6 +115,7 @@ internal/student_import/infrastructure/repository/import_history_repository.go
 internal/student_import/infrastructure/repository/import_error_repository.go
 internal/student_import/infrastructure/repository/grade_class_resolution_repository.go
 internal/student_import/infrastructure/repository/student_account_repository.go
+internal/student_import/infrastructure/repository/student_account_creation_repository.go
 internal/student_import/infrastructure/repository/transaction_manager.go
 
 internal/student_import/infrastructure/storage/csv_file_storage.go
@@ -127,7 +129,7 @@ internal/student_import/presentation/response/student_import_response.go
 internal/student_import/presentation/routes.go
 ```
 
-**②からの補足**: `GradeClassResolutionRepository`はSchool/Grade Context提供・参照専用（②「11. Repository設計」）であり、当該Contextの②/③文書は本タスクでは提供されていないため、実装の正確な参照先は「推測」である。`StudentAccountRepository`は本Context自身が提供し、教師生徒参照機能（`student-directory` Context）からも利用される（②「3. Bounded Context」「11. Repository設計」）。教師生徒参照機能_Go実装仕様書が定義する`StudentAccountCreator`インターフェースとの接続方法は「9. Presentation層設計」直後の「Context間連携」節を参照。
+**②からの補足**: `GradeClassResolutionRepository`はSchool/Grade Context提供・参照専用（②「11. Repository設計」）であり、当該Contextの②/③文書は本タスクでは提供されていないため、実装の正確な参照先は「推測」である。`StudentAccountRepository`は本Context自身が提供し、既存生徒の更新と同校内のメールアドレス一致確認を担う。新規行の生徒アカウント作成は、`user` Contextの公開操作`CreateStudentAccount`を`StudentAccountCreationRepository`経由で呼ぶ（②「3. Bounded Context」「11. Repository設計」）。教師生徒参照機能（`student-directory` Context）も同じ`user`の操作を直接呼ぶが、本Contextとの間に依存関係はない。`user`との接続方法は「9. Presentation層設計」直後の「Context間連携」節を参照。
 
 ---
 
@@ -229,19 +231,27 @@ internal/student_import/presentation/routes.go
 |`ResolveGrade`|`(ctx context.Context, highSchoolID uint, gradeName string)`|`(*uint, error)`|学年名から`grade_id`を解決する。存在しない場合は`nil, nil`|
 |`ResolveClass`|`(ctx context.Context, gradeID uint, className string)`|`(*uint, error)`|指定学年に属する学級名から`school_class_id`を解決する。存在しない場合は`nil, nil`|
 
-### StudentAccountRepository（`domain/repository/student_account_repository.go`、本Context提供・student-directoryからも利用）
+### StudentAccountRepository（`domain/repository/student_account_repository.go`、本Context提供）
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
 |`FindByEmailInSchool`|`(ctx context.Context, highSchoolID uint, email string)`|`(*uint, error)`|同校内でのメールアドレス一致確認。一致する生徒IDまたは`nil`を返す|
-|`Create`|`(ctx context.Context, params CreateStudentAccountParams)`|`(CreateStudentAccountResult, error)`|新規生徒アカウントを作成する（仮パスワード発行・生徒番号採番・招待メール送信を伴う。②「11. Repository設計」）|
-|`Update`|`(ctx context.Context, params UpdateStudentAccountParams)`|`error`|既存生徒アカウントを更新する（氏名・氏名カナ・メールアドレス・学年・学級の上書き、招待メールは再送しない）|
+|`Update`|`(ctx context.Context, params UpdateStudentAccountParams)`|`error`|既存生徒アカウントを更新する（氏名・氏名カナ・メールアドレス・学年・クラスの上書き。招待メールは送らず、`password_reset_required`にも触れない）|
 
-`CreateStudentAccountParams`のフィールド: `Name string` / `NameKana string` / `Email string` / `HighSchoolID uint` / `GradeID uint` / `SchoolClassID uint`
-`CreateStudentAccountResult`のフィールド: `StudentID uint` / `Name string` / `Email string`
 `UpdateStudentAccountParams`のフィールド: `StudentID uint` / `Name string` / `NameKana string` / `Email string` / `GradeID uint` / `SchoolClassID uint`
 
-- 保持しない責務: CSV解析、行単位の検証（`StudentRowValidationPolicy`の責務）（②11章）
+- 保持しない責務: 新規生徒アカウントの作成（`StudentAccountCreationRepository`が`user`へ依頼する）、CSV解析、行単位の検証（`StudentRowValidationPolicy`の責務）（②11章）
+
+### StudentAccountCreationRepository（`domain/repository/student_account_creation_repository.go`、`user` Context提供・作成依頼専用）
+
+|メソッド|引数|戻り値|責務|
+|-|-|-|-|
+|`Create`|`(ctx context.Context, params CreateStudentAccountParams)`|`(CreateStudentAccountResult, error)`|新規行の生徒アカウントの作成を、`user` Contextの`CreateStudentAccount`へ依頼する。仮パスワードの発行・生徒番号の発行・招待待ちの設定・招待メール送信の依頼は`user`が行い、本Contextは指定しない（②11章）|
+
+`CreateStudentAccountParams`のフィールド: `Name string` / `NameKana string` / `Email string` / `HighSchoolID uint` / `GradeID uint` / `SchoolClassID uint`（`user`の`CreateStudentAccount`の入力と同じ項目。CSVの学級は必須のため、クラスは常に設定する）
+`CreateStudentAccountResult`のフィールド: `StudentID uint` / `Name string` / `Email string`（`user`が返す生徒の基本属性のうち、本Contextが使う項目）
+
+- 保持しない責務: 更新、既存アカウントの確認、CSV解析、行単位の検証
 
 ## Domain Service
 
@@ -267,9 +277,9 @@ internal/student_import/presentation/routes.go
 ### StudentAccountUpsertPolicy（`domain/service/student_account_upsert_policy.go`）
 
 - struct名: `StudentAccountUpsertPolicy`
-- コンストラクタ: `NewStudentAccountUpsertPolicy(accountRepo repository.StudentAccountRepository) *StudentAccountUpsertPolicy`
+- コンストラクタ: `NewStudentAccountUpsertPolicy(accountRepo repository.StudentAccountRepository, creator repository.StudentAccountCreationRepository) *StudentAccountUpsertPolicy`
 - 公開メソッド: `(p *StudentAccountUpsertPolicy) Upsert(ctx context.Context, highSchoolID uint, row valueobject.StudentImportRow) error`
-- 責務: `StudentAccountRepository.FindByEmailInSchool`で同校の既存生徒と一致するかを確認し、一致すれば`Update`、一致しなければ`Create`を呼び出す（②8章。教師生徒参照機能の生徒単体新規登録は本Policyの「新規作成」経路のみを利用する）
+- 責務: `StudentAccountRepository.FindByEmailInSchool`で同校の既存生徒と一致するかを確認し、一致すれば`StudentAccountRepository.Update`（本Contextの更新）、一致しなければ`StudentAccountCreationRepository.Create`（`user`の`CreateStudentAccount`）を呼び出す（②8章）
 
 ## Domain Event
 
@@ -360,8 +370,11 @@ classDiagram
     class StudentAccountRepository {
       <<interface>>
       +FindByEmailInSchool(ctx, highSchoolID, email) *uint, error
-      +Create(ctx, params) CreateStudentAccountResult, error
       +Update(ctx, params) error
+    }
+    class StudentAccountCreationRepository {
+      <<interface（user Context提供）>>
+      +Create(ctx, params) CreateStudentAccountResult, error
     }
 
     ImportHistory "1" *-- "many" ImportError : 保有
@@ -372,7 +385,8 @@ classDiagram
     AllOrNothingImportAggregationPolicy ..> StudentRowValidationResult : 集計
     AllOrNothingImportAggregationPolicy ..> ImportHistory : 終了状態を決定
     StudentAccountUpsertPolicy ..> StudentImportRow : 判定
-    StudentAccountUpsertPolicy ..> StudentAccountRepository : 作成・更新を依頼
+    StudentAccountUpsertPolicy ..> StudentAccountRepository : 既存生徒の更新を依頼
+    StudentAccountUpsertPolicy ..> StudentAccountCreationRepository : 新規行の作成を依頼
 ```
 
 ---
@@ -449,7 +463,7 @@ stateDiagram-v2
   4. ヘッダーが不正な場合、`importHistory.Fail(0, 0, now)`を呼び出し、手順8へ進む
   5. ヘッダーが正常な場合、各行について`StudentRowValidationPolicy.ValidateRow`を呼び出し、`StudentRowValidationResult`の集合を得る
   6. `AllOrNothingImportAggregationPolicy.Aggregate`で終了状態とカウントを決定する
-  7. 全行有効（`completed`）の場合、各行について`StudentAccountUpsertPolicy.Upsert`を呼び出し生徒データへ反映したうえで`importHistory.Complete(...)`を呼び出す。1行でも不正（`failed`）の場合、不正行を`entity.NewImportError`で生成し`ImportErrorRepository.CreateBatch`で一括保存したうえで`importHistory.Fail(...)`を呼び出す
+  7. 全行有効（`completed`）の場合、各行について`StudentAccountUpsertPolicy.Upsert`を呼び出し生徒データへ反映したうえで`importHistory.Complete(...)`を呼び出す（新規行は`user`の`CreateStudentAccount`、既存生徒の行は`StudentAccountRepository.Update`。いずれかがエラーを返した場合は、トランザクション全体をロールバックしてエラーを伝播させる）。1行でも不正（`failed`）の場合、不正行を`entity.NewImportError`で生成し`ImportErrorRepository.CreateBatch`で一括保存したうえで`importHistory.Fail(...)`を呼び出す
   8. `ImportHistoryRepository.Update`で最終状態を永続化する
   9. `dto.ExecuteStudentImportResult`に変換して返す
 - トランザクション境界: UseCase全体を1トランザクションとする。管理者問題インポート機能が行/バッチ単位に分割するのとは異なり、本機能は全件成功・全件失敗の業務要件そのものがUseCase全体を1トランザクションとすることと合致するため分割しない（②14章）
@@ -478,6 +492,7 @@ sequenceDiagram
     participant AG as AllOrNothingImportAggregationPolicy
     participant UP as StudentAccountUpsertPolicy
     participant SR as StudentAccountRepository
+    participant CR as StudentAccountCreationRepository(user)
     participant ER as ImportErrorRepository
 
     H->>SU: Execute(currentTeacher, file, mode)
@@ -502,7 +517,8 @@ sequenceDiagram
         EU->>AG: 全行の結果を集計
         alt 全行有効
             EU->>UP: 行ごとに新規作成/更新を判定
-            UP->>SR: 生徒アカウントを作成・更新
+            UP->>CR: 新規行はCreateStudentAccountを依頼
+            UP->>SR: 既存生徒の行は更新
             EU->>HR: Complete → Update
         else 1行でも不正
             EU->>ER: 不正行をImportErrorとして記録
@@ -525,8 +541,8 @@ flowchart TD
     E --> F1
     D -- No --> G[各行についてメール一致判定]
     G --> H{同校の既存生徒と<br/>メールが一致するか}
-    H -- Yes --> I[既存生徒情報を更新]
-    H -- No --> J[新規生徒アカウントを作成<br/>（仮パスワード発行・招待メール送信）]
+    H -- Yes --> I[既存生徒情報を更新<br/>（本Context。招待メールなし）]
+    H -- No --> J[userのCreateStudentAccountで<br/>新規生徒アカウントを作成<br/>（仮パスワード・生徒番号の発行・招待メール送信の依頼）]
     I --> K[全行の反映が完了]
     J --> K
     K --> F2[全体をcompletedとして確定]
@@ -572,15 +588,21 @@ flowchart TD
 - 対応するGORMモデル: User Context所有の既存`users`テーブルを参照・更新する（本Contextでは新規に所有モデルとして定義しない）
 - 各メソッドで発行するクエリ内容:
   - `FindByEmailInSchool`: `high_school_id = ? AND email = ? AND role = 生徒ロール`によるSELECT（1件）
-  - `Create`: `users`へ1件INSERT。仮パスワードの生成（`crypto/rand`、コーディング規約「23. crypto/rand」）・生徒番号の採番・招待メール送信を行う
-  - `Update`: `id = ?`条件で氏名・氏名カナ・メールアドレス・学年・学級を更新する（招待メールは再送しない）
+  - `Update`: `id = ?`条件で氏名・氏名カナ・メールアドレス・学年・学級のみを更新する（招待メールは送らず、`password_reset_required`・パスワード・認証状態の列には触れない。Rails現行は、更新時に生徒番号が空であれば発行する。発行規則の共有方式は`user`②の未解決の論点6のため、本書では確定しない）
+
+### StudentAccountCreationRepository実装（`infrastructure/repository/student_account_creation_repository.go`）
+
+- 実装struct名: 非公開struct + コンストラクタ`NewStudentAccountCreationRepository`
+- 実装内容: `user` Contextが公開する`CreateStudentAccount`を呼び出し、`CreateStudentAccountParams`を`user`の入力へ、`user`が返す基本属性を`CreateStudentAccountResult`へ変換する。本Contextでは`users`へINSERTしない（仮パスワードの生成・生徒番号の発行・招待メール送信依頼の登録は`user`が行う）
+- トランザクション: `ExecuteStudentImportUseCase`が開始したトランザクションに`user`の操作が参加するよう、`ctx`をそのまま渡す（`user`②の未解決の論点9。引き継ぎ方式は規約11の`context.Context`を介した方式に寄せる想定で、`user`③で確定する。推測）
+- 入出力の型・エラー種別の判別（メールアドレス重複のValidation等）: `user`の③が未作成のため、`user`③で確定する（推測）
 
 ## 外部連携実装
 
 |実装対象|呼び出し元|実装方針|
 |-|-|-|
 |`FileStorage`実装（`infrastructure/storage/csv_file_storage.go`）|`StartStudentImportUseCase.Save`, `ExecuteStudentImportUseCase.Read`|CSVファイル本体をディスクまたはオブジェクトストレージへ保存し、`import_histories.file_path`（②20章のSchema変更対象、15章参照）にキー情報を記録する。具体的な保存先（ローカルディスク／S3等）は②に選定基準の記載がなく、管理者問題インポート機能と共通の変更であるため両機能で同一の実装方針を採る（推測）|
-|招待メール送信|`StudentAccountRepository.Create`|独立したMailパッケージとしては切り出さず、`StudentAccountRepository`実装内部から呼び出す（②に該当する外部連携要件以上の記載がないため、最小構成とした）|
+|招待メール送信|`user`の`CreateStudentAccount`（内部で`jobs`へ送信依頼を登録）|本Contextでは実装しない。新規行の作成を`user`へ依頼することで、招待メールの送信依頼が同一トランザクションで登録される（②11章）|
 |`JobPublisher`実装（`infrastructure/queue/job_publisher.go`）、非同期ワーカー（`infrastructure/queue/worker_handler.go`）|`StartStudentImportUseCase`、`main.go`起動時のワーカー登録|アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」の「確実に実行したい処理」として実装する。`jobs`テーブル＋ポーリングワーカーの標準実装を用いる。`jobType = "student_import"`のハンドラを`main.go`のワーカー起動時に登録し、`ExecuteStudentImportUseCase.Execute`を呼び出す|
 
 ---
@@ -603,11 +625,12 @@ flowchart TD
 - `DryRun`処理順序: current teacher情報取得 → `request.DryRunStudentImportRequest`へのマルチパートフォームバインド（ファイル必須・CSV形式・5MB以内。②15章「フォーマットチェック」）→ `DryRunStudentImportUseCase.Execute`呼び出し → `response.DryRunStudentImportResponse`へ変換し200を返す。ヘッダー不正時は422（`ErrInvalidCsvHeader`）
 - `Start`処理順序: current teacher情報取得 → `request.StartStudentImportRequest`へのバインド（ファイル必須・CSV形式・5MB以内、mode任意）→ `StartStudentImportUseCase.Execute`呼び出し → `response.MessageResponse`へ変換し202を返す。ファイル不正時は422（この場合ImportHistoryは作成されない。②19章）
 
-## Context間連携（StudentAccountCreator、student-directoryへの提供）
+## Context間連携（`user` Contextの`CreateStudentAccount`の呼び出し）
 
-- 生徒CSVインポート機能側の`StudentAccountRepository`実装は、教師生徒参照機能_Go実装仕様書が定義する`application.StudentAccountCreator`インターフェース（`CreateStudentAccount(ctx, cmd CreateStudentAccountCommand) (CreateStudentAccountResult, error)`）を、そのままの型では満たさない（Command/Result型がパッケージごとに独立して定義されているため、Goの構造的部分型は同一メソッドシグネチャの型一致を要求する）。
-- そのため、DI配線層（アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」の各Contextの組み立て関数、または両Contextを横断する結線を行う箇所）に、`student_import.StudentAccountRepository.Create`を`student_directory.application.StudentAccountCreator`へ変換する薄いアダプタ（`Create`メソッド1つのみを持つラッパー struct）を用意し、フィールド単位で`CreateStudentAccountParams`⇔`CreateStudentAccountCommand`を変換する
-- 実装配置場所（アダプタをどちらのContextに置くか、または独立したwiringパッケージに置くか）は②のいずれの文書にも明記がないため「推測」であり、実装時に確定する
+- 本Contextは、新規行の生徒アカウント作成を、`user` Contextが公開する`CreateStudentAccount`の呼び出しで依頼する。呼び出しは`domain/repository`の`StudentAccountCreationRepository`（本Context側で定義するinterface）を介し、実装は`infrastructure/repository/student_account_creation_repository.go`が`user`の公開関数へ委譲する（アーキテクチャ規約「5. Context間連携ルール」：相手Contextが公開する手段のみを呼び出す。コーディング規約「7. インターフェース」：利用側で定義する）
+- DI配線: アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従い、`internal/student_import`の組み立て関数（`NewContext`）が`NewStudentAccountCreationRepository`を生成し、`StudentAccountUpsertPolicy`へ渡す。他Contextの組み立て結果を受け取る配線は行わない
+- 教師生徒参照機能（`student-directory`）も、`user`の`CreateStudentAccount`を直接呼ぶ。本Contextと`student-directory`の間に作成処理の共有や依存関係はない
+- `user`の③は未作成であるため、呼び出す関数のシグネチャ・入出力の型は`user`③で確定する（推測）
 
 ---
 
@@ -649,7 +672,7 @@ flowchart TD
 
 ## 複数Repositoryにまたがる場合の扱い
 
-`ExecuteStudentImportUseCase`は基本方針どおりUseCase単位でのトランザクション管理とし、管理者問題インポート機能のような行/バッチ単位への分割は行わない。「1行でも不正な行があれば、有効な行についても生徒データへの反映を一切行わない」という全件成功・全件失敗の業務要件そのものが、UseCase全体を1つのトランザクションとすることと合致するためである（②14章）。
+`ExecuteStudentImportUseCase`は基本方針どおりUseCase単位でのトランザクション管理とし、管理者問題インポート機能のような行/バッチ単位への分割は行わない。「1行でも不正な行があれば、有効な行についても生徒データへの反映を一切行わない」という全件成功・全件失敗の業務要件そのものが、UseCase全体を1つのトランザクションとすることと合致するためである（②14章）。新規行の作成を依頼する`user`の`CreateStudentAccount`は、このトランザクションに参加する（`ctx`を介して引き継ぐ。`user`②の未解決の論点9）ため、1行でも失敗した場合は、作成済みのアカウントと招待メールの送信依頼もロールバックされる。
 
 ---
 
@@ -759,7 +782,8 @@ flowchart TD
 |`ImportHistoryRepository`|`Create`/`Update`/`FindByID`|`import_histories`|`id`一致、または`import_type = 'student'`での絞り込み|不要|
 |`ImportErrorRepository`|`CreateBatch`/`FindByImportHistoryID`|`import_errors`|`import_history_id`一致|不要|
 |`GradeClassResolutionRepository`|`ResolveGrade`/`ResolveClass`|`grades`, `school_classes`|`high_school_id`一致、名称一致、`grade_id`一致|`grades`と`school_classes`の結合（学級が指定学年に属することの確認）|
-|`StudentAccountRepository`|`FindByEmailInSchool`/`Create`/`Update`|`users`|`high_school_id`一致、`email`一致、生徒ロール|不要|
+|`StudentAccountRepository`|`FindByEmailInSchool`/`Update`|`users`|`high_school_id`一致、`email`一致、生徒ロール（照会）、`id`一致（更新）|不要|
+|`StudentAccountCreationRepository`|`Create`|（`user`の`CreateStudentAccount`が`users`・`jobs`へ書き込む。本Contextはクエリを発行しない）|—|—|
 
 SQL文そのものは記載しない。
 
@@ -782,7 +806,7 @@ SQL文そのものは記載しない。
 |`CsvHeaderValidationPolicy.Validate`|想定5列すべてを含む場合に成功する／いずれか欠けている場合に`ErrInvalidCsvHeader`を返す|
 |`StudentRowValidationPolicy.ValidateRow`|氏名・氏名カナ・メール形式が不正な場合に失敗する／学年・学級が自校に存在しない場合に失敗する／メールアドレスが他校・他ロールで使用済みの場合に失敗する／CSV内でメールアドレスが重複する場合に失敗する／すべて妥当な場合に成功する|
 |`AllOrNothingImportAggregationPolicy.Aggregate`|全行有効な場合に`completed`となる／1行でも無効な場合に`failed`となる|
-|`StudentAccountUpsertPolicy.Upsert`|メールアドレスが同校の既存生徒と一致する場合に更新が呼ばれる／一致しない場合に新規作成が呼ばれる|
+|`StudentAccountUpsertPolicy.Upsert`|メールアドレスが同校の既存生徒と一致する場合に`StudentAccountRepository.Update`が呼ばれる／一致しない場合に`StudentAccountCreationRepository.Create`が呼ばれる|
 
 ## UseCase Test
 
@@ -798,7 +822,8 @@ SQL文そのものは記載しない。
 |-|-|
 |`ImportHistoryRepository`/`ImportErrorRepository`|永続化・検索の正確性|
 |`GradeClassResolutionRepository`|学年名・学級名からの名称解決の正確性（存在しない場合に`nil`を返すこと）|
-|`StudentAccountRepository`|作成（仮パスワード発行・招待メール送信を含む）・更新（招待メール再送なし）・メール一致確認の正確性|
+|`StudentAccountRepository`|更新（招待メールを送らず`password_reset_required`に触れないこと）・メール一致確認の正確性|
+|`StudentAccountCreationRepository`|`user`の`CreateStudentAccount`へ入力が正しく変換されて渡され、結果が変換されて返ること（`user`の作成規則そのものは`user`のテストで検証する）|
 
 ## Handler Test
 
@@ -813,7 +838,7 @@ SQL文そのものは記載しない。
 |-|-|
 |dry run|検証結果算出が一貫して動作すること|
 |アップロード受付〜非同期処理完了|エンドポイント経由でのアップロード受付から、ワーカーによる非同期処理完了後のImportHistory状態・ImportError記録・生徒アカウント反映までを一貫して確認すること（②の重点検証項目：全件成功・全件失敗）|
-|student-directoryとの連携|教師生徒参照機能の生徒単体新規登録が、本Contextの`StudentAccountRepository.Create`を正しく呼び出すこと|
+|`user`との連携|新規行が`user`の`CreateStudentAccount`で作成され（生徒番号・招待待ち・招待メール送信依頼を含む）、1行でも失敗した場合に、作成済みのアカウントと招待メール送信依頼が残らないこと。既存生徒の行は更新のみで招待メール送信依頼が登録されないこと|
 
 ---
 
@@ -822,11 +847,11 @@ SQL文そのものは記載しない。
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
 |ディレクトリ名を`internal/student_import`とした|②のContext名`student-import`とディレクトリ名の対応関係が②に明記がない|推測|
-|`GradeClassResolutionRepository`・`StudentAccountRepository`実装が参照する他ContextのGORMモデルを本Contextで新規定義せず、既存テーブルを直接参照する構成とした|School/Grade Context・User Context自体の②文書がアーキテクチャ規約「15. 今後の課題」のとおり未整備であるため|推測|
+|`GradeClassResolutionRepository`・`StudentAccountRepository`実装が参照する他ContextのGORMモデルを本Contextで新規定義せず、既存テーブルを直接参照する構成とした|School/Grade Context自体の②文書が未整備であり、User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が定める公開操作の③Go実装仕様書も未作成であるため|推測|
 |`ImportHistory`に`HighSchoolID`フィールドを追加した|②の`entity.ImportHistory`クラス図には`highSchoolId`相当のフィールド記載がないが、②「16. Authorization設計」の「インポート対象・作成対象の生徒アカウントは、常に実行した教師の所属高校に限定される」という業務要件を実装するために必要と判断した|推測（②の業務ルール自体は変更していない）|
-|`StudentAccountCreator`（教師生徒参照機能側）と`StudentAccountRepository`（本Context）の型不一致をDI配線層の薄いアダプタで解決する構成とした|②はいずれの文書も「本Contextが提供、student-directoryからも利用される」とのみ記載し、Goの型システム上の接続方法までは規定していない|推測|
+|新規行の作成を、本Context側で定義する`StudentAccountCreationRepository`を介して`user`の`CreateStudentAccount`へ委譲する構成とした|②11章は、新規行の作成を`user`の`CreateStudentAccount`へ依頼すると定めているが、Domain Model採用機能からの呼び出し方式は②に明記がない。他Contextの公開手段のみを呼ぶ（規約5）・利用側でinterfaceを定義する（コーディング規約7）に従った|推測|
 |`import_histories.file_path`カラムの型・名称を`string`と仮定した|②「20. DB設計方針」は「ファイルの保存パス、またはオブジェクトストレージ上のキーに相当する情報」とのみ記載し、具体的なカラム名・型を確定していない（②自身が「Go実装仕様書で検討する」としている）|推測|
 |CSVファイルの保存先（ローカルディスク／オブジェクトストレージ）を確定しなかった|②に選定基準の記載がなく、管理者問題インポート機能と共通の変更であるため、両機能の③文書間で整合させる必要がある|推測|
-|`StudentAccountRepository.Create`が仮パスワード生成に`crypto/rand`を用いる方針とした|コーディング規約「23. crypto/rand」の「鍵やトークンなど、セキュリティに関わる乱数生成では`math/rand`を使用しない」方針に従った。②に生成方式の明記はない|推測（規約に基づく判断）|
+|既存生徒の更新時に、Rails現行が行う生徒番号の発行（`student_number`が空の場合）を、本書では確定しなかった|`user`②の未解決の論点6が、発行規則の共有方式（発行のみを単独で公開する／本Contextに複製する）を決定していないため|推測|
 
 上記以外の設計判断はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。

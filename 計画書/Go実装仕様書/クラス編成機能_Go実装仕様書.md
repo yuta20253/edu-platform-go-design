@@ -125,7 +125,7 @@ internal/school_class/presentation/response/school_class_response.go
 internal/school_class/presentation/routes.go
 ```
 
-**②からの補足**: `ClassOccupancyRepository`（在籍生徒・所属教員の存在確認）・`TeacherPermissionRepository`（他職員操作権限の確認）は、②「11. Repository設計」の「外部参照Repository（Student / Teacher所属）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「6. Context間連携ルール」に従い具体的なRepository Interfaceとして具体化したものである。両者ともUser Context / Teacher Permission Contextの②③文書が本タスクでは提供されていないため、実装（Infrastructure層）の正確な参照先は「推測」である。
+**②からの補足**: `ClassOccupancyRepository`（在籍生徒・所属教員の存在確認）・`TeacherPermissionRepository`（他職員操作権限の確認）は、②「11. Repository設計」の「外部参照Repository（在籍する生徒・所属する教員）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「6. Context間連携ルール」に従い具体的なRepository Interfaceとして具体化したものである。`TeacherPermissionRepository`は、Teacher Permission Contextの②③文書が本タスクでは提供されていないため、実装（Infrastructure層）の正確な参照先は「推測」である。`ClassOccupancyRepository`のうち、在籍生徒の確認は`user` Contextが所有する`users`が対象であり、`user`②が`CountUsers`を公開しているが、その③が未作成のため、対象テーブルへの直接クエリで暫定対応する。所属教員の確認は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは、現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
 
 ---
 
@@ -243,7 +243,7 @@ internal/school_class/presentation/routes.go
 |`FindGradeByID`|`(ctx context.Context, gradeID uint, highSchoolID uint)`|`(*entity.Grade, error)`|申請作成時、指定学年が同校に属するかを確認するために取得する。存在しない場合は`nil, nil`を返す|
 |`Create`|`(ctx context.Context, sc *entity.SchoolClass)`|`error`|承認された新設申請の反映としてクラスを新規作成する|
 |`Update`|`(ctx context.Context, sc *entity.SchoolClass)`|`error`|承認された改名申請の反映としてクラス名を更新する|
-|`Delete`|`(ctx context.Context, schoolClassID uint)`|`error`|承認された削除申請の反映としてクラスを削除する|
+|`Delete`|`(ctx context.Context, schoolClassID uint)`|`error`|承認された削除申請の反映としてクラスを削除する。外部キー制約があるため、対象クラスの`teacher_school_classes`の行を先に削除し、同一トランザクションでクラスを削除する（Rails現行の`dependent: :destroy`に相当する連動削除。②「3. Bounded Context」）|
 
 - 保持しない責務: 申請の状態遷移・承認可否の判定（②9章）
 
@@ -258,12 +258,12 @@ internal/school_class/presentation/routes.go
 
 - 保持しない責務: クラスデータへの反映そのもの（`SchoolClassRepository`の責務）
 
-### ClassOccupancyRepository（`domain/repository/class_occupancy_repository.go`、User Context参照専用）
+### ClassOccupancyRepository（`domain/repository/class_occupancy_repository.go`、在籍生徒は`user` Context所有の`users`・所属教員は`teacher_school_classes`の参照専用）
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`HasEnrolledStudents`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに在籍する生徒が1人以上いるかを確認する|
-|`HasAssignedTeachers`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに所属する教員が1人以上いるかを確認する|
+|`HasEnrolledStudents`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに在籍する生徒が1人以上いるかを確認する。無効化済み（`deleted_at`あり）のユーザーも含めて確認する（②「3. Bounded Context」。`user`②の`CountUsers`をクラス指定・無効化済みを含む指定で呼び出す場合に相当する）|
+|`HasAssignedTeachers`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに所属する教員が1人以上いるかを、`teacher_school_classes`に対象クラスの行があるかで確認する。担任・副担任（`role`）の別は問わず、教員の`users`が無効化済みであっても、行があれば所属するとみなす|
 
 ### TeacherPermissionRepository（`domain/repository/teacher_permission_repository.go`、Teacher Permission Context参照専用）
 
@@ -647,7 +647,7 @@ flowchart TD
 |`FindGradeByID`|`id = ? AND high_school_id = ?`（`grades`）|-|
 |`Create`|`school_classes`へ1件INSERT|-|
 |`Update`|`id = ?`条件で`name`を更新|-|
-|`Delete`|`id = ?`条件でDELETE（②20章：物理削除／論理削除いずれかは推測、17章参照）|-|
+|`Delete`|`teacher_school_classes`を`school_class_id = ?`条件でDELETEしたうえで、`id = ?`条件でDELETE（②20章：物理削除／論理削除いずれかは推測、17章参照）|同一トランザクション内で実行する|
 
 - Entity ⇔ GORMモデルの変換方針: 各モデルから対応Entityへの非公開変換関数（`toEntity`）、逆方向（`fromEntity`）をrepository実装内に用意する
 
@@ -669,8 +669,8 @@ flowchart TD
 ### ClassOccupancyRepository実装（`infrastructure/repository/class_occupancy_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewClassOccupancyRepository`
-- 対応するGORMモデル: User Context所有の`users`テーブル（生徒の`school_class_id`列を参照専用で読み取る最小フィールド定義）、`teacher_...`所属テーブル（推測、17章参照）
-- クエリ内容: `HasEnrolledStudents`は`school_class_id = ?`の生徒ロードレコード件数確認、`HasAssignedTeachers`は対象クラスへの教員所属レコード件数確認
+- 対応するGORMモデル: `user` Context所有の`users`テーブル（`school_class_id`列を参照専用で読み取る最小フィールド定義）、`teacher_school_classes`テーブル（`school_class_id`列を参照専用で読み取る最小フィールド定義。所有するContextは現行の②群に定義されていない。17章参照）。`user`②の③が未作成のため、`users`は`user`の`CountUsers`を呼び出さず、対象テーブルへの直接クエリで暫定対応する。`user`の③が整備された時点で、`CountUsers`（クラス指定・無効化済みを含む）の呼び出しへの置き換えを検討する
+- クエリ内容: `HasEnrolledStudents`は`users`の`school_class_id = ?`の件数確認（`deleted_at`による絞り込みは行わず、無効化済みも含める）、`HasAssignedTeachers`は`teacher_school_classes`の`school_class_id = ?`の件数確認（`role`による絞り込みは行わない）
 
 ### TeacherPermissionRepository実装（`infrastructure/repository/teacher_permission_repository.go`）
 
@@ -925,6 +925,10 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 |`CreatedAt`|`created_at`|Gorm規約のタイムスタンプ自動トラッキング|
 |`UpdatedAt`|`updated_at`||
 
+### TeacherSchoolClassModel（`infrastructure/persistence/gorm/teacher_school_class_model.go`）
+
+- 対応テーブル: `teacher_school_classes`（`ID` / `UserID` / `SchoolClassID` / `Role`の最小フィールド定義。`ClassOccupancyRepository`による参照と、`SchoolClassRepository.Delete`による対象クラスの行の削除にのみ用いる。このテーブルを所有・管理するContextは現行の②群に定義されておらず、本Contextからは、書き込む機能が現行の対象範囲に存在しない参照専用の依存として扱う。削除はクラスの削除に付随する連動削除のみである）
+
 ### SchoolClassRequestModel（`infrastructure/persistence/gorm/school_class_request_model.go`）
 
 - 対応テーブル: `school_class_requests`
@@ -953,6 +957,9 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 |`SchoolClassRepository`|`ListGrades`|`grades`|`high_school_id = ?`|不要|
 |`SchoolClassRepository`|`ListClassesByHighSchool`|`grades`, `school_classes`|`high_school_id = ?`|`grade_id`で結合|
 |`SchoolClassRepository`|`FindByID`|`school_classes`|`id = ?`|同校確認のため`grades`参照|
+|`SchoolClassRepository`|`Delete`|`teacher_school_classes`, `school_classes`|`teacher_school_classes.school_class_id = ?`の削除、続いて`school_classes.id = ?`の削除（同一トランザクション）|不要|
+|`ClassOccupancyRepository`|`HasEnrolledStudents`|`users`|`school_class_id = ?`（`deleted_at`による絞り込みなし）|不要|
+|`ClassOccupancyRepository`|`HasAssignedTeachers`|`teacher_school_classes`|`school_class_id = ?`（`role`による絞り込みなし）|不要|
 |`SchoolClassRequestRepository`|`FindByID`|`school_class_requests`|`id = ?`|同校確認のため`grades`参照|
 |`SchoolClassRequestRepository`|`ExistsPendingBySchoolClassID`|`school_class_requests`|`school_class_id = ? AND status = 'pending'`|不要|
 
@@ -993,7 +1000,8 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 
 |対象|テストケース|
 |-|-|
-|`SchoolClassRepository`|学年一覧・学年別クラス一覧・クラス詳細が同校スコープで正しく取得されること／承認反映（作成・更新・削除）が正しく実行されること|
+|`SchoolClassRepository`|学年一覧・学年別クラス一覧・クラス詳細が同校スコープで正しく取得されること／承認反映（作成・更新・削除）が正しく実行されること／クラスの削除時に、対象クラスの`teacher_school_classes`の行も同じトランザクションで削除され、他のクラスの行が残ること|
+|`ClassOccupancyRepository`|`HasEnrolledStudents`は、無効化済み（`deleted_at`あり）のユーザーのみが在籍している場合も真を返すこと／`HasAssignedTeachers`は、`teacher_school_classes`に担任・副担任のいずれの行がある場合も真を返し、行がない場合に偽を返すこと|
 |`SchoolClassRequestRepository`|申請の作成・同校スコープでの取得が正しく動作すること／楽観ロック競合時に`ErrOptimisticLockConflict`を返すこと／重複申請の存在確認が正しく動作すること|
 
 ## Handler Test
@@ -1023,7 +1031,8 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
 |ディレクトリ名を`internal/school_class`とした|②のContext名は`school-class`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「8. 命名規則」に従い変換した|推測|
-|`ClassOccupancyRepository`・`TeacherPermissionRepository`を新設し、それぞれUser Context・Teacher Permission Contextが公開する参照手段として扱った|②「11. Repository設計」「16. Authorization設計」が依存関係を明記しているが、具体的なInterface名・配置場所までは規定していない|推測|
+|`ClassOccupancyRepository`・`TeacherPermissionRepository`を新設した。`ClassOccupancyRepository`の在籍生徒の確認は`user` Contextが所有する`users`（③が未作成のため暫定で直接クエリ）、所属教員の確認は`teacher_school_classes`（所有するContextが現行の②群に未定義の参照専用の依存）を対象とし、`TeacherPermissionRepository`はTeacher Permission Contextが公開する参照手段として扱った|②「11. Repository設計」「16. Authorization設計」が依存関係を明記しているが、具体的なInterface名・配置場所までは規定していない。`teacher_school_classes`を所有するContextは、現行の②群のいずれにも定義されていない|推測|
+|クラスの削除の承認時に、対象クラスの`teacher_school_classes`の行を、クラスの削除より前に同一トランザクションで削除する|Rails現行の`SchoolClass`が`has_many :teacher_school_classes, dependent: :destroy`でクラスの削除時に行を連動削除しており、DBの外部キー制約（`teacher_school_classes.school_class_id`→`school_classes`）もあるため。②「3. Bounded Context」に記載した|推測ではない（Rails現行の挙動に基づく）|
 |`SchoolClassRequestEventPublisher`のAnnouncement Context呼び出し先の正確なpackage path|②「3. Bounded Context」「18. Domain Event」はAnnouncement Contextへの依存を明記するが、当該Contextの②/③文書（お知らせ機能）との具体的な接続方法は本タスクの対象外文書に依存する|推測|
 |`SchoolClass.Delete`（Repository）を物理削除とするか論理削除とするかを確定していない|②20章はスキーマ変更なしとするのみで、削除方式（`deleted_at`利用の有無）を明記していない。Gorm規約「0. 採用方針」は原則論理削除だが、クラス自体に削除申請というワークフローが既にあるため、物理削除の可能性も残る|推測（実装時に①または業務要件を確認する必要がある）|
 |`CancelSchoolClassRequest`で申請者本人でない場合のHTTP Statusを403とした|②「17. Error設計」のエラー仕様表に本ケースの明示的なStatus Code記載がない（承認・却下の自己承認禁止と同様に扱った）|推測|

@@ -45,7 +45,7 @@
 ## 判断根拠（Context統合の理由）
 
 - 対象データが完全に同一である: 本機能が検索・参照・エクスポートするImportHistory / ImportErrorは、管理者問題インポート機能_Go移行・設計仕様書で定義したImportHistory Aggregate（Aggregate Root: ImportHistory）そのものであり、新たなEntity・テーブルを導入しない
-- 実行者（アクター）が同一である: 両機能とも`admin`ロールのユーザーのみが操作する。生徒インポートの履歴のように、別のアクター（教師）が生成したデータを別の視点から参照する、というteacher-directory/teacher-managementのような分割理由が本機能には当てはまらない
+- 実行者（アクター）が同一である: 両機能とも`admin`ロールのユーザーのみが操作する。生徒インポートの履歴のように、別のアクター（教師）が生成したデータを別の視点から参照する、という別Contextとして切り出す理由が本機能には当てはまらない
 - 業務ルールが密結合している: 一覧の絞り込み条件（`status`）や検索対象の限定（`import_type`が問題インポートであること）は、question-import Context側で定義される進行状態（ImportStatus）の意味そのものに依存する。Context を分けると、ImportStatusの値の意味論を2つのContextで重複して把握する必要が生じる
 - アーキテクチャ規約.md「4. Bounded Context構成」の分割基準に照らしても、「常に一体で扱われるデータは無理に分割しない」という原則があり、ImportHistoryは進行状態の書き込み（question-import本来の責務）と検索・参照（本機能）が同一ライフサイクルの中で一体的に扱われるデータである
 

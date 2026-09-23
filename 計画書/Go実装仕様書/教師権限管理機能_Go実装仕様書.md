@@ -116,7 +116,7 @@ internal/teacher_permission/presentation/routes.go
 |フィールド|型|意味|
 |-|-|-|
 |`ID`|`uint`|権限レコード自体の識別子（`teacher_permissions.id`相当）|
-|`TeacherID`|`uint`|権限の帰属先である教員のID。Teacher Directory Contextが管理する教員アカウントへの参照（②7章「Value Objectを採用しないもの」）|
+|`TeacherID`|`uint`|権限の帰属先である教員のID。teacher-management Contextが管理する教員アカウント（Teacher）への参照（②7章「Value Objectを採用しないもの」）|
 |`HighSchoolID`|`uint`|所属校ID。権限更新のスコープ判定（同校であるか）に用いる|
 |`GradeScope`|`valueobject.GradeScope`|学年閲覧範囲|
 |`ManageOtherTeachers`|`valueobject.ManageOtherTeachersFlag`|他教員管理権限|
@@ -157,7 +157,7 @@ internal/teacher_permission/presentation/routes.go
 
 ## Value Objectを採用しないもの
 
-②7章の方針どおり、対象教員のID・氏名はTeacherPermissionが直接保持せず、`TeacherID`（Teacher Directory Context管理の教員アカウントへの参照）としてのみ保持する。氏名・かな氏名はApplication層のDTOで、Repositoryが返す付帯情報として扱う（4章・5章参照）。
+②7章の方針どおり、対象教員のID・氏名はTeacherPermissionが直接保持せず、`TeacherID`（teacher-management Context管理の教員アカウントへの参照）としてのみ保持する。氏名・かな氏名はApplication層のDTOで、Repositoryが返す付帯情報として扱う（4章・5章参照）。
 
 ## Repository Interface
 
@@ -314,7 +314,7 @@ internal/teacher_permission/presentation/routes.go
   - `Update`: 対象レコードの`grade_scope`・`manage_other_teachers`列を更新する
 - Entity ⇔ GORMモデルの変換方針: 取得した行の`grade_scope`文字列から`valueobject.NewGradeScope`、`manage_other_teachers`真偽値から`valueobject.NewManageOtherTeachersFlag`を生成し、`entity.NewTeacherPermission`でEntityを組み立てる。結合先`users`テーブルの`name`・`name_kana`は`TeacherPermissionRecord`の付帯情報として保持する（3章参照）。変換関数（`toEntity`・`toRecord`）はrepository実装内の非公開関数とする
 
-> **②からの補足**: `teacher_permissions`テーブルが`high_school_id`列を独自に持つか、常に`users`テーブルとの結合で所属校を判定するかは①未提供のため確定できない。②17章「『最後の有効教員』判定は`users.deleted_at`による既存の論理削除の仕組みを利用できる」という記載から、有効性判定は`users`テーブルに依存する設計であることが示唆されるため、本書では所属校判定・氏名取得も同様に`users`テーブルとの結合を前提とした（推測）。また、規約「6. Context間連携ルール」は他Contextの内部Entity・Infrastructure実装への直接依存を禁止しているが、本書では`users`テーブルの必要列のみを射影する読み取り専用の結合用structを本Context内に定義することで、Teacher Directory/User Context側のGORMモデル実装への直接依存を避ける（実装上の判断）。規約「5. Bounded Context構成 今後の課題」のとおりUser Context自体の②文書が未整備であるため、正式なモデル参照方法は将来的に見直す余地がある。
+> **②からの補足**: `teacher_permissions`テーブルが`high_school_id`列を独自に持つか、常に`users`テーブルとの結合で所属校を判定するかは①未提供のため確定できない。②17章「『最後の有効教員』判定は`users.deleted_at`による既存の論理削除の仕組みを利用できる」という記載から、有効性判定は`users`テーブルに依存する設計であることが示唆されるため、本書では所属校判定・氏名取得も同様に`users`テーブルとの結合を前提とした（推測）。また、規約「6. Context間連携ルール」は他Contextの内部Entity・Infrastructure実装への直接依存を禁止しているが、本書では`users`テーブルの必要列のみを射影する読み取り専用の結合用structを本Context内に定義することで、teacher-management/User Context側のGORMモデル実装への直接依存を避ける（実装上の判断）。User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が公開参照操作を定めているが、その③Go実装仕様書は未作成であるため、正式なモデル参照方法は将来的に見直す余地がある。
 
 ### ActiveTeacherCountRepositoryImpl（`infrastructure/repository/active_teacher_count_repository.go`）
 
@@ -322,7 +322,7 @@ internal/teacher_permission/presentation/routes.go
 - 対応するGORMモデル: 上記と同じ`users`テーブルの読み取り専用射影
 - クエリ内容: `ExistsOtherActiveTeacher`は、`users.high_school_id`が指定校IDと一致し、`users.deleted_at`が未設定であり、`users.id`が`excludeTeacherID`と異なり、かつ教員ロールである教員が1件以上存在するかどうかの存在確認クエリを発行する
 
-> **②からの補足**: 「教員ロールである」という条件は②9章の「同校の有効教員集合」という記載から導出した（推測）。`users`テーブルにロールを表す列（`user_role_id`等）が存在する前提は、②「20. 採用しなかった設計」等の記載から推測されるが、具体的な列名は①未提供のため確定できない。
+> **②からの補足**: 「教員ロールである」という条件は②9章の「同校の有効教員集合」という記載から導出した（推測）。ロールは`users.user_role_id`から`user_roles`を結合して判定する（教員を表す値は`teacher`）。結合条件の書き方は、管理者教員管理機能_Go実装仕様書「12. GORM / DBクエリ設計」の「教員判定の共通条件」に従う。
 
 ## 外部連携実装
 
@@ -654,8 +654,8 @@ Domain Model採用のため、②18章の区分をそのまま使用する。
 |7|Request DTO（`UpdateTeacherPermissionRequest`）を`teacher_permission`キーでネストしたJSON構造とし、`ManageOtherTeachers`を`*bool`とした|②16章「Request」の記載（Rails側のネストしたパラメータ形式をGo側で入力DTOとして吸収する）から導出。`*bool`は必須チェックのためのGo実装上の判断|推測|
 |8|Response DTOの詳細フィールド構成（一覧・詳細で氏名・かな氏名を含める等）|②16章は「Rails現行仕様に近い意味を維持する」とのみ記載し、具体的なフィールドはRails実装（①）に依存する。①は本書作成時点で未提供のため参照不可|①未提供のため参照不可（一部推測を含む）|
 |9|`teacher_permissions`テーブルが`high_school_id`列を持たず、`users`テーブルとの結合で所属校・有効性・氏名を判定する前提とした|②17章の「『最後の有効教員』判定は`users.deleted_at`を利用できる」という記載から、有効性判定が`users`テーブル依存であることが示唆されるため、所属校・氏名判定も同様に扱った|推測|
-|10|`users`テーブルの必要列のみを射影する読み取り専用structを本Context内に定義し、Teacher Directory/User Context側のGORMモデルを直接importしない方針とした|規約「6. Context間連携ルール」の「相手Contextの内部Entity・Infrastructure実装に直接依存しない」に配慮した実装判断。規約「5. Bounded Context構成 今後の課題」のとおりUser Context自体の②文書が未整備のため、正式な参照方法は将来的に見直す余地がある|推測|
-|11|`ExistsOtherActiveTeacher`の判定条件に「教員ロールであること」を含めた|②9章の「同校の有効教員集合」という記載から、生徒・管理者を含まない教員のみを対象とすべきと判断した。具体的なロール列名は①未提供のため確定できない|推測|
+|10|`users`テーブルの必要列のみを射影する読み取り専用structを本Context内に定義し、teacher-management/User Context側のGORMモデルを直接importしない方針とした|規約「6. Context間連携ルール」の「相手Contextの内部Entity・Infrastructure実装に直接依存しない」に配慮した実装判断。User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が公開参照操作を定めているが、その③Go実装仕様書は未作成のため、正式な参照方法は将来的に見直す余地がある|推測|
+|11|`ExistsOtherActiveTeacher`の判定条件に「教員ロールであること」を含めた|②9章の「同校の有効教員集合」という記載から、生徒・管理者を含まない教員のみを対象とすべきと判断した。ロールは`users.user_role_id`から`user_roles`を結合して判定する（管理者教員管理機能_Go実装仕様書「12. GORM / DBクエリ設計」の「教員判定の共通条件」に従う）|推測|
 |12|`page` / `id`パラメータ不正時に400、未認証時401・ロール不一致時403というHTTP Statusの割り当て|②16章のStatus Code一覧は200・404・422のみで、これら個別のケースへの明記がない。一般的なAPI設計慣習として補った|推測|
 |13|DB接続障害等のInfrastructure Errorを500として扱う方針|②にInfrastructure Errorに対応するHTTP Statusの記載がなく、一般的なエラーハンドリング方針として補った|推測|
 |14|`TransactionManager`のインターフェース設計（`WithinTransaction`等）|②11章はトランザクション境界（開始・終了位置）のみを定めており、具体的なインターフェース形状の明記はない|推測|

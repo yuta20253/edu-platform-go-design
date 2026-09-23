@@ -6,14 +6,14 @@
 
 ## 機能概要
 
-教師が同校の生徒一覧・生徒詳細を参照でき、あわせて生徒アカウントを1件ずつ新規登録できる機能である。一覧・詳細参照では、担当学年権限を持つ教師は担当学年の生徒のみに閲覧範囲が制限される。新規登録は担当学年権限の有無を問わず、同校の教師であれば誰でも実行できる（②「13. Authorization設計」）。生徒アカウント本体の作成処理（仮パスワード発行・生徒番号採番・招待メール送信）は、生徒CSVインポート機能（`student-import` Context）が提供する共通処理を呼び出す（②「3. Bounded Context」）。
+教師が同校の生徒一覧・生徒詳細を参照でき、あわせて生徒アカウントを1件ずつ新規登録できる機能である。一覧・詳細参照では、担当学年権限を持つ教師は担当学年の生徒のみに閲覧範囲が制限される。新規登録は担当学年権限の有無を問わず、同校の教師であれば誰でも実行できる（②「13. Authorization設計」）。生徒アカウント本体の作成処理（仮パスワード発行・生徒番号採番・招待メール送信）は、`user` Contextの`CreateStudentAccount`を直接呼び出す（②「3. Bounded Context」）。
 
 ## 採用設計パターンとその理由（②からの要約）
 
 ②「4. 設計パターン」により、本機能は引き続き **Transaction Script** を採用する。
 
 - 一覧・詳細取得の業務ルールは「同校であること」「担当学年権限がある場合は担当学年のみ」という2条件の絞り込みに限定され、状態遷移・状態管理は存在しない
-- 新規登録における本Context自身の業務ルールは「指定した学年・クラスが教師の所属校に属し、かつクラスが指定学年に属すること」という同校妥当性検証に限定される。氏名カナ・メール形式の検証や、仮パスワード発行・生徒番号採番・招待メール送信といった作成本体の複雑な処理は生徒CSVインポート機能と共有する処理へ委譲するため、本Context側にEntityへ振る舞いを集約するほどの複雑さは生まれない
+- 新規登録における本Context自身の業務ルールは「指定した学年・クラスが教師の所属校に属し、かつクラスが指定学年に属すること」という同校妥当性検証に限定される。氏名カナ・メール形式の入力検証は本Contextの入力検証（Presentation）が行い、仮パスワード発行・生徒番号採番・招待メール送信といった作成本体の複雑な処理は`user`の`CreateStudentAccount`へ委譲するため、本Context側にEntityへ振る舞いを集約するほどの複雑さは生まれない
 - 検索条件構築・ページングおよび登録時の同校妥当性検証という、いずれも手続き的な処理が中心であり、Entityに振る舞いを持たせる必要性が薄い
 
 Active Record・Domain Model・Event Sourcingは、②「4. 設計パターン」「20. 採用しなかった設計」のとおり不採用のままである。本書はこの判断を変更しない。
@@ -83,7 +83,7 @@ internal/student_directory/presentation/routes.go
 - GradeScope Value Object（②7章）: 独立したValue Object型は作らない。「担当学年権限の有無」「対象学年ID」という絞り込み条件は、`application/list_students.go`・`application/show_student.go`の関数引数・ローカル変数として表現する
 - StudentEnrollmentTarget Value Object（②7章）: 独立したValue Object型は作らない。「登録先の学年ID・クラスID」の組は`application/create_student.go`の関数引数として表現し、整合性検証は関数内のガード節で行う
 - StudentEnrollmentPolicy（②8章 Domain Service）: 独立したstruct/interfaceとしては設けない。「指定学年・クラスが同校に属し、クラスが指定学年に属すること」の判定を`application/create_student.go`内の非公開関数として実装する（規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造：業務ルールは関数内のガード節で表現する）
-- StudentRepository / GradeRepository / SchoolClassRepository（②9章）: interfaceとしては定義しない。責務は「5. Infrastructure層設計」のinfrastructure関数、および生徒CSVインポート機能（student-import Context）が公開する参照手段として実装する（詳細は4章・5章参照）
+- StudentRepository / GradeRepository / SchoolClassRepository（②9章）: interfaceとしては定義しない。責務は「5. Infrastructure層設計」のinfrastructure関数、および`user` Contextが公開する作成操作（`CreateStudentAccount`）の呼び出しとして実装する（詳細は「6. Application層設計」の「Context間連携」節・8章参照）
 - Domain Error（②14章）: 独立したDomain Error型は設けない。「11. Error実装方針」に示すとおり、application関数が返すエラーをApplication Error相当として扱う（規約「8. 横断的関心事の置き場所」）
 
 ---
@@ -178,11 +178,11 @@ internal/student_directory/presentation/routes.go
 - 処理ステップ（呼び出し順序）:
   1. `infrastructure.FindGradeWithClass(ctx, input.GradeID, input.SchoolClassID)`を呼び出し、対象学年・クラスの所属校・学年整合性を取得する
   2. 取得した学年の所属校が`input.Teacher.HighSchoolID`と一致するか、かつクラスが指定学年に属するかを検証する（StudentEnrollmentPolicy相当の判定。②8章）。一致しない場合は`ErrEnrollmentTargetMismatch`を返す
-  3. `creator.CreateStudentAccount`（生徒CSVインポート機能が提供する共通のアカウント作成処理）を呼び出し、氏名・氏名カナ・メールアドレス・学年ID・クラスIDから生徒アカウントを新規作成する（仮パスワード発行・生徒番号採番・招待メール送信を含む実処理は呼び出し先の責務。②9章「保持しない責務」）
-  4. `creator.CreateStudentAccount`がメールアドレス重複エラーを返した場合、`ErrEmailAlreadyRegistered`へ変換して返す
+  3. `creator.CreateStudentAccount`（`user` Contextの`CreateStudentAccount`を呼ぶ）に、氏名・氏名カナ・メールアドレス・所属校ID（`input.Teacher.HighSchoolID`）・学年ID・クラスIDを渡して生徒アカウントを新規作成する（仮パスワード発行・生徒番号採番・招待待ちの設定・招待メール送信依頼は`user`の責務。②9章「保持しない責務」）
+  4. `creator.CreateStudentAccount`がメールアドレス重複のValidationエラー（無効化済みを含む既存アカウントでの使用）を返した場合、`ErrEmailAlreadyRegistered`へ変換して返す。それ以外の`user`のValidationエラー（氏名・氏名カナの文字数超過等）は、種別（Validation）を保ったまま上位へ伝播させ、422へ変換する
   5. `CreateStudentOutput`を構築して返す
-- トランザクション境界: `creator.CreateStudentAccount`の呼び出し（アカウント本体の作成）を含めて1トランザクションとする。境界の具体的な開始・終了は呼び出し先（`StudentAccountCreator`実装）が担う（②11章「アカウント作成処理呼び出しを含む」。詳細は「8. Transaction実装方針」参照）
-- 発生しうるApplication Error: `ErrEnrollmentTargetMismatch`（学年・クラスが同校でない、またはクラスが指定学年に属さない）、`ErrEmailAlreadyRegistered`（メールアドレスが同校の既存生徒で使用済み）
+- トランザクション境界: 本関数はトランザクションを開始しない。アカウント本体の作成と招待メール送信依頼の登録は、`user`の`CreateStudentAccount`が自身のトランザクションとして扱う（②11章。詳細は「11. Transaction実装方針」参照）
+- 発生しうるApplication Error: `ErrEnrollmentTargetMismatch`（学年・クラスが同校でない、またはクラスが指定学年に属さない）、`ErrEmailAlreadyRegistered`（メールアドレスが既存アカウントで使用済み）
 
 ## Context間連携（StudentAccountCreator）
 
@@ -190,10 +190,10 @@ internal/student_directory/presentation/routes.go
 - メソッドシグネチャ: `CreateStudentAccount(ctx context.Context, cmd CreateStudentAccountCommand) (CreateStudentAccountResult, error)`
 - `CreateStudentAccountCommand`のフィールド: `Name string` / `NameKana string` / `Email string` / `HighSchoolID uint` / `GradeID uint` / `SchoolClassID uint`
 - `CreateStudentAccountResult`のフィールド: `StudentID uint` / `Name string` / `Email string`
-- 実装: 生徒CSVインポート機能（`student-import` Context）の`StudentAccountRepository`（Domain Model採用機能のRepository Interface）実装が、本interfaceを構造的に満たす形で提供される。具体的な実装内容（仮パスワード発行・生徒番号採番・招待メール送信・メールアドレス重複時のエラー変換）は生徒CSVインポート機能_Go実装仕様書「5. Infrastructure層設計」を参照
-- DI配線: アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従い、`internal/student_directory`のContext組み立て関数（`NewContext`）が、`student-import` Contextの組み立て結果から`StudentAccountRepository`実装を受け取り、`StudentAccountCreator`として`CreateStudent`関数（またはそれを呼び出すHandler）へ渡す
+- 実装: `user` Contextが公開する`CreateStudentAccount`を呼び出す薄い実装（`CreateStudentAccountCommand` / `CreateStudentAccountResult`と、`user`の入力・出力の型との変換のみを行う。`user`の作成規則である仮パスワード発行・生徒番号採番・招待待ちの設定・招待メール送信依頼・メールアドレス重複の検証は、この実装ではなく`user`が行う）。`user`③が未作成のため、呼び出す関数の型とメールアドレス重複エラーの判別方法は`user`③で確定する
+- DI配線: アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従い、`internal/student_directory`のContext組み立て関数（`NewContext`）が、上記の実装を生成し、`StudentAccountCreator`として`CreateStudent`関数（またはそれを呼び出すHandler）へ渡す。他Contextの組み立て結果を受け取る配線は行わない
 
-**②からの補足**: ②「9. Repository設計」は`StudentAccountRepository`を「本Contextが提供、student-directoryからも利用される」と生徒CSVインポート機能側の②文書に明記している。アーキテクチャ規約「6. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従い、本書では呼び出し側（student-directory）がコーディング規約「7. インターフェース」の方針どおり利用側で最小限のinterfaceを定義し、生徒CSVインポート機能側の実装を構造的に満たす形で受け取る構成とした（推測。具体的なDI配線の実装詳細は実装時に確定する）。
+**②からの補足**: ②「3. Bounded Context」は、`student-directory`が`user`の`CreateStudentAccount`を直接呼ぶと定めている。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する手段を呼び出す」方針に従い、本書では呼び出し側（student-directory）がコーディング規約「7. インターフェース」の方針どおり利用側で最小限のinterfaceを定義し、`user`の公開関数を呼ぶ薄い実装をDI配線で渡す構成とした（推測。`user`③が未作成のため、具体的な呼び出しの型は`user`③で確定する）。
 
 ---
 
@@ -208,7 +208,7 @@ sequenceDiagram
     participant H as StudentHandler
     participant A as application.CreateStudent
     participant GQ as infrastructure.FindGradeWithClass
-    participant SC as StudentAccountCreator(student-import)
+    participant SC as StudentAccountCreator(userのCreateStudentAccount)
 
     H->>A: CreateStudent(ctx, creator, input)
     A->>GQ: 対象学年・クラスを取得
@@ -219,7 +219,7 @@ sequenceDiagram
     else 一致
         A->>SC: CreateStudentAccount(cmd)
         alt メール重複
-            SC-->>A: エラー
+            SC-->>A: Validationエラー
             A-->>H: ErrEmailAlreadyRegistered
         else 成功
             SC-->>A: CreateStudentAccountResult
@@ -238,8 +238,8 @@ flowchart TD
     B -- No --> E1[422: ErrEnrollmentTargetMismatch]
     B -- Yes --> C{クラスは指定学年に<br/>属するか}
     C -- No --> E1
-    C -- Yes --> D[StudentAccountCreatorへ<br/>アカウント作成を依頼]
-    D --> F{メールアドレスが<br/>同校で重複}
+    C -- Yes --> D[StudentAccountCreatorへ<br/>アカウント作成を依頼<br/>（userのCreateStudentAccount）]
+    D --> F{メールアドレスが<br/>既存アカウントで使用済み<br/>（userが判定）}
     F -- Yes --> E2[422: ErrEmailAlreadyRegistered]
     F -- No --> G[201: 作成結果を返す]
 ```
@@ -303,7 +303,7 @@ flowchart TD
 
 ## 外部連携実装
 
-対象外。本機能自体はMail・Cache・Queue等の外部連携を必要としない。生徒アカウント作成に伴う招待メール送信は、呼び出し先（`StudentAccountCreator`＝生徒CSVインポート機能側の実装）の責務であり、本Context内には実装しない。
+対象外。本機能自体はMail・Cache・Queue等の外部連携を必要としない。生徒アカウント作成に伴う招待メール送信は、呼び出し先（`user`の`CreateStudentAccount`）の責務であり、本Context内には実装しない。
 
 ---
 
@@ -350,7 +350,7 @@ flowchart TD
 | struct名 | フィールドと型 | バリデーションタグ／チェック内容 |
 |-|-|-|
 | `CreateStudentRequest` | `Name string` | `binding:"required"` |
-| | `NameKana string` | `binding:"required"` |
+| | `NameKana string` | `binding:"required,katakana"`（`katakana`はカスタムバリデータ。Rails現行の`NameValidatable`と同じく、カタカナ・長音符・中黒・空白のみを許可する。②12章「フォーマットチェック」） |
 | | `Email string` | `binding:"required,email"`（②12章「フォーマットチェック: 新規登録時のメールアドレス形式」） |
 | | `GradeID uint` | `binding:"required"` |
 | | `SchoolClassID uint` | `binding:"required"` |
@@ -411,9 +411,9 @@ flowchart TD
 |対象生徒が存在しない|404|`ErrStudentNotFound`|
 |対象生徒が権限範囲外（他校／担当学年外）|404|未存在の場合と同一のレスポンスとして扱う（②14章）|
 |pageパラメータが不正な形式|400（推測、17章参照）|バリデーションエラー|
-|CreateStudentRequestの必須項目欠落・メール形式不正|422|Presentation Validationエラー|
+|CreateStudentRequestの必須項目欠落・メール形式不正・氏名カナがカタカナでない|422|Presentation Validationエラー|
 |登録先の学年・クラスが操作者の所属校でない、またはクラスが指定学年に属さない|422|`ErrEnrollmentTargetMismatch`|
-|登録先メールアドレスが同校の既存生徒で使用済み|422|`ErrEmailAlreadyRegistered`|
+|登録先メールアドレスが既存アカウントで使用済み（`user`が判定。他校・生徒以外・無効化済みを含む）|422|`ErrEmailAlreadyRegistered`|
 |未認証|401（推測、17章参照）|認証エラー|
 |teacherロールでない|403（推測、17章参照）|権限エラー|
 
@@ -424,17 +424,17 @@ flowchart TD
 ## Transaction開始箇所
 
 - `ListStudents`・`ShowStudent`: なし（②11章「Transaction開始位置: 使用しない」）
-- `CreateStudent`: `application.CreateStudent`関数がStudentAccountCreatorを呼び出す時点で開始する。トランザクションの具体的な開始・コミットは呼び出し先（生徒CSVインポート機能側の`StudentAccountRepository`実装）が担う
+- `CreateStudent`: 本Contextはトランザクションを開始しない。`StudentAccountCreator`（`user`の`CreateStudentAccount`）が、アカウントの保存と招待メール送信依頼の登録を1つのトランザクションとして開始する（`user`②「14. Transaction設計」。呼び出し側が開始していないため`user`が開始する）
 
 ## Transaction終了箇所（Commit / Rollback条件）
 
 - `ListStudents`・`ShowStudent`: 該当なし
-- `CreateStudent`: `StudentAccountCreator.CreateStudentAccount`が生徒アカウントレコードの作成まで完了した時点でコミットする。失敗（メール重複等）時はロールバックし、`ErrEmailAlreadyRegistered`相当のエラーを返す（②11章「生徒アカウントの作成（共通のアカウント作成処理呼び出しを含む）を1トランザクションで扱う」）
+- `CreateStudent`: `user`の`CreateStudentAccount`が、生徒アカウントの作成と招待メール送信依頼の登録を完了した時点で、`user`側でコミットする。失敗（メール重複等）時は`user`側でロールバックされ、本関数は`ErrEmailAlreadyRegistered`等のエラーを返す（②11章）
 
 ## 複数関数（infrastructure関数）にまたがる場合の扱い
 
 - `ListStudents`は一覧取得クエリと総件数取得クエリの2回のDBアクセスを行うが、いずれも読み取りのみであり、Transaction境界は不要である
-- `CreateStudent`の`FindGradeWithClass`呼び出しは読み取り専用であり、`StudentAccountCreator.CreateStudentAccount`呼び出し（書き込み）とは別のトランザクション境界として扱う（学年・クラスの存在確認は事前検証であり、アカウント作成処理自体の整合性には含めない。②11章に反しない範囲での実装判断。推測）
+- `CreateStudent`の`FindGradeWithClass`呼び出しは読み取り専用であり、`StudentAccountCreator.CreateStudentAccount`呼び出し（書き込み）とは独立している（学年・クラスの存在確認は事前検証であり、アカウント作成処理自体の整合性には含めない。②11章に反しない範囲での実装判断。推測）
 
 ---
 
@@ -445,7 +445,7 @@ flowchart TD
 - `page`: 整数であることを検証する（②12章「型チェック」）
 - `per_page`: 整数であることを検証する（②16章。正規化はApplication層で行う）
 - `id`: 詳細取得時、route由来の値が整数として解釈できることを検証する
-- `CreateStudentRequest`: `name`/`name_kana`/`email`/`grade_id`/`school_class_id`の必須チェック、`email`のフォーマットチェック（②12章「必須チェック」「フォーマットチェック」）
+- `CreateStudentRequest`: `name`/`name_kana`/`email`/`grade_id`/`school_class_id`の必須チェック、`email`のフォーマットチェック、`name_kana`のカタカナ形式チェック（②12章「必須チェック」「フォーマットチェック」。`user`は氏名カナの形式を検証しないため、本Contextが行う）
 
 ## 業務ルール検証
 
@@ -487,7 +487,7 @@ Transaction Script採用のため、application関数内のガード節で以下
 |-|-|-|
 |`ErrStudentNotFound`（未存在・権限範囲外）|Application|404|
 |`ErrEnrollmentTargetMismatch`（学年・クラスが同校でない）|Application|422|
-|`ErrEmailAlreadyRegistered`（メール重複）|Application|422|
+|`ErrEmailAlreadyRegistered`（メール重複。`user`が判定）|Application|422|
 |Request DTOバリデーションエラー|Presentation|422|
 |pageパラメータ不正|Presentation|400（推測）|
 |未認証|Middleware|401（推測）|
@@ -548,7 +548,8 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 |`CreateStudent`|同校の学年・クラスを指定した場合、`StudentAccountCreator`が呼び出され作成結果が返ること|
 |`CreateStudent`|指定学年が操作者の所属校に属さない場合、`ErrEnrollmentTargetMismatch`が返ること|
 |`CreateStudent`|指定クラスが指定学年に属さない場合、`ErrEnrollmentTargetMismatch`が返ること|
-|`CreateStudent`|`StudentAccountCreator`がメール重複エラーを返した場合、`ErrEmailAlreadyRegistered`へ変換されること|
+|`CreateStudent`|`StudentAccountCreator`がメール重複のValidationエラーを返した場合、`ErrEmailAlreadyRegistered`へ変換されること|
+|`CreateStudent`|`StudentAccountCreator`へ、操作者の所属校ID・学年ID・クラスIDを含む入力が渡されること|
 
 ## Repository Test
 
@@ -572,7 +573,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 |`StudentHandler.Show`|`id`が正しい整数かつ対象が存在する場合、200と`StudentDetailResponse`が返ること|
 |`StudentHandler.Show`|対象生徒が存在しない、または権限範囲外の場合、404が返ること|
 |`StudentHandler.Create`|正常なリクエストの場合、201と`StudentCreateResponse`が返ること|
-|`StudentHandler.Create`|必須項目欠落・メール形式不正の場合、422が返ること|
+|`StudentHandler.Create`|必須項目欠落・メール形式不正・氏名カナがカタカナでない場合、422が返ること|
 |`StudentHandler.Create`|登録先学年・クラスが同校でない場合、422が返ること|
 
 ## Integration Test
@@ -581,7 +582,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 |-|-|
 |`GET /api/v1/teacher/students`|担当学年権限の有無・`per_page`指定に応じて、エンドポイント経由で正しい生徒一覧が取得できること|
 |`GET /api/v1/teacher/students/:id`|エンドポイント経由で、権限範囲内の生徒詳細が取得でき、権限範囲外は404となること|
-|`POST /api/v1/teacher/students`|エンドポイント経由で生徒アカウントが新規登録され、生徒CSVインポート機能側の共通処理（仮パスワード発行・招待メール送信）が呼び出されること|
+|`POST /api/v1/teacher/students`|エンドポイント経由で生徒アカウントが新規登録され、`user`の`CreateStudentAccount`（仮パスワード発行・生徒番号採番・招待待ちの設定・招待メール送信依頼）が呼び出されること|
 |全体|未認証・非teacherロールでのアクセスがMiddlewareで拒否されること|
 
 ---
@@ -594,12 +595,12 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 |-|-|-|-|
 | 1 | `internal/`配下のディレクトリ名を`internal/student_directory`とした | ②のContext名`student-directory`とディレクトリ名の対応関係が②に明記がないため | 推測（旧版からの判断を維持） |
 | 2 | ②7章のGradeScope・StudentEnrollmentTarget（Value Object）、②8章のStudentEnrollmentPolicy（Domain Service）を独立した型・structとして実装せず、application関数内のガード節・非公開関数として表現することとした | 規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造の方針に従った。②の設計判断（絞り込み条件・同校妥当性ルールという概念）自体は変更していない | 実装構造上の判断（規約に基づく） |
-| 3 | `StudentAccountCreator`インターフェースをTransaction Script側（`application`パッケージ）で定義し、生徒CSVインポート機能側の`StudentAccountRepository`実装を構造的に満たす形で受け取る構成とした | ②「9. Repository設計」が`StudentAccountRepository`を生徒CSVインポート機能側の提供とし、本Contextからも利用されると明記しているが、Transaction Script側からの具体的な呼び出し方式（DIの形）までは②に明記がない | 推測 |
+| 3 | `StudentAccountCreator`インターフェースをTransaction Script側（`application`パッケージ）で定義し、`user`の`CreateStudentAccount`を呼ぶ薄い実装をDI配線で渡す構成とした | ②「3. Bounded Context」が`user`の`CreateStudentAccount`を直接呼ぶと定めているが、Transaction Script側からの具体的な呼び出し方式（DIの形）までは②に明記がない。`user`③が未作成のため、呼び出す関数の型は`user`③で確定する | 推測 |
 | 4 | `page`・`per_page`パラメータが不正な形式の場合の挙動（400を返す想定） | ②12章では「型チェック」を行うことのみ記載され、具体的な失敗時挙動の記載がない | 推測 |
 | 5 | `per_page`のデフォルト値10・上限100件への正規化処理をApplication層（`ListStudents`関数内）に置いた | ②16章に数値自体は明記されているが、正規化を行う層はPresentation/Applicationのいずれかが②に明記されていない。業務ルール（デフォルト値・上限）に近いためApplication層に置いた | 推測 |
 | 6 | 生徒詳細レスポンス（`StudentDetailResponse`）の関連情報フィールドの具体的な内容を確定していない | ②16章は「生徒の基本情報と関連情報を維持する」とのみ記載し、具体的なフィールドはRails実装（①）に依存する。①は本書作成時点で未提供のため参照不可 | ①未提供のため参照不可 |
-| 7 | 生徒データ（`users`テーブル）・学年（`grades`）・クラス（`school_classes`）に対応するGORMモデルを本Contextが独自定義するか、他Context側の既存定義を参照するかを確定していない | アーキテクチャ規約「15. 今後の課題」により、User Context・School/Grade Context自体の②文書がまだ存在しないため | 推測 |
+| 7 | 生徒データ（`users`テーブル）・学年（`grades`）・クラス（`school_classes`）に対応するGORMモデルを本Contextが独自定義するか、他Context側の既存定義を参照するかを確定していない | School/Grade Context自体の②文書がまだ存在せず、User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が定める公開参照操作の③Go実装仕様書も未作成であるため | 推測 |
 | 8 | 未認証時401・ロール不一致時403というHTTP Statusの割り当て | ②16章のStatus Code一覧に認証・認可失敗時の記載がない | 推測 |
-| 9 | `CreateStudent`のトランザクション境界を、`StudentAccountCreator`実装（生徒CSVインポート機能側）内に閉じ込め、`FindGradeWithClass`（事前確認）はそのトランザクションに含めない構成とした | ②11章は「アカウント作成処理呼び出しを含む」とのみ記載し、事前確認クエリを含めるかは明記がない | 推測 |
+| 9 | `CreateStudent`は自身でトランザクションを開始せず、アカウントの保存と招待メール送信依頼の登録のトランザクションは`user`の`CreateStudentAccount`に任せ、`FindGradeWithClass`（事前確認）はそのトランザクションに含めない構成とした | 本Context自身の書き込みがなく、`user`の作成操作が呼び出し側のトランザクションがなければ自身で開始する（`user`②「14. Transaction設計」）ため | 推測 |
 
 上記以外の設計判断（Bounded Context・設計パターン・Repository/UseCase設計・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の基本方針）はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。

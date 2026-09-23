@@ -332,6 +332,14 @@ school_class_requests
 - 主なカラム: `id`, `grade_id`, `name`
 - リレーション: `belongs_to :grade`, `has_many :users`（在籍生徒）, `has_many :teachers`（所属教員、`teacher_school_classes`経由）, `has_many :school_class_requests`
 
+## `teacher_school_classes`
+
+- 役割: 教員とクラスの所属関係を管理するテーブル
+- 主なカラム: `id`, `user_id`, `school_class_id`, `role`（`homeroom`：担任, `assistant`：副担任）
+- リレーション: `belongs_to :user`（教員であること）, `belongs_to :school_class`
+- 削除申請の可否確認（`school_class.teachers.exists?`）で参照する。担任・副担任の別、および教員の無効化済み（`deleted_at`あり）の別は問わず、行があれば所属する教員として扱う。在籍する生徒の確認（`school_class.users.exists?`）も、無効化済みのユーザーを含む。
+- 現行のRailsには、このテーブルへ行を作成・更新する処理（Controller・Service・Form・seeds）は存在しない（モデル・マイグレーションのみ）。クラスの削除が承認されたときは、`SchoolClass`の`dependent: :destroy`により、当該クラスの行が連動して削除される。
+
 ## `school_class_requests`
 
 - 役割: クラスの新設・改名・削除の申請と、その承認状況を記録するテーブル

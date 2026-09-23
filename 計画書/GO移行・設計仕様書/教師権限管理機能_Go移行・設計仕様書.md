@@ -44,12 +44,12 @@
 
 ## 他Contextとの依存関係
 
-- Teacher Directory Context: 更新対象教員が同校に存在するか、着任時に作成された権限レコードの参照に依存する。教員アカウント自体の作成・一覧管理はTeacher Directory Contextの責務であり、本Contextは権限の参照・更新のみを担う
+- teacher-management Context（教師教員管理機能・管理者教員管理機能）: 更新対象教員が同校に存在するか、着任時に作成された権限レコードの参照に依存する。教員アカウント自体の作成・一覧管理はteacher-management Contextの責務であり、本Contextは権限の参照・更新のみを担う
 - User Context: current user（更新操作を行う教師）の識別、所属校情報の参照に依存する
 
 ## 依存する理由
 
-権限更新の対象となる教員そのものの存在・同校判定は、教員名簿の真正な管理主体であるTeacher Directory Contextに依存する。本Contextは権限（TeacherPermission）そのものの整合性と保護ルールに責務を集中させ、教員アカウントの管理には関与しない。
+権限更新の対象となる教員そのものの存在・同校判定は、教員情報の真正な管理主体であるteacher-management Contextに依存する。本Contextは権限（TeacherPermission）そのものの整合性と保護ルールに責務を集中させ、教員アカウントの管理には関与しない。
 
 ---
 
@@ -124,7 +124,7 @@ Domain Model
 ## TeacherPermission
 
 - 役割: 教師が持つ権限（学年閲覧範囲・他教員管理権限）を表す中心的なドメイン概念
-- ライフサイクル: 教員着任時に初期作成される（Teacher Directory Context側の責務） → 本Contextにおいて参照・更新される
+- ライフサイクル: 教員着任時に初期作成される（teacher-management Context側の責務） → 本Contextにおいて参照・更新される
 - 状態変化: `grade_scope`（own_grade / all_grades）、`manage_other_teachers`（true / false）の値が更新される。名前付きの状態遷移ではないが、値の変化が他機能（お知らせ対象指定の学年制約等）に影響する重要な状態である
 - 保持する責務:
   - `grade_scope` が許容値であることを保持・検証する
@@ -152,7 +152,7 @@ Domain Model
 
 ## Value Objectを採用しないもの
 
-- 対象教員のID・氏名: 権限管理の対象を識別する情報であり、TeacherPermissionが直接保持するのではなく、対象教員（Teacher Directory Contextが管理するTeacherAccount）への参照として扱う
+- 対象教員のID・氏名: 権限管理の対象を識別する情報であり、TeacherPermissionが直接保持するのではなく、対象教員（teacher-management Contextが管理するTeacher）への参照として扱う
 
 ---
 

@@ -40,7 +40,7 @@ Aggregate・Value Object・Domain Service・Domain Eventはいずれも②で「
 - Context名: `school-directory`（②3章）
 - `internal/`配下のディレクトリ名: `school_directory`
 
-> **②からの補足**: ②にはディレクトリ名（アンダースコア表記）の指定がない。アーキテクチャ規約5章「Context名とディレクトリ名が一致しない場合は、②文書内で対応関係を明記する」に従い、Context名のkebab-caseをsnake_caseへ変換した`school_directory`を採用する。これは指示書のActive Record例（`teacher-directory` → `internal/teacher_directory`）と同じ変換規則に倣った判断であり、②に明記のない実装上の補足である。
+> **②からの補足**: ②にはディレクトリ名（アンダースコア表記）の指定がない。アーキテクチャ規約5章「Context名とディレクトリ名が一致しない場合は、②文書内で対応関係を明記する」に従い、Context名のkebab-caseをsnake_caseへ変換した`school_directory`を採用する。これは既存の他機能③（管理者教員管理機能_Go実装仕様書の`teacher-management` → `internal/teacher_management`）と同じ変換規則に倣った判断であり、②に明記のない実装上の補足である。
 
 ## ②で採用した設計パターン
 
@@ -457,7 +457,7 @@ Infrastructure関数のクエリ正確性検証（`infrastructure/*_test.go`と�
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|`internal/`配下のディレクトリ名を`school_directory`とする|②のContext名`school-directory`はkebab-case表記のみで、ディレクトリ名の指定がないため、指示書のActive Record例（`teacher-directory`→`teacher_directory`）と同じ変換規則を適用した|推測|
+|`internal/`配下のディレクトリ名を`school_directory`とする|②のContext名`school-directory`はkebab-case表記のみで、ディレクトリ名の指定がないため、既存の他機能③（管理者教員管理機能_Go実装仕様書の`teacher-management`→`teacher_management`）と同じ変換規則を適用した|推測|
 |`presentation/request/`ディレクトリを設けず、クエリ/パスパラメータ用structをHandlerと同一package内に定義する|指示書のTransaction Script構造例に`request/`が含まれておらず、本機能の入力構造が単純なため|推測|
 |`application/dto.go`・`application/errors.go`・`infrastructure/model.go`という補助ファイルへの分割|②・指示書ともにファイル粒度までは規定していないため、責務ごとに集約する分割を採用した|推測|
 |application関数に`current admin`を引数として渡さない|②16章「UseCaseで追加のスコープ制限は行わない」という判断に基づき、認可情報はMiddleware/Handlerで完結させ、application関数の入力から除外した|②の判断に基づく具体化（推測要素は低い）|

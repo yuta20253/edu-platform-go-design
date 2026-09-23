@@ -43,7 +43,8 @@
 
 ## 他Contextとの依存関係
 
-- Student/School Context: 同校の生徒を学年別に集計するための生徒・学年情報に依存する
+- user Context: 同校の生徒数を学年別に集計する人数集計（`user`②の`CountUsers`。所属校・役割（生徒）を絞り込み条件とし、集計の単位は学年別）に依存する。集計には、無効化済み（`deleted_at`あり）の生徒も含める（`CountUsers`の無効化の扱いに「無効化済みを含む」を指定する。12章）
+- master-data Context: 学年別の集計結果を「1〜3年」へ対応づけるための学年マスタ（学年IDと`year`）に依存する（推測: `user`②は、学年別集計の結果を学年の年次へ変換するのは呼び出し側としているが、集計結果のキーが学年IDか年次かは明記していない。学年IDを想定し、`year`への変換に、master-dataの高校指定の学年参照を用いる）
 - Announcement Context: 公開中かつ教師が閲覧可能なお知らせの取得に依存する（本機能はAnnouncement Contextが提供する検索機能を呼び出すのみで、お知らせの作成・状態管理は行わない）
 
 ## 依存する理由
@@ -98,7 +99,7 @@ Transaction Script
 
 本機能は独自のEntityを持たない。
 
-理由: 生徒数集計はStudent/School Contextの生徒情報を、お知らせ取得はAnnouncement Contextのお知らせ情報を参照するのみであり、本機能が状態を保持・変更する対象が存在しない。本機能の応答内容（学年別生徒数、お知らせ一覧）は、他Contextの情報を組み合わせた表示専用の合成結果（Read Model）として扱う。
+理由: 生徒数集計は`user` Contextの人数集計を、お知らせ取得はAnnouncement Contextのお知らせ情報を参照するのみであり、本機能が状態を保持・変更する対象が存在しない。本機能の応答内容（学年別生徒数、お知らせ一覧）は、他Contextの情報を組み合わせた表示専用の合成結果（Read Model）として扱う。
 
 ---
 
@@ -131,15 +132,16 @@ Transaction Script
 
 ## StudentStatisticsRepository
 
-- 管理対象: Student（参照専用）
+- 管理対象: 生徒の人数（`user` Contextの人数集計を利用する参照専用）
 - 責務:
-  - 同校の生徒を学年別に集計する
+  - 同校の生徒を学年別に集計する（`user`の`CountUsers`を、役割=生徒・所属校=current userの所属校・集計の単位=学年別・無効化の扱い=無効化済みを含む、で呼び出す）
+  - 集計結果（学年ID別）を、学年マスタの`year`で1〜3年に対応づける（1〜3年以外の学年は集計対象外とする）
 - 保持する検索機能:
   - 高校IDによる絞り込み
-  - 学年ごとの件数集計
+  - 学年ごとの件数集計（無効化済みの生徒を除外しない）
 - 保持しない責務:
-  - 生徒情報の作成・更新（Student/School Contextの責務）
-- 判断根拠: 生徒の真正な管理はStudent/School Contextに残し、本機能は集計のための参照のみを行うため
+  - ユーザーアカウントの作成・更新・論理削除、および人数集計の実行方法（`user` Contextの責務）
+- 判断根拠: ユーザーの参照・人数集計は`user` Contextが1箇所で提供するため、本機能は集計のための参照のみを行う。無効化の扱いは`user`②が呼び出し側に必須で指定させるため、本機能はRails現行の挙動（無効化済みを含む）を、明示的に「含める」と指定して維持する
 
 ## AnnouncementRepository（Announcement Contextの提供機能を利用）
 
@@ -198,7 +200,10 @@ Transaction Script
 
 ## Domain
 
-- 業務ルール: 該当なし（本機能固有の業務ルールを持たない）
+- 業務ルール:
+  - 学年別生徒数の集計対象は、同校（current userの所属校）の生徒のうち、学年の`year`が1〜3年のもののみとする（Rails現行の`high_school_current`）
+  - 学年別生徒数には、無効化済み（`deleted_at`あり）の生徒も含める。Rails現行は`students.high_school_current`のみで絞り込み、`active`（無効化済みの除外）を使っていない。同じ「生徒数」でも、管理者高校学年参照機能の生徒数は無効化済みを除外しており、機能ごとに扱いが異なる。`user`②の`CountUsers`は無効化の扱いを呼び出し側に必須で指定させるため、本機能は「無効化済みを含む」を指定して呼び出す
+  - お知らせの閲覧条件は、本機能固有の業務ルールを持たず、Announcement Contextの条件をそのまま利用する
 - 状態チェック: 該当なし
 - 整合性チェック: 該当なし
 
@@ -228,7 +233,7 @@ Transaction Script
 
 ## 判断理由
 
-本機能は他Contextの情報を参照するだけであるため、認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（Student/School Context、Announcement Context）の検索条件に委ね、本機能のapplication関数はcurrent userの所属校情報を検索条件として引き渡す役割にとどめる。
+本機能は他Contextの情報を参照するだけであるため、認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（`user` Context、Announcement Context）の検索条件に委ね、本機能のapplication関数はcurrent userの所属校情報を検索条件として引き渡す役割にとどめる。
 
 ---
 
@@ -303,7 +308,7 @@ Transaction Script
 
 ## 変更理由
 
-- 本機能は既存の生徒・学年・お知らせテーブルを参照するのみであり、追加のスキーマ変更は不要である
+- 本機能は既存の`users`・`user_roles`（`user` Contextの人数集計が参照する）・`grades`・お知らせテーブルを参照するのみであり、追加のスキーマ変更は不要である
 
 ---
 
@@ -319,7 +324,7 @@ Transaction Script
 
 ## Repository Test
 
-- 目的: StudentStatisticsRepositoryによる学年別集計の正確性、AnnouncementRepositoryによる上位5件取得の正確性を検証する
+- 目的: StudentStatisticsRepositoryによる学年別集計の正確性（無効化済みの生徒が集計に含まれること、1〜3年以外の学年が含まれないこと、他校の生徒が含まれないこと）、AnnouncementRepositoryによる上位5件取得の正確性を検証する
 
 ## Handler Test
 

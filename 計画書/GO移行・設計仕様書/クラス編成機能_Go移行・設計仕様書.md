@@ -45,7 +45,8 @@
 
 ## 他Contextとの依存関係
 
-- User Context: 申請者・承認者・生徒の識別情報、教師の所属校情報の参照に依存する
+- user Context: 申請者・承認者・生徒の識別情報、教師の所属校情報の参照、および削除申請の対象クラスに在籍する生徒がいないことの確認（`user`②の`CountUsers`。クラス指定・無効化の扱いは「無効化済みを含む」。Rails現行の`school_class.users.exists?`は無効化済み（`deleted_at`あり）のユーザーも数えるため）に依存する
+- `teacher_school_classes`（教員とクラスの所属関係。列は`user_id` / `school_class_id` / `role`（担任 / 副担任））: 削除申請の対象クラスに所属する教員がいないことの確認のために参照する。これは`users`の情報ではなく、`user`②の公開操作の対象外である。このテーブルを所有・管理するContextは、現行の②群のどこにも定義されていない（推測: 現行のRailsで、このテーブルを作成・更新する機能（Controller・Service・Form・seeds）が存在せず、管理する機能が現行の対象範囲にないため）。本Contextからは、書き込む機能が現行の対象範囲に存在しない参照専用の依存として扱う。ただし、クラスの削除を承認したときは、Rails現行の`SchoolClass`の`dependent: :destroy`に従い、当該クラスの`teacher_school_classes`の行も同じ処理の中で削除される（外部キー制約があるため、Goでもクラスの削除より前に、同一トランザクション内で当該クラスの行を削除する。14章）
 - Teacher Permission Context: 承認・却下操作に必要な「他職員操作権限（`manage_other_teachers`）」の参照に依存する
 - Announcement Context（`announcement`）: 申請受付時・承認/却下結果通知時のお知らせ送信に依存する
 
@@ -189,8 +190,8 @@ Domain Model
 
 ## SchoolClassDeletionEligibilityPolicy
 
-- 責務: 削除申請の対象クラスに、在籍する生徒または所属する教員が1人もいないことを判定する
-- Entityへ持たせない理由: 判定にはUser Context（生徒の在籍情報・教員の所属情報）という、SchoolClass単体では保持しない外部情報が必要なため
+- 責務: 削除申請の対象クラスに、在籍する生徒または所属する教員が1人もいないことを判定する。在籍する生徒は無効化済みの生徒も含めて数え、所属する教員は`teacher_school_classes`に行がある教員（担任・副担任の別を問わず、教員が無効化済みであっても）を数える（Rails現行の`school_class.users.exists? || school_class.teachers.exists?`）
+- Entityへ持たせない理由: 判定には`user` Context（生徒の在籍情報）と`teacher_school_classes`（教員の所属情報）という、SchoolClass単体では保持しない外部情報が必要なため
 - 判断根拠: 削除可否の判定は申請時・承認時のいずれにも関わる可能性がある業務ルールであり、独立したポリシーとして一箇所に集約することで判定ロジックの重複を防ぐ
 
 ## DuplicatePendingRequestPolicy
@@ -310,11 +311,11 @@ stateDiagram-v2
 - 保持しない責務: クラスデータへの反映そのもの（SchoolClassRepositoryの責務）
 - 判断根拠: 申請の永続化・検索に責務を限定するため
 
-## 外部参照Repository（Student / Teacher所属）
+## 外部参照Repository（在籍する生徒・所属する教員）
 
-- 管理対象: User Contextが所有するエンティティ（本Contextからは参照のみ）
+- 管理対象: `user` Contextが所有する生徒の在籍情報（`users`。人数の確認は`user`の`CountUsers`を、クラス指定・無効化済みを含む指定で呼び出す）、および所有するContextが現行の②群に定義されていない`teacher_school_classes`（参照のみ）
 - 責務: 削除申請の対象クラスに在籍する生徒・所属する教員が存在しないことの確認
-- 判断根拠: 他Contextの所有物への書き込みを行わず、参照のみに責務を限定するため
+- 判断根拠: 他Contextの所有物への書き込みを行わず、参照のみに責務を限定するため。`teacher_school_classes`は、教員をクラスへ割り当てる機能が現行の対象範囲にないため、本Contextにとって参照専用の依存となる（クラス削除の承認に伴う当該クラスの行の削除は、SchoolClassRepositoryが承認時のクラス削除と同一のトランザクションで行う）
 
 ---
 
@@ -353,7 +354,7 @@ stateDiagram-v2
 - 入力: current teacher, action, grade_id, name（新設・改名時）, school_class_id（改名・削除時）
 - 出力: 作成結果
 - トランザクション範囲: SchoolClassRequestの作成を1トランザクションで扱う
-- 呼び出すRepository: SchoolClassRepository（学年・対象クラスの存在確認、削除時の在籍者確認）、SchoolClassRequestRepository（重複申請確認・作成）
+- 呼び出すRepository: SchoolClassRepository（学年・対象クラスの存在確認）、外部参照Repository（削除時の在籍する生徒・所属する教員の確認）、SchoolClassRequestRepository（重複申請確認・作成）
 - 判断根拠: SchoolClassRequestAction・SchoolClassDeletionEligibilityPolicy・DuplicatePendingRequestPolicyによる判定を踏まえ、申請を一貫して作成する必要があるため
 
 ## ProcessSchoolClassRequestUseCase
@@ -390,6 +391,7 @@ sequenceDiagram
     participant DEP as SchoolClassDeletionEligibilityPolicy
     participant CR as SchoolClassRequestRepository
     participant SR as SchoolClassRepository
+    participant XR as 外部参照Repository
     participant AC as Announcement Context
 
     H->>U: Execute(current teacher, action, grade_id, name, school_class_id)
@@ -398,7 +400,7 @@ sequenceDiagram
     U->>DP: 重複申請か判定
     DP-->>U: 判定結果
     alt action = deletion
-        U->>SR: 対象クラスの在籍者・所属教員を確認
+        U->>XR: 対象クラスの在籍する生徒（user）・所属する教員（teacher_school_classes）を確認
         U->>DEP: 削除可能か判定
         DEP-->>U: 判定結果
     end
@@ -474,7 +476,7 @@ flowchart TD
 
 ## 理由
 
-承認は「申請レコードの更新とクラスデータへの反映のいずれか一方のみが成功する」という不整合を防ぐ必要があるため、複数Repositoryにまたがる処理を1トランザクションで実行する。これはRails現行仕様書が「承認時は、対象クラスデータへの反映と申請レコードの更新を一つの処理としてまとめて行い、途中で失敗した場合は両方とも反映されない」と明記している業務要件そのものである。
+承認は「申請レコードの更新とクラスデータへの反映のいずれか一方のみが成功する」という不整合を防ぐ必要があるため、複数Repositoryにまたがる処理を1トランザクションで実行する。クラスの削除を承認する場合は、当該クラスの`teacher_school_classes`の行の削除（Rails現行の`dependent: :destroy`）も、クラスの削除と同じトランザクションに含める。これはRails現行仕様書が「承認時は、対象クラスデータへの反映と申請レコードの更新を一つの処理としてまとめて行い、途中で失敗した場合は両方とも反映されない」と明記している業務要件そのものである。
 
 ---
 
@@ -488,7 +490,7 @@ flowchart TD
 
 ## Domain
 
-- 業務ルール: 申請区分に応じた入力項目の整合性（SchoolClassRequestAction）、削除申請の在籍者・所属教員不在チェック（SchoolClassDeletionEligibilityPolicy）、同一クラスへの重複申請チェック（DuplicatePendingRequestPolicy）
+- 業務ルール: 申請区分に応じた入力項目の整合性（SchoolClassRequestAction）、削除申請の在籍者・所属教員不在チェック（SchoolClassDeletionEligibilityPolicy。在籍する生徒は無効化済みを含めて確認し、所属する教員は`teacher_school_classes`の行の有無で確認する）、同一クラスへの重複申請チェック（DuplicatePendingRequestPolicy）
 - 状態チェック: 状態遷移が許可された組み合わせかどうか（承認・却下はpendingからのみ）、承認・却下時の操作者が申請者本人でないこと
 - 整合性チェック: 承認・却下・取消の各操作におけるlock_versionの一致チェック
 
@@ -684,7 +686,7 @@ Rails現行仕様書は、申請提出時（同校で他職員操作権限を持
 
 ## 変更理由
 
-- 現行の `grades` / `school_classes` / `school_class_requests` テーブルは、参照・承認ワークフローという業務要件を満たしており、追加のスキーマ変更は不要である
+- 現行の `grades` / `school_classes` / `school_class_requests` テーブルは、参照・承認ワークフローという業務要件を満たしており、追加のスキーマ変更は不要である。削除申請の可否確認で参照する `teacher_school_classes` も現行のまま利用する
 
 ---
 
@@ -692,11 +694,19 @@ Rails現行仕様書は、申請提出時（同校で他職員操作権限を持
 
 ## SchoolClassRepository
 
-- 対象テーブル: `grades`, `school_classes`
-- 操作種別: 参照（学年一覧、クラス一覧、クラス詳細）、承認時の作成・更新・削除
+- 対象テーブル: `grades`, `school_classes`, `teacher_school_classes`
+- 操作種別: 参照（学年一覧、クラス一覧、クラス詳細）、承認時の作成・更新・削除（`school_classes`）。`teacher_school_classes`は、クラスの削除の承認時に、当該クラスの行を削除する操作のみを行う
 - 主な検索条件・絞り込み条件: `high_school_id`, `grade_id` による絞り込み
 - 関連テーブルとの結合: 学年別クラス一覧取得時に `grades` と `school_classes` を結合する
 - ページネーション・ソート: 不要（学年・クラスとも全件取得が前提）
+
+## 外部参照Repository（在籍する生徒・所属する教員）
+
+- 対象テーブル: `users`（`user` Contextが所有。`user`の`CountUsers`が実行する）、`teacher_school_classes`
+- 操作種別: 参照（在籍する生徒の人数の確認、所属する教員の有無の確認）。`teacher_school_classes`は、所有するContextが現行の②群に定義されておらず、書き込む機能が現行の対象範囲に存在しない参照専用の依存である
+- 主な検索条件・絞り込み条件: `users.school_class_id`（無効化済みも含める）、`teacher_school_classes.school_class_id`（`role`の別は問わない）
+- 関連テーブルとの結合: 不要（所属する教員の確認では、`users`の無効化状態を見ない）
+- ページネーション・ソート: 不要
 
 ## SchoolClassRequestRepository
 
@@ -720,7 +730,7 @@ Rails現行仕様書は、申請提出時（同校で他職員操作権限を持
 
 ## Repository Test
 
-- 目的: SchoolClassRepositoryによる参照・反映の正確性、SchoolClassRequestRepositoryによる楽観ロック付き更新の正確性を検証する
+- 目的: SchoolClassRepositoryによる参照・反映の正確性（クラス削除の承認時に、当該クラスの`teacher_school_classes`の行も削除されること）、外部参照Repositoryによる在籍する生徒（無効化済みを含む）・所属する教員（`role`の別を問わない）の確認の正確性、SchoolClassRequestRepositoryによる楽観ロック付き更新の正確性を検証する
 
 ## Handler Test
 

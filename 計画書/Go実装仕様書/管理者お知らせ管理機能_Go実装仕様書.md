@@ -6,7 +6,7 @@
 
 ## 機能概要
 
-管理者が全ユーザー向けのお知らせを作成・編集・配信（公開）・削除できる機能である。一覧・詳細・作成・更新・削除・配信の6操作に加え、指定高校を対象に含むお知らせ（発信者のロールを問わない）を横断的に確認する高校別お知らせ参照を提供する。管理者が作成するお知らせの対象は常に「全ユーザー」に固定され、教師のように特定の高校・学年・ユーザーへ対象を絞り込むことはできない（②「1. 機能概要」）。操作対象は自分自身が作成したお知らせに限らず、管理者ロールのユーザーが発信者であるお知らせ全体である。
+管理者が全ユーザー向けのお知らせを作成・編集・配信（公開）・削除できる機能である。一覧・詳細・作成・更新・削除・配信の6操作に加え、指定高校を対象に含むお知らせ（発信者のロールを問わない）を横断的に確認する高校別お知らせ参照を提供する。管理者が作成するお知らせの対象は常に「全ユーザー」に固定され、教師のように特定の高校・学年・ユーザーへ対象を絞り込むことはできない（②「1. 機能概要」）。一覧・詳細の参照対象は、自分自身が作成したお知らせに限らず、管理者ロールのユーザーが発信者であるお知らせ全体である。更新・削除・配信を実行できるのは、お知らせの発信者本人である管理者のみであり、発信者の管理者アカウントが無効化されている場合に限り他の管理者も実行できる。
 
 ## 採用設計パターンとその理由（②からの要約）
 
@@ -23,7 +23,7 @@ Transaction Script・Active Record（同一AggregateをDomain Modelとして扱�
 - ②「12. UseCase設計」のListAnnouncementsUseCase・ShowAnnouncementUseCase・CreateAnnouncementUseCase・UpdateAnnouncementUseCase・DeleteAnnouncementUseCase・PublishAnnouncementUseCase・ListHighSchoolAnnouncementsUseCase（管理者向けの7UseCase。教師お知らせ機能_Go実装仕様書のUseCase群とは別のstructとして実装する。同名の業務操作（一覧・詳細）が存在するが、発信者スコープが異なるため別UseCaseとする）
 - ②「19. API仕様」記載の7エンドポイント
 
-**重要（Entity/Repository/Value Objectの再利用方針）**: 本機能が扱うAnnouncement・AnnouncementTarget Entity、AnnouncementStatus・ScheduledAt・PublishedAt・TargetCriteria Value Object、および`AnnouncementRepository` Interfaceの基本定義（struct名・フィールド・状態遷移メソッド・基本CRUD相当のメソッド）は、教師お知らせ機能_Go実装仕様書「3. Domain層設計」で既に定義済みである。本書ではこれらを**再定義せず、そのまま再利用する**。本書が追加するのは、(a) 既存の`AnnouncementRepository` interfaceへの管理者向け検索・削除・高校別検索メソッドの追加、(b) 高校の存在確認のための外部参照Repository（`HighSchoolRepository`）、(c) 本機能固有のUseCase・Handler・Request/Response DTOのみである。教師お知らせ機能_Go実装仕様書「2. ディレクトリ構成」で作成済みの`internal/announcement/domain/entity/announcement.go`・`announcement_target.go`・`domain/valueobject/announcement_status.go`・`scheduled_at.go`・`published_at.go`・`target_criteria.go`・`domain/repository/announcement_repository.go`は本書でも同一ファイルとして扱い、重複するファイルを新規に作成しない。
+**重要（Entity/Repository/Value Objectの再利用方針）**: 本機能が扱うAnnouncement・AnnouncementTarget Entity、AnnouncementStatus・ScheduledAt・PublishedAt・TargetCriteria Value Object、および`AnnouncementRepository` Interfaceの基本定義（struct名・フィールド・状態遷移メソッド・基本CRUD相当のメソッド）は、教師お知らせ機能_Go実装仕様書「3. Domain層設計」で既に定義済みである。本書ではこれらを**再定義せず、そのまま再利用する**。本書が追加するのは、(a) 既存の`AnnouncementRepository` interfaceへの管理者向け検索・削除・高校別検索・発信者無効化状態確認メソッドの追加、(b) 高校の存在確認のための外部参照Repository（`HighSchoolRepository`）、(c) 本機能固有のUseCase・Handler・Request/Response DTOのみである。教師お知らせ機能_Go実装仕様書「2. ディレクトリ構成」で作成済みの`internal/announcement/domain/entity/announcement.go`・`announcement_target.go`・`domain/valueobject/announcement_status.go`・`scheduled_at.go`・`published_at.go`・`target_criteria.go`・`domain/repository/announcement_repository.go`は本書でも同一ファイルとして扱い、重複するファイルを新規に作成しない。
 
 なお、教師お知らせ機能_Go実装仕様書が定義した`AnnouncementTargetingPolicy`（own_grade制約・同校制約の判定）・`AnnouncementVisibilityPolicy`（閲覧者視点の可視性判定）は、②「8. Domain Service」の判断どおり本機能では利用しない。管理者向けの対象指定は常に`all_users`固定であり、対象妥当性判定・閲覧可否判定という可変ルールが存在しないためである。
 
@@ -89,7 +89,7 @@ internal/announcement/presentation/response/admin_announcement_response.go
 
 |ファイル|追加内容|
 |-|-|
-|`domain/repository/announcement_repository.go`|`AnnouncementRepository` interfaceへ`SearchByPublisherRole` / `FindByIDAndPublisherRole` / `Delete` / `SearchByHighSchoolTarget`メソッドを追加する（本書「3. Domain層設計」参照）|
+|`domain/repository/announcement_repository.go`|`AnnouncementRepository` interfaceへ`SearchByPublisherRole` / `FindByIDAndPublisherRole` / `Delete` / `SearchByHighSchoolTarget` / `IsPublisherDeactivated`メソッドを追加する（本書「3. Domain層設計」参照）|
 |`infrastructure/repository/announcement_repository.go`|上記追加メソッドの実装を追加する（本書「5. Infrastructure層設計」参照）|
 
 ---
@@ -127,13 +127,14 @@ internal/announcement/presentation/response/admin_announcement_response.go
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
 |`SearchByPublisherRole`|`(ctx context.Context, keyword string, status *valueobject.AnnouncementStatus, page dto.PageRequest)`|`([]*entity.Announcement, dto.PageInfo, error)`|発信者が管理者ロールであるお知らせ（自分自身に限らない）を、タイトル部分一致・状態で絞り込んで一覧取得する（②「11. Repository設計」の「拡張部分」）|
-|`FindByIDAndPublisherRole`|`(ctx context.Context, id uint)`|`(*entity.Announcement, error)`|発信者が管理者ロールであるお知らせを単一取得する。所有者確認（`FindByIDAndOwner`が行う「本人が作成したものか」）ではなく、「管理者ロールの誰かが作成したものか」のみを確認する点が教師向けメソッドとの違いである|
+|`FindByIDAndPublisherRole`|`(ctx context.Context, id uint)`|`(*entity.Announcement, error)`|発信者が管理者ロールであるお知らせを単一取得する。所有者確認（`FindByIDAndOwner`が行う「本人が作成したものか」）ではなく、「管理者ロールの誰かが作成したものか」のみを確認する（発信者本人かどうかの操作権限確認はUseCaseが行う）点が教師向けメソッドとの違いである|
 |`Delete`|`(ctx context.Context, id uint)`|`error`|Announcement本体とAnnouncementTargetを削除する（②「11. Repository設計」の「発信者が管理者ロールであるお知らせの削除」）|
 |`SearchByHighSchoolTarget`|`(ctx context.Context, highSchoolID uint, page dto.PageRequest)`|`([]*entity.Announcement, dto.PageInfo, error)`|指定高校を対象に含むお知らせを、発信者のロールを問わず横断検索する（②「11. Repository設計」の「指定高校を対象に含むお知らせの横断検索」）|
+|`IsPublisherDeactivated`|`(ctx context.Context, publisherID uint)`|`(bool, error)`|発信者アカウントが無効化（論理削除）されているかを返す。更新・削除・配信の操作権限確認に用いる（②「11. Repository設計」の「発信者アカウントが無効化されているかどうかの参照」）。無効化されたユーザーも取得対象に含める必要があるため、論理削除による自動除外を行わない（後述「5. Infrastructure層設計」参照）|
 
-**②からの補足**: `SearchByPublisherRole`・`FindByIDAndPublisherRole`・`Delete`・`SearchByHighSchoolTarget`という具体的なメソッド名・シグネチャは②に明記がなく、②「11. Repository設計」に記載された責務（発信者ロールによる絞り込み検索、削除、高校ID絞り込み検索）を実装のために具体化したものである（推測。教師お知らせ機能③文書が外部参照Repositoryのメソッドシグネチャを推測で補ったのと同様の対応）。
+**②からの補足**: `SearchByPublisherRole`・`FindByIDAndPublisherRole`・`Delete`・`SearchByHighSchoolTarget`・`IsPublisherDeactivated`という具体的なメソッド名・シグネチャは②に明記がなく、②「11. Repository設計」に記載された責務（発信者ロールによる絞り込み検索、削除、高校ID絞り込み検索、発信者アカウントの無効化状態の参照）を実装のために具体化したものである（推測。教師お知らせ機能③文書が外部参照Repositoryのメソッドシグネチャを推測で補ったのと同様の対応）。
 
-### HighSchoolRepository（`domain/repository/high_school_repository.go`、School Context（school-directory）提供・外部依存として利用）
+### HighSchoolRepository（`domain/repository/high_school_repository.go`、master-data Context（共通マスタ参照機能）提供・外部依存として利用）
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
@@ -142,7 +143,7 @@ internal/announcement/presentation/response/admin_announcement_response.go
 - 保持しない責務: 高校データの作成・更新・削除
 - 判断根拠: ②「3. Bounded Context」の「School Context（高校情報）: 高校別お知らせ参照における対象高校の存在確認に依存する」を、本Contextが定義する参照専用Interfaceとして具体化したものである。アーキテクチャ規約「6. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従う。
 
-**②からの補足**: 対象高校の存在確認は、管理者高校学年参照機能_Go実装仕様書がTransaction Script採用のため`infrastructure.FindHighSchoolByID`という関数として実装されており、Domain Model採用の本Contextが直接その関数（Repository Interfaceを持たない構造）に依存することはできない（アーキテクチャ規約「2. レイヤー責務と依存方向」の依存性逆転の原則に反する）。そのため本書では、本Context自身が`HighSchoolRepository` Interfaceを定義し、その実装（Infrastructure層）が`high_schools`テーブルへ直接クエリする構成とする（推測。質問インポート機能③文書がCourse/Unit参照について採用した「他Contextの既存モデルを参照専用で利用する」方針と同様の対応）。
+**②からの補足**: ②「3. Bounded Context」がいう「School Context（高校情報）」の実体は、本タスクで並行して確定した共通マスタ参照機能_Go実装仕様書が所有するmaster-data Context（`high_schools`テーブルの正規の所有者。共通マスタ参照機能_Go実装仕様書「15. GORM / DBクエリ設計」参照）である。管理者高校学年参照機能（school-directory Context）は`high_schools`テーブルを参照するのみで所有はしておらず、Transaction Script採用のためRepository Interfaceも公開していない（管理者高校学年参照機能_Go実装仕様書「3. Domain層設計」）ため、参照先としては不適切である。Domain Model採用の本Contextは、master-data Contextが公開するapplication層関数（`ExistsHighSchool` / `FindHighSchoolByID`）を呼び出す実装を、自ら定義する`HighSchoolRepository` Interfaceの背後に置く（依存性逆転。アーキテクチャ規約「2. レイヤー責務と依存方向」）。これにより`high_schools`テーブルへの直接クエリは行わない。
 
 ## Domain Service（本書では利用しない）
 
@@ -183,13 +184,13 @@ internal/announcement/presentation/response/admin_announcement_response.go
   - フィールド: `CurrentAdminID uint`, `Title string`, `Content string`, `Status string`, `ScheduledAt *time.Time`
   - 区分: Command（②「19. API仕様」の「announcement[title]（必須）, announcement[content]（必須）, announcement[status]（必須）, announcement[scheduled_at]（scheduled指定時必須）」に対応）
 - struct名: `UpdateAdminAnnouncementCommand`（配置: `application/dto/update_admin_announcement.go`）
-  - フィールド: `AnnouncementID uint`, `Title *string`, `Content *string`, `Status *string`, `ScheduledAt *time.Time`
+  - フィールド: `CurrentAdminID uint`, `AnnouncementID uint`, `Title *string`, `Content *string`, `Status *string`, `ScheduledAt *time.Time`
   - 区分: Command（フィールドはいずれも任意。②「19. API仕様」の「announcement[title]/[content]/[status]/[scheduled_at]（いずれも任意）」に対応）
 - struct名: `DeleteAdminAnnouncementCommand`
-  - フィールド: `AnnouncementID uint`
+  - フィールド: `CurrentAdminID uint`, `AnnouncementID uint`
   - 区分: Command
 - struct名: `PublishAdminAnnouncementCommand`
-  - フィールド: `AnnouncementID uint`
+  - フィールド: `CurrentAdminID uint`, `AnnouncementID uint`
   - 区分: Command
 - struct名: `ListHighSchoolAnnouncementsQuery`（配置: `application/dto/list_high_school_announcements.go`）
   - フィールド: `HighSchoolID uint`, `Page dto.PageRequest`
@@ -250,15 +251,16 @@ internal/announcement/presentation/response/admin_announcement_response.go
 - struct名: `UpdateAdminAnnouncementUseCase`
 - コンストラクタが受け取る依存: `AnnouncementRepository`
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, cmd dto.UpdateAdminAnnouncementCommand) (dto.UpdateAdminAnnouncementResult, error)`
-- 処理ステップ（②「12. UseCase設計」「16. Authorization設計」の記載どおり、所有者確認ではなく発信者ロール確認のみを行う）:
+- 処理ステップ（②「12. UseCase設計」「16. Authorization設計」の記載どおり、発信者ロール確認に加えて操作権限確認を行う）:
   1. `AnnouncementRepository.FindByIDAndPublisherRole(ctx, cmd.AnnouncementID)`で対象を取得する
   2. 取得できない場合、`ErrAnnouncementNotFound`を返す
-  3. `cmd.Title` / `cmd.Content`が指定されている場合、対象Entityのタイトル・本文を更新する（②「6. Entity設計」に更新用methodの明記はないため、実装時にEntityへ`UpdateContent(title, content string) error`相当のメソッド追加が必要になる可能性がある。詳細は「14. ②からの補足事項」参照）
-  4. `cmd.Status`が指定されている場合、`scheduled`なら`Schedule`、`published`なら`Publish`を呼び出す（Entity側で許可されない遷移は`ErrInvalidStatusTransition`として拒否される。②「17. Error設計」の「配信済みのお知らせを更新・削除・再配信しようとする」は、Entity側が`published`状態からの`Schedule`/`Publish`呼び出しを拒否することで実現する）
-  5. `AnnouncementRepository.Update(ctx, announcement)`で永続化する
-  6. `dto.UpdateAdminAnnouncementResult`を返す
+  3. 操作権限を確認する（「10. Authorization実装方針」参照）。`announcement.IsOwnedBy(cmd.CurrentAdminID)`が`false`の場合は`AnnouncementRepository.IsPublisherDeactivated(ctx, announcement.PublisherID())`を呼び出し、それも`false`（発信者が無効化されていない）であれば`ErrAnnouncementOperationForbidden`を返す。この確認は、以降の状態確認（Entityによる配信済み判定）より先に行う
+  4. `cmd.Title` / `cmd.Content`が指定されている場合、対象Entityのタイトル・本文を更新する（②「6. Entity設計」に更新用methodの明記はないため、実装時にEntityへ`UpdateContent(title, content string) error`相当のメソッド追加が必要になる可能性がある。詳細は「14. ②からの補足事項」参照）
+  5. `cmd.Status`が指定されている場合、`scheduled`なら`Schedule`、`published`なら`Publish`を呼び出す（Entity側で許可されない遷移は`ErrInvalidStatusTransition`として拒否される。②「17. Error設計」の「配信済みのお知らせを更新・削除・再配信しようとする」は、Entity側が`published`状態からの`Schedule`/`Publish`呼び出しを拒否することで実現する）
+  6. `AnnouncementRepository.Update(ctx, announcement)`で永続化する
+  7. `dto.UpdateAdminAnnouncementResult`を返す
 - トランザクション境界: Announcementの更新を1トランザクションとする（②「14. Transaction設計」）
-- 発生しうるApplication Error: `ErrAnnouncementNotFound`
+- 発生しうるApplication Error: `ErrAnnouncementNotFound`, `ErrAnnouncementOperationForbidden`
 - 発生しうるDomain Error: `ErrInvalidStatusTransition`, `ErrScheduledAtNotFuture`
 
 **②からの補足**: タイトル・本文の更新について、教師お知らせ機能_Go実装仕様書のAnnouncement Entityは「作成後の更新APIは存在しないため更新用methodは設けない」と明記しており、`UpdateAnnouncementStatusUseCase`という状態のみを更新するUseCaseしか定義していない。一方、②「12. UseCase設計」は管理者向けUpdateAnnouncementUseCaseの入力として「title/content/status/scheduled_at（いずれも任意）」を明記しており、内容の更新も対象に含めている。この差異は②同士（教師お知らせ機能②と管理者お知らせ管理機能②）の間に存在するものであり、本書では管理者向け②の記載を優先し、Announcement Entityに`UpdateContent`相当のメソッド追加が必要になる可能性がある点を推測として明記する。既存Entityへのメソッド追加は「教師お知らせ機能_Go実装仕様書の内容を変更しない」という本書の前提に対する例外的な拡張であり、教師向けの既存メソッド（`Schedule`/`Publish`等）には影響しない加算的な変更として扱う。
@@ -271,11 +273,12 @@ internal/announcement/presentation/response/admin_announcement_response.go
 - 処理ステップ:
   1. `AnnouncementRepository.FindByIDAndPublisherRole(ctx, cmd.AnnouncementID)`で対象を取得する
   2. 取得できない場合、`ErrAnnouncementNotFound`を返す
-  3. 対象の`Status()`が`published`の場合、`ErrCannotDeletePublished`（本書で新規追加。②「17. Error設計」の「配信済みのお知らせを更新・削除・再配信しようとする」に対応）を返す
-  4. `AnnouncementRepository.Delete(ctx, cmd.AnnouncementID)`で削除する
-  5. `dto.DeleteAdminAnnouncementResult`を返す
+  3. 操作権限を確認する（Update UseCaseの手順3と同じ。「10. Authorization実装方針」参照）。権限がない場合は`ErrAnnouncementOperationForbidden`を返す。この確認は、以降の配信済み判定より先に行う
+  4. 対象の`Status()`が`published`の場合、`ErrCannotDeletePublished`（本書で新規追加。②「17. Error設計」の「配信済みのお知らせを更新・削除・再配信しようとする」に対応）を返す
+  5. `AnnouncementRepository.Delete(ctx, cmd.AnnouncementID)`で削除する
+  6. `dto.DeleteAdminAnnouncementResult`を返す
 - トランザクション境界: Announcement本体とAnnouncementTargetの削除を1トランザクションとする（②「14. Transaction設計」）
-- 発生しうるApplication Error: `ErrAnnouncementNotFound`
+- 発生しうるApplication Error: `ErrAnnouncementNotFound`, `ErrAnnouncementOperationForbidden`
 - 発生しうるDomain Error: `ErrCannotDeletePublished`
 
 ### PublishAdminAnnouncementUseCase（`application/usecase/publish_admin_announcement_usecase.go`）
@@ -286,11 +289,12 @@ internal/announcement/presentation/response/admin_announcement_response.go
 - 処理ステップ:
   1. `AnnouncementRepository.FindByIDAndPublisherRole(ctx, cmd.AnnouncementID)`で対象を取得する
   2. 取得できない場合、`ErrAnnouncementNotFound`を返す
-  3. `announcement.Publish()`を呼び出す（既にpublishedの場合は`ErrInvalidStatusTransition`が返る。②「12. UseCase設計」の「既に配信済みのお知らせへの再配信を防ぐ判定はAnnouncement Entityが担う」）
-  4. `AnnouncementRepository.Update(ctx, announcement)`で永続化する
-  5. `dto.PublishAdminAnnouncementResult`を返す
+  3. 操作権限を確認する（Update UseCaseの手順3と同じ。「10. Authorization実装方針」参照）。権限がない場合は`ErrAnnouncementOperationForbidden`を返す。この確認は、以降の配信済み判定より先に行う
+  4. `announcement.Publish()`を呼び出す（既にpublishedの場合は`ErrInvalidStatusTransition`が返る。②「12. UseCase設計」の「既に配信済みのお知らせへの再配信を防ぐ判定はAnnouncement Entityが担う」）
+  5. `AnnouncementRepository.Update(ctx, announcement)`で永続化する
+  6. `dto.PublishAdminAnnouncementResult`を返す
 - トランザクション境界: 状態更新（published_atの確定、scheduled_atのクリアを含む）を1トランザクションとする（②「14. Transaction設計」）
-- 発生しうるApplication Error: `ErrAnnouncementNotFound`
+- 発生しうるApplication Error: `ErrAnnouncementNotFound`, `ErrAnnouncementOperationForbidden`
 - 発生しうるDomain Error: `ErrInvalidStatusTransition`
 
 ### ListHighSchoolAnnouncementsUseCase（`application/usecase/list_high_school_announcements_usecase.go`）
@@ -319,7 +323,8 @@ internal/announcement/presentation/response/admin_announcement_response.go
 |メソッド|発行するクエリ内容|
 |-|-|
 |`SearchByPublisherRole`|`publisher_id`が管理者ロールのユーザーであること（`users`と`user_roles`の結合による絞り込み）を条件に、`keyword`が指定されていれば`title LIKE ?`、`status`が指定されていれば一致条件を付加する。`created_at`降順、`page.Page`/`page.PerPage`によるOFFSET/LIMITページング。`users`とJoinして発信者名を取得する（②「21. DB操作仕様」）|
-|`FindByIDAndPublisherRole`|`id`一致かつ`publisher_id`が管理者ロールのユーザーであることの条件で1件取得する（`FindByIDAndOwner`との違いは`publisher_id = 特定の1人`ではなく`publisher_idのロールがadmin`である点）|
+|`FindByIDAndPublisherRole`|`id`一致かつ`publisher_id`が管理者ロールのユーザーであることの条件で1件取得する（`FindByIDAndOwner`との違いは`publisher_id = 特定の1人`ではなく`publisher_idのロールがadmin`である点）。発信者が無効化されている場合も取得対象に含める（`users`とのJoinで論理削除済みユーザーを除外しない）|
+|`IsPublisherDeactivated`|`users`から`id = publisherID`のレコードを取得し、`deleted_at`が設定されているかを返す。無効化（論理削除）済みのユーザーを判定対象とするため、GORMの論理削除による自動除外を行わない（`Unscoped()`を用いる、または`deleted_at`を明示的に参照する）|
 |`Delete`|`id`一致条件で`announcement_targets`を削除した後、`announcements`を削除する（Aggregate全体を1トランザクション内で削除する。詳細は「8. Transaction実装方針」）|
 |`SearchByHighSchoolTarget`|`announcement_targets`とJoinし、`target_type = 'by_school' AND high_school_id = ?`、または`target_type = 'by_grade'`で当該高校に属する学年、または`target_type = 'by_user'`で当該高校に所属するユーザーのいずれかに一致するお知らせを検索する（発信者ロールによる絞り込みは行わない）。`created_at`降順、ページングを行う|
 
@@ -327,9 +332,9 @@ internal/announcement/presentation/response/admin_announcement_response.go
 
 ### HighSchoolRepository実装（`infrastructure/repository/high_school_repository.go`）
 
-- 実装struct名: 非公開struct（例: `highSchoolRepository`）+ コンストラクタ`NewHighSchoolRepository`
-- 対応するGORMモデル: `high_schools`テーブル（school-directory Contextが所有する既存Railsスキーマ。本Contextでは参照専用の最小フィールド定義（`ID`, `Name`）で読み取る。管理者高校学年参照機能_Go実装仕様書が定義する`HighSchoolModel`とは別に、本Context内で独立して定義する）
-- クエリ内容: `id`一致条件で1件取得する
+- 実装struct名: 非公開struct（例: `highSchoolRepository`）+ コンストラクタ`NewHighSchoolRepository(db *gorm.DB) repository.HighSchoolRepository`
+- `high_schools`テーブルはmaster-data Context（共通マスタ参照機能）が正規の所有者であるため、本Contextでは対応するGORMモデルを定義しない
+- `FindByID(ctx, id)`: `masterdata.FindHighSchoolByID(ctx, db, id)`（共通マスタ参照機能_Go実装仕様書「6. Application層設計」）を呼び出し、戻り値の`*masterdata.HighSchoolDetail`（`ID` / `Name`）を本Contextの`HighSchool`へ変換する。対象が存在しない場合は`masterdata.FindHighSchoolByID`が返す`(nil, nil)`を受けて`nil`を返す
 
 ## 外部連携実装
 
@@ -358,9 +363,9 @@ internal/announcement/presentation/response/admin_announcement_response.go
   - `List`: クエリパラメータ（`q`, `status`, `page`, `per_page`）を`request.AdminAnnouncementListRequest`にバインド → 型チェック → `ListAdminAnnouncementsUseCase.Execute`を呼び出す → `response.AdminAnnouncementListResponse`へ変換し200で返す
   - `Show`: パスパラメータ`id`をバインド → `ShowAdminAnnouncementUseCase.Execute`を呼び出す → `ErrAnnouncementNotFound`の場合は404に変換 → 成功時は`response.AdminAnnouncementDetailResponse`へ変換し200で返す
   - `Create`: リクエストボディ（`announcement[title]`/`[content]`/`[status]`/`[scheduled_at]`）を`request.AdminAnnouncementCreateRequest`にバインド → 必須・フォーマット検証 → `CreateAdminAnnouncementUseCase.Execute`を呼び出す → 成功時は`{"message": "お知らせを作成しました。"}`を200で返す（②「19. API仕様」）
-  - `Update`: パスパラメータ`id`＋リクエストボディを`request.AdminAnnouncementUpdateRequest`にバインド → `UpdateAdminAnnouncementUseCase.Execute`を呼び出す → 成功時は`{"message": "お知らせを更新しました。"}`を200で返す
-  - `Delete`: パスパラメータ`id`をバインド → `DeleteAdminAnnouncementUseCase.Execute`を呼び出す → 成功時は204（本文なし）を返す
-  - `Publish`: パスパラメータ`id`をバインド → `PublishAdminAnnouncementUseCase.Execute`を呼び出す → 成功時は`{"message": "お知らせを配信しました。"}`を200で返す
+  - `Update`: パスパラメータ`id`＋リクエストボディを`request.AdminAnnouncementUpdateRequest`にバインド → 認証済みユーザーのIDを`CurrentAdminID`として`UpdateAdminAnnouncementUseCase.Execute`を呼び出す → `ErrAnnouncementNotFound`は404、`ErrAnnouncementOperationForbidden`は403に変換 → 成功時は`{"message": "お知らせを更新しました。"}`を200で返す
+  - `Delete`: パスパラメータ`id`をバインド → 認証済みユーザーのIDを`CurrentAdminID`として`DeleteAdminAnnouncementUseCase.Execute`を呼び出す → `ErrAnnouncementNotFound`は404、`ErrAnnouncementOperationForbidden`は403に変換 → 成功時は204（本文なし）を返す
+  - `Publish`: パスパラメータ`id`をバインド → 認証済みユーザーのIDを`CurrentAdminID`として`PublishAdminAnnouncementUseCase.Execute`を呼び出す → `ErrAnnouncementNotFound`は404、`ErrAnnouncementOperationForbidden`は403に変換 → 成功時は`{"message": "お知らせを配信しました。"}`を200で返す
 
 ### AdminHighSchoolAnnouncementHandler（`presentation/handler/admin_high_school_announcement_handler.go`）
 
@@ -431,6 +436,7 @@ internal/announcement/presentation/response/admin_announcement_response.go
 |Endpoint|条件|Status Code|Error内容|
 |-|-|-|-|
 |Show/Update/Delete/Publish|対象お知らせが存在しない、または発信者が管理者ロールでない|404|`ErrAnnouncementNotFound`|
+|Update/Delete/Publish|発信者本人でない管理者による操作（発信者が無効化されている場合を除く）。配信済みかどうかの判定より先に行われる|403|`ErrAnnouncementOperationForbidden`（メッセージ「この操作を行う権限がありません」）|
 |Create|title/content/status未入力・形式不正|422|Request DTOバリデーションエラー|
 |Create/Update|scheduled指定時にscheduled_atが未来日時でない|422|`ErrScheduledAtNotFuture`|
 |Update|不正な状態遷移（published状態への不正な操作を含む）|422|`ErrInvalidStatusTransition`|
@@ -499,7 +505,13 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 
 ## UseCaseで行う処理
 
-- 一覧・詳細・更新・削除・配信は、発信者が管理者ロールであるお知らせ全体をスコープとする（`AnnouncementRepository.SearchByPublisherRole` / `FindByIDAndPublisherRole`が担う。教師お知らせ機能のような「自身が作成したものに限る」という所有者確認（`FindByIDAndOwner`）は使用しない。②「16. Authorization設計」の「教師お知らせ機能のような『自身が作成したものに限る』という所有者確認は行わない」に対応）
+- 一覧・詳細・更新・削除・配信は、発信者が管理者ロールであるお知らせ全体をスコープとする（`AnnouncementRepository.SearchByPublisherRole` / `FindByIDAndPublisherRole`が担う。`FindByIDAndOwner`は使用しない）
+- 更新・削除・配信は、スコープ確認に加えて操作権限確認を行う（②「16. Authorization設計」）。`FindByIDAndPublisherRole`で取得した`announcement`に対し、次の順で判定する
+  1. `announcement.IsOwnedBy(cmd.CurrentAdminID)`が`true`であれば許可する（既存Entityのメソッドをそのまま再利用する）
+  2. `false`の場合は`AnnouncementRepository.IsPublisherDeactivated(ctx, announcement.PublisherID())`を呼び出し、`true`（発信者が無効化されている）であれば許可する
+  3. いずれにも該当しなければ`ErrAnnouncementOperationForbidden`を返す
+- 操作権限確認は、Entityによる配信済みかどうかの判定（`Publish` / 削除時の`Status()`確認）より先に行う。他の管理者が発信した配信済みのお知らせへの更新・削除・配信は`ErrAnnouncementOperationForbidden`（403）となり、発信者本人による配信済みのお知らせへの操作は権限確認を通過して`ErrInvalidStatusTransition` / `ErrCannotDeletePublished`（422）となる
+- 一覧・詳細は操作権限確認の対象外であり、他の管理者が発信したお知らせも参照できる
 - 高校別お知らせ参照は、発信者のロールを問わず、指定高校を対象に含むお知らせ全体をスコープとする
 
 ## Domainで行う処理
@@ -508,7 +520,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 
 ## 判断理由
 
-②「16. Authorization設計」の判断理由（「誰がアクセスできるか」という認証・ロール確認はMiddleware、「どの範囲のお知らせを操作できるか」というスコープ確認はUseCase、「業務上許される操作か」という判定はDomain）をそのまま踏襲する。管理者は「管理者ロールが発信者であること」という広いスコープで操作可能であり、教師お知らせ機能の所有者確認（本人限定）とは明確に異なる。
+②「16. Authorization設計」の判断理由（「誰がアクセスできるか」という認証・ロール確認はMiddleware、「どの範囲のお知らせを操作できるか」というスコープ確認はUseCase、「業務上許される操作か」という判定はDomain）をそのまま踏襲する。参照は「管理者ロールが発信者であること」という広いスコープで可能であり、更新・削除・配信は発信者本人（発信者が無効化されている場合は他の管理者）に限られる。発信者アカウントの無効化状態はAnnouncement Entityが保持しない情報であるため、EntityではなくUseCaseで判定する。
 
 ---
 
@@ -517,7 +529,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 ## Domain Error → Application Errorへの変換方針
 
 - UseCaseは、教師お知らせ機能_Go実装仕様書と同じ方針（Domain Errorをラップし直さず、そのまま呼び出し元へ伝播させる）に従う
-- Application Error（`ErrAnnouncementNotFound`は教師お知らせ機能_Go実装仕様書が定義済みのものを再利用する。`ErrHighSchoolNotFound`は本書で新規に`application/usecase/errors.go`へ追加する）
+- Application Error（`ErrAnnouncementNotFound`は教師お知らせ機能_Go実装仕様書が定義済みのものを再利用する。`ErrHighSchoolNotFound`・`ErrAnnouncementOperationForbidden`は本書で新規に`application/usecase/errors.go`へ追加する）
 
 ## Application Error → HTTPレスポンスへの変換方針
 
@@ -529,6 +541,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 |`ErrInvalidTargetCriteria`|Domain（既存Value Object）|422|
 |`ErrCannotDeletePublished`|Domain（本書で新規追加）|422|
 |`ErrAnnouncementNotFound`|Application（既存）|404|
+|`ErrAnnouncementOperationForbidden`|Application（本書で新規追加）|403|
 |`ErrHighSchoolNotFound`|Application（本書で新規追加）|404|
 |Request DTOバリデーションエラー|Presentation|422|
 |DB接続失敗・クエリ失敗|Infrastructure|500|
@@ -549,7 +562,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 
 - `gormmodel.AnnouncementModel` ⇔ `announcements`テーブル（教師お知らせ機能_Go実装仕様書で定義済みのモデルをそのまま利用する。新規モデル定義は行わない）
 - `gormmodel.AnnouncementTargetModel` ⇔ `announcement_targets`テーブル（同上）
-- `HighSchoolModel`（本Context内で新規定義）⇔ `high_schools`テーブル（school-directory Context所有。参照専用の最小フィールド`ID`, `Name`）
+- `high_schools`テーブルに対応するGORMモデルは本Contextでは定義しない（master-data Context所有。`HighSchoolRepository`実装はmaster-data Contextが公開する`FindHighSchoolByID`関数呼び出しに委譲する。「5. Infrastructure層設計」参照）
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -557,7 +570,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 - `FindByIDAndPublisherRole`: `id`一致＋発信者が管理者ロールであることの条件
 - `Delete`: `announcement_targets`削除後に`announcements`削除
 - `SearchByHighSchoolTarget`: `announcement_targets`経由で指定高校を対象に含むものを検索（発信者ロールを問わない）。`created_at`降順、ページング
-- `HighSchoolRepository.FindByID`: `id`一致で1件取得
+- `HighSchoolRepository.FindByID`: master-data Contextの`FindHighSchoolByID`関数呼び出しに委譲（本Contextでは`id`一致のクエリを直接発行しない）
 
 SQL文そのものは記載しない。
 
@@ -585,9 +598,9 @@ SQL文そのものは記載しない。
 |`ListAdminAnnouncementsUseCase`|`keyword`/`status`による絞り込みが正しく反映されること／他の管理者が作成したお知らせも一覧に含まれること（②の重点検証項目）|
 |`ShowAdminAnnouncementUseCase`|発信者が管理者ロールであるお知らせを取得できること／存在しない、または教師発信のお知らせでは`ErrAnnouncementNotFound`を返すこと|
 |`CreateAdminAnnouncementUseCase`|作成されたお知らせの対象が常に`all_users`1件であること／`status=scheduled`指定時に`scheduled_at`が未来日時でない場合エラーになること|
-|`UpdateAdminAnnouncementUseCase`|内容・状態の更新が正しく反映されること／published状態のお知らせへの更新が拒否されること／他の管理者が作成したお知らせも更新対象に含まれること|
-|`DeleteAdminAnnouncementUseCase`|未配信のお知らせが削除できること／published状態のお知らせの削除が`ErrCannotDeletePublished`で拒否されること|
-|`PublishAdminAnnouncementUseCase`|draft/scheduledから配信できること／既に配信済みの場合にエラーになること|
+|`UpdateAdminAnnouncementUseCase`|内容・状態の更新が正しく反映されること／published状態のお知らせへの更新が拒否されること／発信者本人による更新が許可されること／他の管理者が発信したお知らせの更新が`ErrAnnouncementOperationForbidden`で拒否されること／発信者が無効化されている場合は他の管理者による更新が許可されること／他の管理者が発信した配信済みのお知らせの更新が`ErrInvalidStatusTransition`ではなく`ErrAnnouncementOperationForbidden`となること|
+|`DeleteAdminAnnouncementUseCase`|未配信のお知らせが削除できること／published状態のお知らせの削除が`ErrCannotDeletePublished`で拒否されること／他の管理者が発信したお知らせの削除が`ErrAnnouncementOperationForbidden`で拒否されること／発信者が無効化されている場合は他の管理者による削除が許可されること|
+|`PublishAdminAnnouncementUseCase`|draft/scheduledから配信できること／既に配信済みの場合にエラーになること／他の管理者が発信したお知らせの配信が`ErrAnnouncementOperationForbidden`で拒否されること／発信者が無効化されている場合は他の管理者による配信が許可されること|
 |`ListHighSchoolAnnouncementsUseCase`|指定高校を対象に含むお知らせが、発信者ロールを問わず（教師作成分も含め）取得できること（②の重点検証項目）／対象高校が存在しない場合に`ErrHighSchoolNotFound`を返すこと|
 
 ## Repository Test
@@ -595,19 +608,20 @@ SQL文そのものは記載しない。
 |対象|テストケース|
 |-|-|
 |`AnnouncementRepository.SearchByPublisherRole`|発信者ロール絞り込み・キーワード・状態絞り込み・ページネーションの正確性|
-|`AnnouncementRepository.FindByIDAndPublisherRole`|管理者発信のお知らせのみ取得できること|
+|`AnnouncementRepository.FindByIDAndPublisherRole`|管理者発信のお知らせのみ取得できること（発信者が無効化されていても取得できること）|
+|`AnnouncementRepository.IsPublisherDeactivated`|論理削除済みの発信者で`true`、有効な発信者で`false`が返ること|
 |`AnnouncementRepository.Delete`|Announcement本体とAnnouncementTargetの両方が削除されること|
 |`AnnouncementRepository.SearchByHighSchoolTarget`|指定高校を対象に含むお知らせが発信者ロールを問わず取得できること|
-|`HighSchoolRepository.FindByID`|存在する/しない高校IDでの取得結果|
+|`HighSchoolRepository.FindByID`|`masterdata.FindHighSchoolByID`への呼び出しが正しく行われること／戻り値の`HighSchoolDetail`が`HighSchool`へ正しく変換されること／存在しない高校IDで`nil`が返ること|
 
 ## Handler Test
 
 |対象|テストケース|
 |-|-|
 |`AdminAnnouncementHandler.Create`|title/content/status未入力・形式不正で422が返ること／正常系で200が返ること|
-|`AdminAnnouncementHandler.Update`|不正な状態遷移で422が返ること／存在しないIDで404が返ること|
-|`AdminAnnouncementHandler.Delete`|配信済みお知らせの削除で422が返ること／成功時に204が返ること|
-|`AdminAnnouncementHandler.Publish`|配信済みお知らせの再配信で422が返ること|
+|`AdminAnnouncementHandler.Update`|不正な状態遷移で422が返ること／存在しないIDで404が返ること／`ErrAnnouncementOperationForbidden`で403が返ること|
+|`AdminAnnouncementHandler.Delete`|配信済みお知らせの削除で422が返ること／`ErrAnnouncementOperationForbidden`で403が返ること／成功時に204が返ること|
+|`AdminAnnouncementHandler.Publish`|配信済みお知らせの再配信で422が返ること／`ErrAnnouncementOperationForbidden`で403が返ること|
 |`AdminHighSchoolAnnouncementHandler.List`|存在しない高校IDで404が返ること|
 
 ## Integration Test
@@ -616,7 +630,7 @@ SQL文そのものは記載しない。
 |-|-|
 |作成→更新→配信→削除試行|配信済み後の更新・削除・再配信がいずれも一貫して拒否されること（②の重点検証項目）|
 |高校別お知らせ参照|教師作成のお知らせも含めて正しく返却されることを確認すること（②の重点検証項目）|
-|認可|admin以外のロールでアクセスした場合に403が返ること／未認証の場合に401が返ること|
+|認可|admin以外のロールでアクセスした場合に403が返ること／未認証の場合に401が返ること／他の管理者が発信したお知らせの更新・削除・配信が403となり、お知らせが変更されないこと／発信者が無効化されている場合は他の管理者が更新・削除・配信できること|
 
 ---
 
@@ -630,6 +644,7 @@ SQL文そのものは記載しない。
 |`HighSchoolRepository`を本Context（announcement）内に新規定義し、`high_schools`テーブルへ直接クエリする実装とした|school-directory Context（管理者高校学年参照機能）がTransaction Script採用でRepository Interfaceを持たない構造のため、Domain Model採用の本ContextはRepositoryのInterfaceを自ら定義し、依存性逆転の原則を維持する必要がある。管理者ダッシュボード機能③文書・管理者コース・単元参照機能③文書が採用した「参照先Contextの③実装詳細が確認できない場合、読み取り専用のクエリを本Context側で独自定義する」という暫定方針と同一の判断を踏襲した|推測。school-directory Context側の実装詳細確認後に見直しの余地あり|
 |`UpdateAdminAnnouncementUseCase`がタイトル・本文の更新を扱うため、既存のAnnouncement Entityに`UpdateContent`相当のメソッド追加が必要になる可能性がある点を明記した|教師お知らせ機能②は更新APIを状態遷移のみと定義しているのに対し、管理者お知らせ管理機能②はtitle/contentの更新も入力に含めている。この②同士の記述差を、既存Entityへの加算的なメソッド追加（教師向けの既存メソッドには影響しない）として整理した|②同士の記述差異を整合させるための判断（推測を含む）|
 |`ErrCannotDeletePublished`という新規Domain Errorを追加した|②「17. Error設計」は「配信済みのお知らせを更新・削除・再配信の試行」を1つのDomain Errorとして記載しているが、削除操作はEntityの状態遷移メソッド（Schedule/Publish）を経由しないため、削除固有のエラーとして区別する必要があった|推測|
+|更新・削除・配信の操作権限確認を、Announcement Entityへ新メソッドを追加せず、既存の`IsOwnedBy` / `PublisherID`と、`AnnouncementRepository`への`IsPublisherDeactivated`メソッド追加、および新規Application Error `ErrAnnouncementOperationForbidden`（403）で実現した|②「16. Authorization設計」は操作権限確認をUseCaseに配置すると定めているが、具体的なメソッド名・エラー名・発信者無効化状態の取得方法は②に明記がない。発信者アカウントの無効化状態はUser Context由来の情報でありAnnouncement Aggregateが保持しないため、Entity（教師お知らせ機能③が定義する「正」）の不変条件・メソッドは変更せず、Repository経由の参照で補った|推測|
 |`ErrHighSchoolNotFound`を`application/usecase/errors.go`に新規定義した|②「17. Error設計」がApplication Errorとして「高校別お知らせ参照における対象高校が存在しない」を明記している一方、具体的な変数名・配置場所までは指定していないため|推測|
 |Response DTOの発信者名（`Publisher`/`PublisherName`）の解決方法をRepository実装のJOINクエリとした|②に解決方法の明記がなく、教師お知らせ機能③文書が同様の情報（発信者情報）についてRepository実装のJOINを前提とした構成を採っていることに倣った|推測|
 |`SearchByHighSchoolTarget`の具体的な結合条件（`by_grade`/`by_user`経由で高校所属を辿る方法）を確定しなかった|①（Rails実装の具体的なクエリ）が未提供のため参照不可。②「21. DB操作仕様」の記載から大枠の方針のみを導出した|推測（要・既存DBスキーマ確認）|

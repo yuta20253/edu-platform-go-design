@@ -13,7 +13,7 @@
 - 採用パターン: **Transaction Script**（②「4. 設計パターン」）
 - 理由:
   - 本機能は書き込みを一切伴わない「同校生徒数の学年別集計」と「公開中お知らせの上位5件取得」という2つの読み取り処理を1レスポンスに合成するだけであり、自ら保持・管理する状態（Entity）を持たない
-  - 生徒数集計対象・お知らせ閲覧条件は、いずれも参照先Context（Student/School Context、Announcement Context）が持つ既存ルールをそのまま利用するのみであり、本機能固有の業務ルールを持たない
+  - 生徒数集計対象・お知らせ閲覧条件は、いずれも参照先Context（`user` Context、Announcement Context）が持つ既存ルールを利用する。生徒数集計に固有の条件（1〜3年のみ・無効化済みの生徒を含む）は、②「12. Validation設計」の業務ルールとして持つが、状態や複雑な判断は伴わない
   - 将来の表示項目追加も、application層の関数内に参照処理を追加するだけで対応できる
   - 単一の関数に対する入出力テストで十分に検証できる
 
@@ -22,7 +22,7 @@
 ## 本書が対象とする実装範囲
 
 - `internal/teacher_dashboard` 配下の application 関数・infrastructure 関数・presentation層（Handler・Response DTO・Routing）の実装単位
-- Student/School Context、Announcement Context側の実装（生徒データ・お知らせデータの真正な管理）は本書の対象外。本書ではteacher_dashboard側から見た呼び出し方針のみを記載する
+- `user` Context、Announcement Context側の実装（ユーザーデータ・お知らせデータの真正な管理）は本書の対象外。本書ではteacher_dashboard側から見た呼び出し方針のみを記載する
 - ①Rails実装の詳細は本セッションでは提供されていないため、「①未提供のため参照不可」として扱い、Railsの実際のコードやAPIレスポンスのJSONキー名等は本書では推測に留める
 
 ---
@@ -122,9 +122,9 @@ Entity・Repository Interface・Domain Service・Domain Event・Domain Errorの�
 ### CountStudentsByGrade
 
 - 関数シグネチャ: `func CountStudentsByGrade(ctx context.Context, schoolID uint) (application.GradeStudentCounts, error)`
-- 発行するクエリ内容: 同校（`schoolID`一致）の生徒を対象に、学年ごとにグループ化して件数を集計する（②「9. Repository設計」StudentStatisticsRepositoryの「保持する検索機能」：高校IDによる絞り込み、学年ごとの件数集計）
-- 参照するテーブル: 既存の生徒・学年関連テーブル（Student/School Contextが所有）。本機能は参照のみを行い、作成・更新は行わない
-- 参照先Contextの具体的なpackage（Student/School Context側でどのContext名・ディレクトリに実装されているか）は②に記載がなく、アーキテクチャ規約「5. Bounded Context構成」の一覧上の候補（`school-directory`等）から実装時に確定する必要がある（14章参照。②からの補足・推測）
+- 発行するクエリ内容: 同校（`schoolID`一致）の生徒（ロールが生徒）を対象に、学年ごとにグループ化して件数を集計する（②「9. Repository設計」StudentStatisticsRepositoryの「保持する検索機能」：高校IDによる絞り込み、学年ごとの件数集計）。**無効化済み（`deleted_at`あり）の生徒を除外せずに集計する**（②「12. Validation設計」の業務ルール。`user`②の`CountUsers`の無効化の扱いに「無効化済みを含む」を指定する場合に相当する）。集計の対象は、学年の`year`が1〜3のものに限る
+- 参照するテーブル: `users`（`user_roles`との結合でロールを判定する）・`grades`（`year`の取得）。`users`は`user` Contextが所有する。本機能は参照のみを行い、作成・更新は行わない
+- `user` Context②の③が未作成のため、`user`が公開する人数集計（`CountUsers`）を呼び出さず、本関数が上記のテーブルへ直接クエリする暫定の構成とする。`user`の③が整備された時点で、`CountUsers`（役割=生徒・所属校指定・学年別・無効化済みを含む）の呼び出しへ置き換える。置き換え後は、集計結果の学年ID別の件数を、master-dataの学年参照で`year`（1〜3年）へ変換して`GradeStudentCounts`へ詰め直す処理を、本機能のapplication関数が担う（②「3. Bounded Context」。集計結果のキーが学年IDか年次かは`user`②に明記がない。推測。14章参照）
 
 ### ListVisibleAnnouncementsForTeacher
 
@@ -270,7 +270,7 @@ application関数内のガード節で検証する（Transaction Script採用時
 
 該当なし。本機能は独自のEntityを持たないため、Domain層での認可判定は発生しない（②「13. Authorization設計」）。
 
-認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（Student/School Context、Announcement Context）の検索条件に委ね、teacher_dashboard側は所属校IDを検索条件として引き渡す役割にとどめる（②の判断理由をそのまま維持）。
+認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（`user` Context、Announcement Context）の検索条件に委ね、teacher_dashboard側は所属校IDを検索条件として引き渡す役割にとどめる（②の判断理由をそのまま維持）。
 
 ---
 
@@ -305,18 +305,18 @@ Domain Errorは定義しない（②「14. Error設計」）。前提条件の�
 ## DB方針（②「17. DB設計方針」）
 
 - 既存Rails DBを継続利用する。Schema変更なし
-- 本機能は既存の生徒・学年・お知らせテーブルを参照するのみであり、追加のテーブル・カラムは不要
+- 本機能は既存の`users`・`user_roles`・`grades`・お知らせテーブルを参照するのみであり、追加のテーブル・カラムは不要
 
 ## 利用するGORMモデルとテーブルの対応
 
 - teacher_dashboard自体は永続化対象のEntity・GORMモデルを持たない（②「6. Entity設計」「9. Repository設計」）
-- 生徒数集計: Student/School Context側が既に保有する生徒・学年テーブルに対応するGORMモデルを参照する。当該GORMモデルの具体的なstruct定義はStudent/School Context側の②③文書に従う（本書の対象外）
+- 生徒数集計: `users`・`user_roles`（`user` Contextが所有）と`grades`に対応するGORMモデルを参照する。`user`の③が未作成のため、暫定で本機能が対象テーブルへ直接クエリする（5章）。当該GORMモデルの具体的なstruct定義は、`user`・master-dataの③が整備された時点でその定義に従う（本書の対象外）
 - お知らせ取得: Announcement Context側が既に保有するお知らせテーブルに対応するGORMモデルを参照する。当該GORMモデルの具体的なstruct定義はAnnouncement Context側の②③文書に従う（本書の対象外）
 - Gorm規約に従い、テーブル名・カラム名は各所有Context側のGORMモデル定義（構造体名の複数形snake_case、フィールド名のsnake_case）に準拠する。本機能は新規GORMモデルを定義しない
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
-- 学年別生徒数集計: 生徒テーブルを`school_id`で絞り込み、学年カラムでグループ化して件数を集計する（GROUP BY相当）。ページネーションは行わない（集計結果は学年1〜3の3件で固定）
+- 学年別生徒数集計: `users`を所属校（`high_school_id`）とロール（生徒）で絞り込み、`grades`と結合して`year`が1〜3のものに限り、`year`でグループ化して件数を集計する（GROUP BY相当）。`deleted_at`による絞り込みは行わない（無効化済みの生徒も集計に含める。②「12. Validation設計」）。ページネーションは行わない（集計結果は学年1〜3の3件で固定）
 - お知らせ取得: お知らせテーブルを、教師向け公開中の対象条件で絞り込み、公開日時の降順でソートし、上位5件に限定する（LIMIT相当）。オフセットによるページネーションは行わない（②「16. API互換方針」：最新5件固定）
 
 ## Schemaに対する変更
@@ -355,6 +355,8 @@ SQL文そのものはここでは記載しない。
 |-|-|
 | `CountStudentsByGrade` | 同校の生徒が学年ごとに正しく集計されることを検証する |
 | `CountStudentsByGrade` | 他校の生徒が集計に含まれないことを検証する |
+| `CountStudentsByGrade` | 無効化済み（`deleted_at`あり）の生徒が集計に含まれることを検証する（②「12. Validation設計」の業務ルール） |
+| `CountStudentsByGrade` | 学年の`year`が1〜3以外の生徒、および生徒以外のロールのユーザーが集計に含まれないことを検証する |
 | `ListVisibleAnnouncementsForTeacher` | 公開中かつ教師閲覧可能なお知らせが、公開日時降順で上位5件取得されることを検証する |
 | `ListVisibleAnnouncementsForTeacher` | 非公開・対象外お知らせが結果に含まれないことを検証する |
 | `ListVisibleAnnouncementsForTeacher` | 該当お知らせが5件未満の場合に、存在する件数分のみ返ることを検証する |
@@ -384,7 +386,8 @@ SQL文そのものはここでは記載しない。
 |-|-|-|
 | `GradeStudentCounts`をdomain層のValue Objectではなく、application層のDTO（struct）として実装する | ②はValue Objectとして設計しているが、Transaction Script採用時はアーキテクチャ規約「3. 設計パターンごとの構造適用方針」によりdomain層を設けないため、同等の構造をapplication層のDTOとして実装する必要がある | 推測ではない（規約の機械的な読み替え） |
 | `application.ShowTeacherDashboard`、`infrastructure.CountStudentsByGrade`、`infrastructure.ListVisibleAnnouncementsForTeacher`という具体的な関数名・シグネチャ | ②「10. UseCase設計」「9. Repository設計」は業務操作の設計意図のみを記載しており、実装レベルの関数名・引数構成までは規定していない。アーキテクチャ規約「9. 命名規約」（Transaction Scriptの関数は「動詞+対象」）に基づき本書で命名した | 推測 |
-| 生徒数集計の参照先が、Student/School Context側のどの`internal/`配下Context（例: `school-directory`等）に実装されるか | ②「3. Bounded Context」は「Student/School Context」という抽象名のみを記載し、アーキテクチャ規約「5. Bounded Context構成」の一覧上のどのContextに対応するかは明記がない | 推測 |
+| 生徒数集計の参照先を、`user` Contextの人数集計（`CountUsers`）とし、③が未作成のため暫定で`users`・`user_roles`・`grades`へ直接クエリする | ②「3. Bounded Context」で、生徒数集計の依存先を`user` Contextに統一している。`user`②は`CountUsers`を公開するが、その③が未作成のため、公開関数の呼び出しへ置き換えられない | 推測ではない（②・`user`②の記載に基づく暫定構成） |
+| `CountUsers`（学年別）の集計結果のキーが学年IDであるとし、application関数がmaster-dataの学年参照で`year`（1〜3年）へ変換する（`CountUsers`へ置き換えた後の構成） | `user`②は、学年別集計の年次への変換は呼び出し側としているが、集計結果のキーが学年IDか年次かを明記していない | 推測 |
 | お知らせ取得の呼び出し方式（同一プロセス内のGo関数呼び出しを前提とする） | ②「9. Repository設計」に「AnnouncementRepository（Announcement Contextの提供機能を利用）」とあるが、呼び出し方式（同一プロセス内関数呼び出しか、別プロセス経由か）は明記がない。モノリシックなGo実装を前提とし、同一プロセス内の関数呼び出しと仮定した | 推測 |
 | `TeacherDashboardResponse`のJSONフィールド名（`stats`、`announcements`、`grade1`〜`grade3`等） | ②「16. API互換方針」は`stats`・`announcements`という構造をRails現行仕様に近い意味で維持するとのみ記載し、学年別内訳のキー名までは規定していない。①Rails実装（実際のJSONキー）は本セッションでは未提供のため参照不可であり、実装時に既存フロントエンドとの整合を別途確認する必要がある | 推測 |
 | 未認証時401、ロール不一致時403というHTTP Status | ②「16. API互換方針」の「Error Response」は業務エラー・技術的失敗（500系）についてのみ記載しており、認証・認可Middlewareレベルのエラーコードには言及していない。一般的なAPI設計慣行から補った | 推測 |

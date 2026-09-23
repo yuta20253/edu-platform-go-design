@@ -23,7 +23,7 @@ Transaction Script（条件追加のたびに手続きが肥大化する）、Ac
 - Bounded Context: `account-linking`（②「3. Bounded Context」）
 - 対象UseCase: LinkAccountUseCase（②「12. UseCase設計」）
 - 対象API: `POST /api/v1/student/account_link`（②「19. API仕様」）
-- 対象外: User実体（アカウント）自体の認証・パスワード管理等、本機能に無関係なUser操作（②「11. Repository設計」AccountRepository「保持しない責務」）。User Context自体の②文書は未整備であるため（②「3. Bounded Context」他Contextとの依存関係、アーキテクチャ規約「15. 今後の課題」）、本機能が必要とする範囲（学籍情報の参照・更新・論理削除）に限定したRepositoryを本Context内に暫定的に定義する
+- 対象外: User実体（アカウント）自体の認証・パスワード管理等、本機能に無関係なUser操作（②「11. Repository設計」AccountRepository「保持しない責務」）。User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）は参照とアカウント作成を担い、更新・論理削除は本Contextの外に残す例外であるため（②「3. Bounded Context」他Contextとの依存関係）、本機能が必要とする範囲（学籍情報の参照・更新・論理削除）に限定したRepositoryを本Context内に定義する
 - ①Rails実装の詳細は本タスクでは提供されていないため、参照が必要な箇所は「①未提供のため参照不可」として扱う
 
 ---
