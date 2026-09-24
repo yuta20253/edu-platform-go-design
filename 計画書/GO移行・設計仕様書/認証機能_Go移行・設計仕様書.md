@@ -10,6 +10,8 @@
 
 `GET /api/v1/me` はログイン中ユーザー自身の基礎情報（本人確認情報・個人情報・所属高校・住所・学年をまとめたもの）を返す参照エンドポイントであり、本機能のAPI仕様に含まれる。ただし、この情報のうち氏名・個人情報・住所そのものの更新（`PATCH /api/v1/profile`）は別Context「profile」（プロフィール管理機能）の責務であり、本機能は資格情報・セッション状態・登録要件の管理に責務を限定する。
 
+アカウントの作成のうち、招待による作成（生徒・教員・管理者。仮パスワードの発行・招待待ちの初期状態・招待メールの送信依頼）は`user` Contextの責務であり、本機能は招待による作成の起点ではない。本機能が`users`の行を作るのは、本人による自己登録（サインアップ）のみである。一方、招待メールのリンクからのパスワード設定は、パスワードリセットと同じトークンの消費として本機能が受け付け、設定に成功した教員・生徒を招待待ちから招待完了へ遷移させる（管理者は遷移しない）。
+
 ## 利用者
 
 - `student` / `teacher` / `admin` ロールのユーザー（全ロール共通の入口機能）
@@ -21,6 +23,7 @@
 - ロールに応じた新規登録の整合性（高校・学年の必須性等）を保証する
 - 生徒コード指定時、学校側で事前登録された仮アカウントを本人のものとして安全に有効化する
 - パスワードリセットにおいて、トークンの有効期限とセキュリティ（ユーザー存在の非開示、退会済みユーザーの除外）を両立する
+- パスワードを設定・変更した教員・生徒を招待完了の状態にする（招待メールのリンクからの初回設定を含む。管理者は招待待ちのまま変わらない）
 - ログイン中ユーザー自身の基礎情報を、認証済みセッションから一貫して参照できるようにする
 
 ---
@@ -31,7 +34,7 @@
 
 - 責務分離: HTTP・入力検証・認証判定・トークン発行・永続化を分離する
 - 状態管理の明確化: セッションの有効性（`jti`）、パスワードリセットトークンの有効性（発行・期限・消費）、仮アカウントの有効化状態（未有効化→有効化済み）を、ドメイン層で一貫して表現する
-- Context境界の明確化: 本人確認・アカウント基礎情報の参照（本Context）と、プロフィール項目（氏名・個人情報・住所）の更新（profile Context）を分離し、責務の混在を避ける
+- Context境界の明確化: 本人確認・アカウント基礎情報の参照（本Context）と、プロフィール項目（氏名・個人情報・住所）の更新（profile Context）、および招待によるアカウント作成（`user` Context）を分離し、責務の混在を避ける。本Contextが担うのは資格情報・セッション・パスワードリセットのトークンと、自己登録による作成である
 - セキュリティ: パスワード照合や資格情報の失敗を、ユーザー列挙攻撃を防ぐ形でハンドリングする（現行仕様の「例外発生時も同じメッセージを返す」という方針、および退会済みユーザーをリセット対象から除外する方針を踏襲する）
 - テスト容易性: トークンの有効期限判定・ロール別の登録要件判定・仮アカウントの有効化可否判定を、DBやハッシュ関数の実装に依存せずテストできるようにする
 - 拡張性: 将来的なログイン試行回数によるロックアウトや多要素認証の追加に備え、認証状態を扱う責務をEntityとDomain Serviceに閉じ込めておく
@@ -49,23 +52,31 @@
 
 - メールアドレス・パスワードによる資格情報の検証
 - セッション（JWT）の発行と無効化（ログイン／ログアウト）
-- ロールに応じた新規アカウント作成の受付（登録の入口としての整合性検証）
+- 本人による自己登録（サインアップ）でのロールに応じた新規アカウント作成の受付（登録の入口としての整合性検証）。招待による作成は含まない
 - 生徒コード指定時の仮アカウント有効化（学校側で事前登録済みのアカウントを本人のものとして有効化する）
 - パスワードリセットトークンの発行・検証・消費（退会済みユーザーを対象から除外する）
+- パスワードの設定・変更に成功したときの、招待待ちから招待完了への遷移（教員・生徒のみ。招待メールのリンクからの初回設定を含む）
 - ログイン中ユーザー自身の基礎情報（本人確認情報＋参照可能な関連情報）の取得（`GET /api/v1/me`）
+
+## 本Contextが持たない責務
+
+|責務|担当|理由|
+|-|-|-|
+|招待による生徒・教員・管理者アカウントの作成（仮パスワードの発行・招待待ちの初期状態・生徒番号の発行）と、招待メールの送信依頼|`user`|`user`②が、生徒・教員・管理者アカウントの作成と招待メールの送信依頼を`user` Contextの責務と定めているため（`user`②「3. Bounded Context」）|
+|プロフィール項目（氏名・個人情報・住所）の更新|`profile`|プロフィール②が定めているため|
 
 ## 他Contextとの依存関係
 
-- User/Account Context: 認証コンテキストは、アカウントの基礎情報（メールアドレス・パスワードハッシュ・ロール・`jti`）を扱う。教員管理・管理者管理・生徒関連機能が参照する `User` レコードの生成起点でもあるため、認証コンテキストが作成したアカウントを他Contextが後続で拡張（プロフィール補完等）する関係にある
+- user Context: 生徒・教員・管理者アカウントの招待による作成は`user` Contextの責務であり、認証コンテキストは招待による作成の起点ではない。認証コンテキストが`users`に行を作るのは、本人による自己登録（サインアップ）のみである。認証コンテキストが担うのは、アカウントの資格情報（メールアドレス・パスワードハッシュ・`jti`）・セッション・パスワードリセットのトークンである。招待メールのリンクは、認証コンテキストの`ChangePasswordUseCase`が消費する。`user` Contextが、仮パスワードのハッシュ化とパスワード設定用トークンの発行のために認証コンテキストを呼ぶ形は、`user`②の未解決の論点3であり、本書では定めない。依存の向きは`user`→`authentication`の一方向とし、認証コンテキストは`user` Contextを参照しない
 - profile Context: `GET /api/v1/me` のレスポンスに含まれる個人情報（電話番号・生年月日・性別）・住所は、profile Contextが所有・更新するデータを参照専用で組み込む。これらの項目の更新（`PATCH /api/v1/profile`）はprofile Contextの責務であり、認証コンテキストは行わない。認証コンテキストが保持するのはあくまで資格情報・セッション状態・（登録時に設定される）所属高校・学年であり、氏名・個人情報・住所の真正な所有者ではない
 - HighSchool Context / Grade Context（master-data）: 生徒・教員としての登録時に、指定された高校・学年が実在するかの確認に依存する。生徒コードによる仮アカウント有効化時も、仮アカウントの学校コードと選択高校の整合確認のために高校情報を参照する
-- 生徒CSVインポート機能（教師による生徒アカウント一括登録）: 新規登録時にstudent_numberが指定された場合に有効化する仮アカウントは、認証コンテキストではなく生徒CSVインポート機能によって事前に作成される。認証コンテキストはこの仮アカウントを検索し有効化する側であり、仮アカウントの作成自体には関与しない
+- 生徒CSVインポート機能（教師による生徒アカウント一括登録）: 新規登録時にstudent_numberが指定された場合に有効化する仮アカウントは、認証コンテキストではなく、`user` Contextの`CreateStudentAccount`（生徒CSVインポート・教師による生徒の単体登録が呼ぶ）によって事前に作成される。認証コンテキストはこの仮アカウントを検索し有効化する側であり、仮アカウントの作成自体には関与しない
 - アカウント連携機能（別Context・別仕様書）: 生徒コード（`student_number`）によって仮アカウントを特定し、学籍情報を引き継ぐという概念は、認証済みユーザーが追加の仮アカウントを統合する「アカウント連携機能」Contextとも共通する関心事である。ただし、本機能の有効化フローは「新規登録（未認証状態）における仮アカウントの本人による有効化」であり、アカウント連携機能Contextの処理は「認証済みアカウントへの学籍情報統合」であるため、業務フローとしては別処理として扱う。アカウント連携機能自体は別Context・別仕様書であるため、本書では両者が生徒コードによる仮アカウント特定という概念を共有している連携点のみを言及し、アカウント連携機能側の詳細設計（統合可否判定・監査ログ等）は扱わない。将来的に生徒コードの解析・照合ロジックを共有Domain Serviceとして切り出す余地はある（推測）
 - Notification Context（メール送信基盤）: パスワードリセットメール、および仮アカウント有効化完了メールの送信という非同期処理に依存する
 
 ## 依存する理由
 
-認証コンテキストは「本人確認とセッション・トークン・仮アカウント有効化状態の管理」に責務を限定する。アカウントの詳細プロフィール（個人情報・住所等）や高校・学年そのものの実在性は、それぞれの責務を持つ別Contextに委ねることで、認証ロジックの変更が他業務領域に波及しないようにする。一方で、登録時のアカウント生成・有効化自体は認証コンテキストが担う入口処理であるため、User/Accountの基礎情報（資格情報・ロール・所属高校・学年）については認証コンテキストが作成・更新の起点となる。`GET /api/v1/me` は本人確認済みセッションから参照する入口であるため認証コンテキストに置くが、参照する個人情報・住所の実体はprofile Contextから取得する。
+認証コンテキストは「本人確認とセッション・トークン・仮アカウント有効化状態の管理」に責務を限定する。アカウントの詳細プロフィール（個人情報・住所等）や高校・学年そのものの実在性は、それぞれの責務を持つ別Contextに委ねることで、認証ロジックの変更が他業務領域に波及しないようにする。一方で、本人による自己登録時のアカウント生成、および生徒コードによる仮アカウントの有効化は認証コンテキストが担う入口処理であるため、これらの経路と、資格情報（パスワードハッシュ・`jti`・リセットトークン）の更新については、認証コンテキストが起点となる。招待による生徒・教員・管理者アカウントの作成は`user` Contextが担い、認証コンテキストは起点ではない。`GET /api/v1/me` は本人確認済みセッションから参照する入口であるため認証コンテキストに置くが、参照する個人情報・住所の実体はprofile Contextから取得する。
 
 ---
 
@@ -127,10 +138,10 @@ Domain Model
 ## 整合性を保証する単位
 
 - ログアウト時、`jti` の更新とCookie削除の指示は1つの業務操作として扱う（Cookie削除自体はPresentation層の責務だが、`jti` 更新はAccount側で完結させる）
-- パスワードリセット実行時、パスワードハッシュの更新とリセットトークンの消費（クリア）を1トランザクションで行う
+- パスワードリセット実行時、パスワードハッシュの更新とリセットトークンの消費（クリア）、および教員・生徒の場合の招待待ちの解消（`password_reset_required` を偽にする）を1トランザクションで行う
 - 仮アカウント有効化時、対象アカウントの入力内容での更新と `activated_at` の設定を1トランザクションで行う
 
-理由: `jti` の更新・トークン消費・仮アカウントの有効化は、いずれも「これ以降、古い状態を無効なものとして扱う、または新たな確定状態へ移行する」というセキュリティ上不可分な操作であり、途中状態が残ることを許容できないため。
+理由: `jti` の更新・トークン消費・招待待ちの解消・仮アカウントの有効化は、いずれも「これ以降、古い状態を無効なものとして扱う、または新たな確定状態へ移行する」というセキュリティ上不可分な操作であり、途中状態が残ることを許容できないため。
 
 ---
 
@@ -140,16 +151,19 @@ Domain Model
 
 - 役割: 認証の対象となるユーザーの資格情報とセッション状態を表す中心的な概念
 - ライフサイクル:
-  - 通常登録の場合: 登録（作成） → ログイン（資格情報検証） → ログアウト（セッション無効化） → パスワードリセット（資格情報更新）の繰り返し
-  - 生徒コード指定の場合: 仮登録（本Context外の生徒CSVインポート機能で作成） → 有効化（本Contextの新規登録処理で、入力内容による更新と `activated_at` の設定） → 以降は通常登録と同じライフサイクルに合流する
+  - 通常登録の場合（本人による自己登録）: 登録（作成） → ログイン（資格情報検証） → ログアウト（セッション無効化） → パスワードリセット（資格情報更新）の繰り返し
+  - 招待による作成の場合: 作成（本Context外。`user` Contextの作成操作。招待待ちで作成される） → パスワード設定（本Contextの `ChangePasswordUseCase`。教員・生徒は招待完了に遷移する） → 以降は通常登録と同じライフサイクルに合流する
+  - 生徒コード指定の場合: 仮登録（本Context外。`user` Contextの `CreateStudentAccount` で作成される。生徒CSVインポート・教師による生徒の単体登録） → 有効化（本Contextの新規登録処理で、入力内容による更新と `activated_at` の設定） → 以降は通常登録と同じライフサイクルに合流する
 - 状態変化:
   - `jti`: セッションが有効な間は不変、ログアウト時にローテーションされ、それ以前に発行された全JWTが無効になる
   - パスワード（ハッシュ）: パスワードリセット成功時にのみ更新される
-  - 有効化状態: `password_reset_required` が真かつ `activated_at` が未設定の間は「仮登録」を表し、生徒コードによる有効化処理で `activated_at` が設定されると「有効化済み」に遷移する
+  - 招待状態: `password_reset_required` が真の間は「招待待ち」、偽の間は「招待完了」を表す。`user` Contextが招待待ちで作成したアカウントは、パスワードの設定・変更（パスワードリセットの成功。招待メールのリンクからの設定も同じ操作）に成功すると、ロールが教員または生徒の場合のみ招待完了に遷移する。管理者は、パスワードを設定しても招待待ちのまま遷移しない（Rails現行の `Auth::ChangePasswordService` が教員・生徒のみを対象とするため）。生徒コードによる有効化でも `password_reset_required` は偽になる。自己登録で作成されたアカウントは、招待完了の状態で始まる。招待完了から招待待ちへ戻る遷移はない
+  - 有効化状態: `password_reset_required` が真かつ `activated_at` が未設定の間は「仮登録」を表し、生徒コードによる有効化処理で `activated_at` が設定されると「有効化済み」に遷移する。仮登録は、招待待ちのうち `activated_at` が未設定のものに当たる。招待メールのリンクからパスワードを設定して招待完了になったアカウントは、`password_reset_required` が偽になるため仮登録ではなくなり、生徒コードによる有効化の対象にならない（Rails現行の `Auth::SignUpService` が、`password_reset_required` が偽のアカウントを「既に有効化されています」として拒否する）
 - 保持する責務:
   - 入力された生パスワードと保存済みハッシュを照合する（照合アルゴリズム自体はインフラ層に委譲するが、照合結果の解釈と失敗時の扱いはEntityの責務とする）
   - ログアウト時に `jti` をローテーションし、以前のセッションを無効化する
   - パスワードリセット実行時に新しいパスワードへ更新し、関連するリセットトークンを消費済みにする
+  - パスワードの設定に成功したとき、教員・生徒であれば招待待ちを解消して招待完了にする（管理者では解消しない）
   - 自身が「仮登録」状態かどうかを判定し、有効化時に入力内容（氏名・氏名カナ等）で自身を更新する
 - 判断根拠: 資格情報とセッション有効性の中心であり、認証機能のすべての操作がAccountの状態参照・変更を伴うため
 
@@ -351,20 +365,46 @@ HighSchool・Grade（master-data Context）、UserPersonalInfo・Address（profi
 
 # 10. 状態遷移図
 
+## Account（招待状態）
+
+```mermaid
+stateDiagram-v2
+    [*] --> invitation_pending : 招待による作成(本Context外。userの作成操作)
+    [*] --> invitation_completed : 通常登録(自己登録)
+    invitation_pending --> invitation_completed : パスワード設定の成功(ChangePasswordUseCase。教員・生徒のみ)
+    invitation_pending --> invitation_completed : 生徒コード指定による有効化(RegisterUseCase)
+
+    note right of invitation_pending
+        管理者は、パスワードを設定しても
+        招待待ちのまま遷移しない
+    end note
+```
+
+遷移条件:
+
+- `invitation_pending` は `password_reset_required` が真であることで判定する。`user` Contextが招待による作成時に設定する（生徒・管理者は常に招待待ち。教員は呼び出し側の指定による。`user`②「12. UseCase設計」）。招待による作成の起点は本Contextではない
+- `invitation_completed` は `password_reset_required` が偽であることで判定する。自己登録で作成されたアカウントは、この状態で始まる（`user`②が、自己登録で作成されたアカウントも偽で始まると整理している）。招待待ちにしない指定で作成された教員も、この状態で始まる
+- `invitation_pending` から `invitation_completed` への遷移は、次の2つである
+  - パスワード設定の成功: `ChangePasswordUseCase` が、リセットトークンの検証・パスワード更新・トークン消費に成功したとき、ロールが教員または生徒であれば `password_reset_required` を偽にする。パスワードリセットと招待メールのリンクからのパスワード設定は同じ操作であるため、この遷移はどちらの経路でも起きる。ロールが管理者のアカウントは遷移しない（Rails現行の `Auth::ChangePasswordService` が教員・生徒のみを対象とする）。トークン消費と同一のトランザクションで行う
+  - 生徒コードによる有効化: 下記「Account（仮登録・有効化状態）」の遷移。`activated_at` の設定と同時に `password_reset_required` を偽にする
+- 招待完了から招待待ちへ戻る遷移はない
+- 仮登録（下記）は、招待待ちのうち `activated_at` が未設定のアカウントである。パスワード設定で招待完了になったアカウントは、`activated_at` が未設定でも `password_reset_required` が偽のため仮登録ではなく、生徒コードによる有効化の対象にならない
+
 ## Account（仮登録・有効化状態）
 
 ```mermaid
 stateDiagram-v2
-    [*] --> active : 通常登録(student_number未指定)
-    [*] --> provisional : 生徒CSVインポートによる仮登録(本Context外で作成)
+    [*] --> active : 通常登録(student_number未指定。activated_atは未設定のまま)
+    [*] --> provisional : 生徒アカウントの招待による作成(本Context外。userのCreateStudentAccount)
     provisional --> active : 生徒コード指定による有効化(RegisterUseCase)
 ```
 
 遷移条件:
 
 - `provisional` は `password_reset_required` が真かつ `activated_at` が未設定であることで判定する
+- `active` は、仮登録でない状態を表す。通常登録（自己登録）で作成されたアカウントは、`activated_at` を設定せず（未設定のまま）`active` で始まる。Rails現行の自己登録（`Auth::SignUpService`の通常登録部分）は `activated_at` を設定せず、`user`②「20章」も `activated_at` を生徒コードによる有効化でのみ設定すると整理している。生徒コードによる有効化を経たアカウントは `activated_at` が設定済みの `active` になるため、`active` かどうかは `activated_at` の有無ではなく、仮登録の判定（`provisional` でないこと）で行う
 - `provisional` から `active` への遷移は、生徒コードに含まれる学校コードが選択高校と一致することを条件とし（ProvisionalAccountActivationPolicy）、遷移時に入力内容（氏名・氏名カナ等）での更新と `activated_at` の設定を同時に行う
-- `provisional` 状態のアカウントの作成自体（`[*] --> provisional`）は本Contextの操作範囲外であり、生徒CSVインポート機能が担う
+- `provisional` 状態のアカウントの作成自体（`[*] --> provisional`）は本Contextの操作範囲外であり、`user` Contextの`CreateStudentAccount`（生徒CSVインポート・教師による生徒の単体登録が呼ぶ）が担う
 
 ## PasswordResetToken
 
@@ -396,10 +436,10 @@ stateDiagram-v2
   - メールアドレスによるアカウント検索（ログイン・パスワードリセットリクエスト時。退会（論理削除）済みアカウントを除外して検索する）
   - リセットトークンによるアカウント検索（トークン検証・パスワード更新時）
   - 生徒コード（`student_number`）によるアカウント検索（新規登録時の仮アカウント特定）
-  - アカウントの新規作成（通常登録時）
+  - アカウントの新規作成（通常登録＝本人による自己登録時。招待による作成は`user` Contextが行い、本Repositoryは行わない）
   - アカウントの更新（仮アカウント有効化時の入力内容更新・`activated_at` 設定）
   - `jti` の更新（ログアウト時）
-  - パスワードハッシュ・リセットトークン情報の更新（パスワードリセット時）
+  - パスワードハッシュ・リセットトークン情報・招待状態（`password_reset_required`）の更新（パスワードリセット時）
 - 保持する検索機能:
   - `email` による一意検索（退会済みアカウントを除外するスコープ付き。Rails現行仕様書「6. データモデル」の「`deleted_at` が設定されたユーザーは論理削除済みとして扱われ、パスワードリセット等の検索対象から除外される」という業務ルールに基づく。ログイン時の検索についても同様に退会済みを除外すべきかは現行仕様書に明記がないため、本書ではパスワードリセット対象検索に限定して扱う）
   - `reset_password_token` による検索
@@ -415,6 +455,7 @@ stateDiagram-v2
 - 管理対象: UserRole
 - 責務:
   - ロール名による存在確認
+  - ロールIDによるロール名の取得（`GET /api/v1/me` の合成、および `ChangePasswordUseCase` での招待待ち解消の対象ロール（教員・生徒）の判定）
 - 保持しない責務:
   - ロール別の登録要件判定そのもの
 - 判断根拠: ロールマスタの参照に特化させ、要件判定はRegistrationEligibilityPolicyに委ねるため
@@ -460,7 +501,7 @@ stateDiagram-v2
 
 ## RegisterUseCase
 
-- 目的: ロール（student/teacher/admin）に応じたアカウントを新規作成する。生徒コードが指定された場合は、新規作成の代わりに該当する仮アカウントを有効化する
+- 目的: 本人による自己登録として、ロール（student/teacher/admin）に応じたアカウントを新規作成する（招待による作成は`user` Contextの責務であり、本UseCaseの対象外）。生徒コードが指定された場合は、新規作成の代わりに該当する仮アカウントを有効化する
 - 入力: email, password, password_confirmation, name, name_kana, user_role_name, high_school_id（student/teacher時）, grade_id（student/teacher時かつstudent_number未指定時）, student_number（任意。生徒コード管理対象校のstudentは実質必須）
 - 出力: 作成または有効化されたアカウント情報
 - トランザクション範囲:
@@ -485,13 +526,14 @@ stateDiagram-v2
 
 ## ChangePasswordUseCase
 
-- 目的: リセットトークンを用いてパスワードを更新する
+- 目的: リセットトークンを用いてパスワードを更新する。更新に成功したアカウントが教員・生徒であれば、招待待ちを解消して招待完了にする（管理者は変更しない）
 - 入力: reset_password_token, password, password_confirmation
 - 出力: パスワード更新結果
-- トランザクション範囲: トークン有効性検証からパスワード更新・トークン消費までを1トランザクションで扱う
+- トランザクション範囲: トークン有効性検証からパスワード更新・トークン消費・招待待ちの解消（教員・生徒の場合）までを1トランザクションで扱う
 - 呼び出すRepository:
   - AccountRepository
-- 判断根拠: トークン検証と消費の間に別のリクエストが割り込むと、トークンの二重使用（リプレイ）が発生し得るため、一体のトランザクションとして扱う
+  - UserRoleRepository（アカウントのロール名の取得）
+- 判断根拠: トークン検証と消費の間に別のリクエストが割り込むと、トークンの二重使用（リプレイ）が発生し得るため、一体のトランザクションとして扱う。招待メールのリンクからのパスワード設定は、パスワードリセットと同じトークンの消費であり、この操作が招待待ちから招待完了への遷移を担う（10章）。対象ロールを教員・生徒に限るのは、Rails現行の `Auth::ChangePasswordService` が `teacher?` または `student?` の場合のみ `password_reset_required` を偽にするためである（管理者は偽にならない）。招待待ちの解消をパスワード更新・トークン消費と同一のトランザクションにするのは、パスワードは更新されたが招待待ちのまま残る中間状態を作らないためである（設計差分管理）
 
 ## VerifyResetTokenUseCase
 
@@ -581,12 +623,12 @@ flowchart TD
 - LogoutUseCase では `jti` 更新完了時点でコミットする
 - RegisterUseCase では、通常登録の場合は登録要件検証とアカウント作成完了時点で、仮アカウント有効化の場合は学校コード整合確認と入力内容での更新・`activated_at` 設定完了時点でコミットする
 - RequestPasswordResetUseCase ではトークン発行完了時点でコミットする
-- ChangePasswordUseCase ではパスワード更新とトークン消費完了時点でコミットする
+- ChangePasswordUseCase ではパスワード更新・トークン消費・招待待ちの解消（教員・生徒の場合）完了時点でコミットする
 - LoginUseCase / VerifyResetTokenUseCase / GetCurrentUserUseCase ではトランザクションを使用しない
 
 ## 理由
 
-- セキュリティに関わる状態変更（セッション無効化、トークン消費、仮アカウント有効化）は、途中状態が外部から観測されると不整合や再利用・二重有効化のリスクにつながるため、UseCase単位でアトミックに扱う
+- セキュリティに関わる状態変更（セッション無効化、トークン消費、招待待ちの解消、仮アカウント有効化）は、途中状態が外部から観測されると不整合や再利用・二重有効化のリスクにつながるため、UseCase単位でアトミックに扱う
 - 読み取りのみの操作にトランザクションを設けないことで、不要なロック・複雑さを避ける
 - 有効化完了メールの送信はAccountActivatedイベント経由の非同期処理であり、トランザクション内には含めない（規約「13. 非同期ジョブ実行パターン」に従う）
 
@@ -736,7 +778,7 @@ flowchart TD
 - ログアウト: パラメータなし（Cookieから本人確認）。Responseは完了メッセージ。Cookieを削除する
 - 生徒／教師／管理者登録: Request Bodyは `user.*` 配下にemail・password・password_confirmation・name・name_kana・user_role_name・high_school_id・grade_id・student_number（任意）を含む。student_number指定時は仮アカウント有効化の分岐に入る。Responseはログインと同形式のユーザー情報一式
 - パスワードリセットメール送信: Request Body `email`。Responseは常に同一の成功メッセージ（退会済み・存在しない場合も同様）
-- パスワード更新: Request Body `password_reset.*` 配下にreset_password_token・password・password_confirmation。Responseは完了メッセージ
+- パスワード更新: Request Body `password_reset.*` 配下にreset_password_token・password・password_confirmation。Responseは完了メッセージ。招待メールのリンクからのパスワード設定も、このエンドポイントで行う。更新に成功した教員・生徒は招待完了になる（レスポンスの形式には影響しない）
 - リセットトークン検証: Request Body `reset_password_token`。Responseは有効性メッセージ
 - `GET /api/v1/me`: パラメータなし（Cookieから本人確認）。Responseはログインと同形式のユーザー情報一式。プロフィール項目（氏名・個人情報・住所）の更新はこのエンドポイントの責務ではなく、profile Contextの `PATCH /api/v1/profile` が担う。本エンドポイントは参照のみを提供する
 
@@ -777,6 +819,7 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 - ドメイン設計上はPasswordResetTokenを独立した概念として扱うが、永続化上は既存の `users` テーブルのカラム（トークン・発行日時）で表現可能であり、スキーマ変更を要しない
 - 「消費済み」状態は、トークン・発行日時のクリア（nil化）という既存の表現方法をそのまま踏襲できるため、新たなステータスカラムの追加も不要である
 - 仮アカウントの「有効化済み」状態も、既存の `activated_at` カラムの設定という表現方法をそのまま踏襲できる
+- 招待待ち・招待完了の状態も、既存の `password_reset_required` カラム（真が招待待ち）で表現できる。パスワードの設定に成功した教員・生徒でこのカラムを偽に更新するが、新たなカラムやスキーマ変更は不要である
 
 ---
 
@@ -784,8 +827,8 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 
 |Repository|対象テーブル|操作種別|主な検索条件・絞り込み条件|結合|ページネーション/ソート|
 |-|-|-|-|-|-|
-|AccountRepository|users|参照・作成・更新|email（退会済み除外、リセット対象検索時）、reset_password_token、student_number|なし|不要|
-|UserRoleRepository|user_roles|参照|name|なし|不要|
+|AccountRepository|users|参照・作成（自己登録のみ）・更新（`password_reset_required`の更新を含む）|email（退会済み除外、リセット対象検索時）、reset_password_token、student_number|なし|不要|
+|UserRoleRepository|user_roles|参照|name、id（ロール名の取得）|なし|不要|
 |HighSchoolRepository|high_schools|参照|id、school_code|なし|不要|
 |GradeRepository|grades|参照|id、high_school_id|なし|不要|
 |profile Context参照|（本Contextの直接操作対象外）|—|—|—|—|
@@ -798,15 +841,15 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 
 ## Domain Test
 
-- 目的: CredentialVerificationServiceによる照合結果の解釈、PasswordResetToken/ResetTokenValidityPeriodによる有効期限判定、RegistrationEligibilityPolicyによるロール別要件判定、ProvisionalAccountActivationPolicyによる仮アカウント有効化可否判定（未有効化状態か、学校コードが一致するか）、SignUpRoleRequirement・StudentNumberの判定ロジックを検証する
+- 目的: CredentialVerificationServiceによる照合結果の解釈、PasswordResetToken/ResetTokenValidityPeriodによる有効期限判定、RegistrationEligibilityPolicyによるロール別要件判定、ProvisionalAccountActivationPolicyによる仮アカウント有効化可否判定（未有効化状態か、学校コードが一致するか）、SignUpRoleRequirement・StudentNumberの判定ロジックを検証する。Accountの招待完了への遷移（教員・生徒は`password_reset_required`が偽になる、管理者は偽にならず招待待ちのまま、既に招待完了の場合は変化しない）も検証する
 
 ## UseCase Test
 
-- 目的: LoginUseCase / LogoutUseCase / RegisterUseCase（通常登録・仮アカウント有効化の両分岐）/ RequestPasswordResetUseCase / ChangePasswordUseCase / VerifyResetTokenUseCase / GetCurrentUserUseCaseの業務振る舞いを検証する。特にRequestPasswordResetUseCaseでは、ユーザー不存在時・退会済み時のいずれも同一の成功結果が返ることを重点的に検証する
+- 目的: LoginUseCase / LogoutUseCase / RegisterUseCase（通常登録・仮アカウント有効化の両分岐）/ RequestPasswordResetUseCase / ChangePasswordUseCase / VerifyResetTokenUseCase / GetCurrentUserUseCaseの業務振る舞いを検証する。特にRequestPasswordResetUseCaseでは、ユーザー不存在時・退会済み時のいずれも同一の成功結果が返ることを重点的に検証する。ChangePasswordUseCaseでは、パスワード更新・トークン消費とともに、教員・生徒は招待待ちが解消され、管理者は招待待ちのままであることを検証する
 
 ## Repository Test
 
-- 目的: AccountRepositoryによる検索（メールアドレス（退会済み除外）・リセットトークン・生徒コード）、`jti` 更新、パスワード更新、仮アカウントの更新（`activated_at` 設定）の正確性を検証する
+- 目的: AccountRepositoryによる検索（メールアドレス（退会済み除外）・リセットトークン・生徒コード）、`jti` 更新、パスワード更新（トークン消費・`password_reset_required`の更新を含む）、仮アカウントの更新（`activated_at` 設定）の正確性を検証する
 
 ## Handler Test
 
@@ -814,7 +857,7 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 
 ## Integration Test
 
-- 目的: エンドポイント経由でログイン→Cookie発行→ログアウトによる無効化、ロール別登録（通常登録・仮アカウント有効化の双方）、パスワードリセット（退会済みユーザーを除外した挙動を含む）の一連のフロー、および `GET /api/v1/me` がprofile Context由来の情報を含めて正しく返却されることを確認する
+- 目的: エンドポイント経由でログイン→Cookie発行→ログアウトによる無効化、ロール別登録（通常登録・仮アカウント有効化の双方）、パスワードリセット（退会済みユーザーを除外した挙動を含む）の一連のフロー、招待メールのリンクからのパスワード設定（教員・生徒は招待完了になり、管理者は招待待ちのままであること。`user` Contextが作成したアカウントで確認する）、および `GET /api/v1/me` がprofile Context由来の情報を含めて正しく返却されることを確認する
 
 ---
 
@@ -825,6 +868,9 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 | Controller（`SessionsController`, `RegistrationsController`, `PasswordResetsController`, `UsersController`） | Handler | HTTP入出力・Cookie操作の受け持ちに限定する |
 | Form（`Auth::LoginForm`, `Auth::SignUpForm`, `Auth::PasswordResetForm`） | Request DTO + Validation | 入力形式検証をPresentation層に分離する |
 | Service（`Auth::LoginService`, `Auth::SignUpService`, `Auth::ResetPasswordService`, `Auth::ChangePasswordService`） | UseCase + Domain Service | 資格情報照合・登録要件判定・仮アカウント有効化判定・トークンライフサイクル判定をDomain層に分離し、UseCaseはオーケストレーションに専念する |
+| `Auth::ChangePasswordService`の`password_reset_required`の更新（教員・生徒のみ偽にする） | ChangePasswordUseCase + Account Entity（招待待ち→招待完了の遷移） | Railsではトークン消費（Devise）の後の別の更新として行われる処理を、Accountの状態遷移として明示し、パスワード更新・トークン消費と同一のトランザクションで行う。管理者は偽にしない |
+| `Auth::SignUpService`の通常登録部分（`User.create!`） | RegisterUseCase（通常登録） | 本人による自己登録のみを本Contextが担う |
+| `Common::CreateUserService`を継承する作成サービス（`Student::CreateStudentService`, `Admin::CreateTeacherService`, `Admin::CreateAdminService`）、`Teacher::CreateTeacherForm` | `user` Contextの作成操作（`CreateStudentAccount` / `CreateTeacherAccount` / `CreateAdminAccount`） | 招待による生徒・教員・管理者アカウントの作成は本Contextの対象外とする（`user`②「12. UseCase設計」） |
 | Devise + warden-jwt（JWT発行・Cookie格納） | Infrastructure（トークン発行アダプタ） | JWTの署名・発行という技術的関心事をInfrastructure層に閉じ込める |
 | ActiveJob（`SendResetPasswordEmailJob`） | Infrastructure（イベントハンドラ／非同期ジョブ） | Domain Event（PasswordResetTokenIssued, AccountActivated）の購読者として非同期送信を担当する |
 | Serializer（`CurrentUserSerializer`） | Response DTO | レスポンス整形をPresentation層に分離する |
@@ -853,6 +899,11 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 - 採用しなかった理由: 現行のRails仕様に実装されていない機能であり、本ドキュメントはRails現行仕様の移行設計であるため、存在しない機能を推測で追加することは避ける
 - 将来的に採用する可能性: セキュリティ強化要件として追加される可能性が高く、その場合はAccount Entityに「失敗回数」「ロック状態」という新たな状態を追加し、CredentialVerificationServiceの判定ロジックを拡張する形で対応できるよう、今回の設計ではAccountの状態を型として明示している
 
+## 招待による生徒・教員・管理者アカウントの作成を本Contextに置く
+
+- 採用しなかった理由: 招待による作成（仮パスワードの発行・招待待ちの初期状態・生徒番号の発行・招待メールの送信依頼）は、生徒CSVインポート・教師による生徒登録・教員管理・管理者アカウント管理の複数経路が同じ手順で必要とする共通処理であり、`user` Contextが1箇所に集約している（`user`②「3. Bounded Context」）。本Contextに置くと、認証情報の状態遷移を持つ`Account`集約に、作成手順の変更が波及する。本Contextは自己登録による作成のみを担う
+- 将来的に採用する可能性: `users`テーブルの所有関係を一本化する際に再検討する余地があるが、現時点では想定しない
+
 ## アカウント連携機能ロジックの本Contextへの統合
 
 - 採用しなかった理由: 生徒コードによる仮アカウント特定という概念は共通するが、アカウント連携機能（認証済みユーザーによる学籍情報統合）自体の②文書・Context設計はまだ存在せず、本書のスコープはRails現行の認証機能仕様の移行に限定されるため、アカウント連携機能側の業務ルール（統合対象の利用データ有無判定・監査ログ記録・回数制限等）をここで設計することは避ける
@@ -870,6 +921,8 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 | Domain Event | 採用（PasswordResetTokenIssued, AccountActivated） | 既存のメール送信という非同期副作用が既に存在し、疎結合化の効果が明確なため |
 | Value Object | 採用（Email, RawPassword, ResetTokenValidityPeriod, SignUpRoleRequirement, StudentNumber） | パスワード・トークン有効期間・ロール別要件・生徒コードという業務ルールを型として明示するため |
 | Authorization | Middleware（JWT技術検証）+ Domain（本人確認の本質） | 技術的な検証と業務上の本人確認判定を分離するため |
+| 招待による作成との境界 | 招待による生徒・教員・管理者アカウントの作成は`user` Context。本Contextは自己登録による作成のみ | `user`②が作成と招待メールの送信依頼を`user` Contextの責務と定めているため。本Contextは資格情報・セッション・パスワードリセットのトークンに責務を絞る |
+| 招待待ち→招待完了の遷移 | パスワード設定の成功時、教員・生徒のみ`password_reset_required`を偽にする（管理者は偽にしない）。パスワード更新・トークン消費と同一トランザクション | Rails現行の`Auth::ChangePasswordService`の挙動を踏襲し、招待メールのリンクからの設定を担う本Contextの状態遷移として明示するため |
 | パスワードリセット対象検索 | 退会済みユーザーを除外 | Rails現行仕様書に明記された業務ルールを踏襲し、退会済みアカウントの再利用可能性を高めないため |
 | `GET /api/v1/me` の所有Context | authentication | Rails側で単一Controllerが担う構造を踏襲し、Context間でのエンドポイント二重実装を避けるため |
 
@@ -884,6 +937,8 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 - メール送信がActiveJobの直接呼び出しとしてService内に記述されている
 - 生徒コードによる仮アカウント有効化ロジックが `Auth::SignUpService` 内に、通常登録ロジックと並列的に実装されている
 - パスワードリセット対象の検索は退会（論理削除）済みユーザーを除外するが、この業務ルールはモデルのスコープとして暗黙的に表現されている
+- パスワード設定後の招待待ちの解消は、`Auth::ChangePasswordService`が、Deviseのトークン消費（`reset_password_by_token`）の後の別の更新として、教員・生徒の場合のみ`password_reset_required`を偽にする形で行う。管理者は偽にならない
+- `users`の作成は、`Common::CreateUserService`を継承する作成サービス（生徒・管理者・管理者による教員）、`Teacher::CreateTeacherForm`（教師による教員）、`Auth::SignUpService`（自己登録）に分かれており、認証機能の`Auth::SignUpService`は自己登録の経路のみを担う
 
 ## Go設計での変更内容
 
@@ -893,12 +948,15 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 - メール送信の副作用をPasswordResetTokenIssued・AccountActivatedというDomain Eventとして表現し、UseCaseから疎結合にする
 - パスワードリセット対象検索における退会済みユーザーの除外を、Repositoryの検索スコープおよびPasswordResetLifecyclePolicyの前提条件として明示する
 - `GET /api/v1/me` の所有ContextをauthenticationとしてBounded Context・API仕様の双方で明示し、プロフィール項目の更新責務をprofile Contextへ分離する
+- 招待による生徒・教員・管理者アカウントの作成を`user` Contextの責務とし、本Contextは自己登録による作成のみを担う。招待の起点は本Contextではない
+- 招待待ち→招待完了の遷移を、Accountの状態遷移として明示する。パスワード設定の成功時に、教員・生徒のみ`password_reset_required`を偽にし（管理者は偽にしない）、パスワード更新・トークン消費と同一のトランザクションで行う
 
 ## 変更理由
 
 - Devise依存のフレームワーク機能をそのままGoに移植することはできないため、認証・トークン管理・仮アカウント有効化の業務ルールをフレームワークに依存しない形でドメイン層に再構築する必要がある
 - セキュリティに直結するロジック（資格情報照合・トークン有効性判定・仮アカウント有効化判定・退会済みユーザー除外）を明示的な型・サービスとして表現することで、レビュー可能性と将来の拡張（ロックアウト等）への耐性を高める
 - Context間の責務境界（規約「4. Bounded Context構成」）を明確にすることで、プロフィール項目の変更が認証ロジックに波及しないようにする
+- 招待による作成を`user` Contextに集約したことに合わせ、招待完了への遷移（パスワード設定）を本Contextの状態遷移として定めることで、`user` Contextが設定した招待待ちが、どのContextで解消されるかを明確にする。トークン消費と別の更新にすると、パスワードだけが更新されて招待待ちが残る中間状態が生じうるため、同一トランザクションにする
 
 ## 影響範囲
 
@@ -906,3 +964,5 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 - 既存DBスキーマは維持するため、データ移行やマイグレーションの追加は不要
 - パスワードハッシュ方式（bcrypt等）を維持する場合、Go側でも同一アルゴリズムの実装を用意する必要がある（Infrastructure層の責務。既存ユーザーの再ログインに影響しないようにするための前提条件であり、詳細はGo実装仕様書で扱う）
 - profile Context（プロフィール管理機能）の②文書と、本書のBounded Context・API仕様の記載内容（`GET /api/v1/me` の所有権、プロフィール項目の書き込み範囲）は整合させる必要がある
+- `user`②が「認証②に招待完了への遷移の記載がない」としていた点（`user`②の未解決の論点1）は、本書の10章（招待状態）で定めた。`user`②の6章・20章が本Contextに割り当てている遷移（教員・生徒のみ`password_reset_required`を偽にする。管理者は偽にならない）と一致する
+- 招待メールのリンクからのパスワード設定は、既存のパスワードリセットのエンドポイント（`PATCH /api/v1/password/reset`）で行われ、APIの外部仕様は変わらない

@@ -6,7 +6,7 @@
 
 ## 機能概要
 
-管理者が自校（選択中の高校）に所属する教員アカウントを一覧参照し、新規教員の招待、既存教員のプロフィール・権限・担当学年の更新を行う機能である。Rails現行仕様では一覧・作成・更新の3操作を提供し、教員の権限情報（`teacher_permissions`）と担当学年情報（`teacher_grades`）を合わせて扱う。
+管理者が自校（選択中の高校）に所属する教員アカウントを一覧参照し、新規教員の招待、既存教員のプロフィール・権限・担当学年の更新を行う機能である。Rails現行仕様では一覧・作成・更新の3操作を提供し、教員の権限情報（`teacher_permissions`）と担当学年情報（`teacher_grades`）を合わせて扱う。新規教員の招待では、氏名・メールアドレスと、権限（閲覧権限スコープ・他教員管理権限）・担当学年を指定して教員アカウントを作成し、作成時に、パスワード設定用の招待メールが対象のメールアドレスへ送信される。
 
 ## 利用者
 
@@ -16,7 +16,7 @@
 ## 業務上の目的
 
 - 学校単位で教員アカウントを一覧管理できるようにする
-- 新規教員をメールアドレス指定で招待できるようにする
+- 新規教員を、氏名・メールアドレスと権限・担当学年を指定して招待できるようにする（作成時に招待メールが送信される）
 - 教員の閲覧権限スコープ・他教員管理権限・担当学年を管理者が統制できるようにする
 
 ---
@@ -39,10 +39,14 @@ Railsの Controller / Service / Serializer 構造をそのまま移植するの�
 
 - teacher-management（教員管理コンテキスト）
 
+本Contextは、教師視点の機能（教師教員管理機能）と同一のContextである。同じ3テーブル（`users`の教員レコード / `teacher_permissions` / `teacher_grades`）に対するAggregate（Teacher）・Entity・Repository（Store）を共有し、両機能の違いは利用者の視点（管理者が自校の教員を管理する視点／教師が自校の同僚教員を確認し、他職員操作権限を持つ場合に新規作成する視点）のみである（アーキテクチャ規約4章「Context分割基準」：Railsの`Teacher::`/`Admin::`の名前空間をそのままContext境界にしない）。教師視点の責務は教師教員管理機能_Go移行・設計仕様書「3. Bounded Context」を参照する。
+
 ## Contextの責務
 
+管理者視点で本機能が担う責務は以下のとおりである。
+
 - 高校に所属する教員アカウントの一覧参照
-- 教員アカウントの新規招待（作成）
+- 教員アカウントの新規招待（教員アカウント本体の作成は`user` Contextに任せ、本Contextは権限・担当学年の作成を担う）
 - 教員の権限情報（閲覧スコープ・他教員管理可否）の管理
 - 教員の担当学年の同期管理
 
@@ -50,11 +54,14 @@ Railsの Controller / Service / Serializer 構造をそのまま移植するの�
 
 - HighSchool Context: 対象高校の存在確認、教員が所属する高校の特定に依存する
 - Grade Context: 担当学年として指定された `grade_ids` が、対象高校に属する学年であることの確認に依存する
-- Account/Authentication Context: 教員アカウントの作成（ユーザーレコードの生成）そのものは認証基盤が提供するアカウント作成能力に依存する
+- `user` Context: 教員アカウント本体（`users`の1行）の作成と、作成時の招待メールの送信依頼は、`user` Contextの`CreateTeacherAccount`に依存する。管理者による教員作成では、次のとおり指定する（`user`②「12. UseCase設計」の経路ごとの指定値）
+  - 招待待ち状態で作成するか: しない（Rails現行の`Admin::CreateTeacherService`は`password_reset_required`を偽のままにする。このため、教員招待通知機能の「招待未完了の教員一覧」には現れない）
+  - 作成時に招待メールを送るか: する
+  - 氏名・氏名カナ・メールアドレス・所属校ID: 氏名カナには、氏名と同じ値を設定する（Rails現行は、画面に氏名カナの入力欄がないため氏名と同じ値を設定している）。学年（`users.grade_id`）は設定しない（`CreateTeacherAccount`の学年ID（任意）を指定しない）
 
 ## 依存する理由
 
-教員管理コンテキストは「教員としての権限・担当学年」という業務ルールに責務を限定し、アカウントそのものの生成（ユーザーレコード作成）や高校・学年の実在確認は、それぞれの責務を持つ別Contextに委譲する。これにより、教員管理コンテキストの変更が認証基盤や学校情報の変更に波及しにくくなる。
+教員管理コンテキストは「教員としての権限・担当学年」という業務ルールに責務を限定し、アカウントそのものの生成（ユーザーレコード作成・仮パスワードの発行・招待メールの送信依頼）は`user` Contextへ、高校・学年の実在確認は、それぞれの責務を持つ別Contextに委譲する。これにより、教員管理コンテキストの変更が認証基盤や学校情報の変更に波及しにくくなる。
 
 ---
 
@@ -115,6 +122,7 @@ Active Record
 
 ## 整合性を保証する単位
 
+- 教員招待時、`user` Contextが作成する教員アカウント（および招待メールの送信依頼）と、本Contextが作成するTeacherPermission・TeacherGradeAssignmentを、同一トランザクションで扱う（`user`②の作成操作は呼び出し側のトランザクションに参加する）
 - 教員更新時、`grade_ids` が指定された場合はTeacherGradeAssignmentの全置換をTeacherの更新と同一トランザクションで行う
 
 理由: 権限更新と担当学年の同期がそれぞれ別トランザクションで行われると、片方だけ反映された不整合な状態が生まれうるため、1つの業務操作として整合性を保証する必要がある。
@@ -126,7 +134,7 @@ Active Record
 ## Teacher
 
 - 役割: 学校に所属する教員アカウントを表す中心的な概念
-- ライフサイクル: 招待作成 → 参照 → プロフィール／権限／担当学年の更新
+- ライフサイクル: 招待作成（アカウント本体は`user` Contextが作成する） → 参照 → プロフィール／権限／担当学年の更新
 - 状態変化: 現行仕様には有効／無効といった明示的な状態フィールドはなく、作成後は属性更新のみが行われる
 - 保持する責務:
   - 名前・メールアドレスなどの基本情報を保持する
@@ -171,7 +179,7 @@ Active Record
 
 ## Value Objectを採用しないもの
 
-- 名前・メールアドレス: メールアドレスは形式検証の対象ではあるが、本機能内で独自の複雑なルールを持たないため、単純な文字列属性として扱う（招待メール送信等の詳細は認証／通知Contextの責務とする）
+- 名前・メールアドレス: メールアドレスは形式検証の対象ではあるが、本機能内で独自の複雑なルールを持たないため、単純な文字列属性として扱う（招待メールの内容・送信は`user` Contextの責務とする）
 
 ---
 
@@ -199,10 +207,12 @@ Active Record
 - 責務:
   - 対象高校に所属する教員一覧の取得
   - 特定教員の取得（高校スコープ付き）
-  - 教員レコードの作成・更新
+  - 教員レコードの更新
+  - 教員の招待（作成）時の、トランザクションの開始と、`user` Contextの`CreateTeacherAccount`の呼び出し（`users`の1行の作成は`user` Contextが行う。本Storeは`users`の行を直接作成しない）
 - 保持する検索機能:
-  - `high_school_id` による絞り込み
+  - `high_school_id` による絞り込み（管理者視点の一覧は、ページングを行わず対象高校の教員を全件返す。Rails現行の`Api::V1::Admin::TeachersController#index`がページングしないことに合わせる）
   - `id` による単一取得（所属高校スコープ付き）
+- 管理者視点の一覧の並び順: Rails現行は並び順を指定しない（定めがない）。Go設計では、返却順が取得のたびに変わらないよう、`id`昇順で固定する（②からの補足。業務ルールの追加ではなく、順序が未定義であることによる実装上の不安定さを避けるための判断であり、Rails現行と厳密に同一の順序を保証するものではない）
 - 保持しない責務:
   - 権限の妥当性判定
   - 学年の所属確認
@@ -212,7 +222,7 @@ Active Record
 
 - 管理対象: TeacherPermission
 - 責務:
-  - 教員に紐づく権限情報の取得・作成・更新
+  - 教員に紐づく権限情報の取得・作成・更新（作成は、`user` Contextが作成した教員の`user_id`に対して行う）
 - 保持する検索機能:
   - `user_id` による取得
 - 保持しない責務:
@@ -258,8 +268,8 @@ Active Record
 ## ListTeachers(Handler処理)
 
 - 目的: 対象高校の教員一覧を取得する
-- 入力: current admin, high_school_id
-- 出力: 教員一覧（権限・担当学年を含む）
+- 入力: current admin, high_school_id（`page` / `per_page`は受け付けない）
+- 出力: 教員一覧（権限・担当学年を含む）。ページ情報は返さない。権限レコードが存在しない教員は、`grade_scope` / `manage_other_teachers`が`null`（値なし）となる（Rails現行は、権限レコードの有無に関わらず一覧を返し、権限レコードが存在しない教員の権限項目を`null`として返す）
 - トランザクション範囲: 読み取りのみ、トランザクションは不要
 - 呼び出すStore:
   - HighSchoolStore
@@ -269,14 +279,18 @@ Active Record
 ## InviteTeacher(Handler処理)
 
 - 目的: 新規教員を招待（作成）する
-- 入力: current admin, high_school_id, email
-- 出力: 作成された教員情報
-- トランザクション範囲: 教員アカウント作成と初期権限レコード作成を1トランザクションで扱う
-- 呼び出すStore:
+- 入力: current admin, high_school_id, name, email, grade_scope, manage_other_teachers, grade_ids
+- 出力: 作成された教員情報（権限・担当学年を含む）
+- トランザクション範囲: 教員アカウントの作成（`user` Contextの`CreateTeacherAccount`。招待メール送信依頼の登録を含む）・権限レコードの作成・担当学年の作成を1トランザクションで扱う。`user` Contextの作成操作は、本Contextが開始したトランザクションに参加する
+- 呼び出すStore・Context:
   - HighSchoolStore
-  - TeacherStore
+  - GradeStore（`grade_ids`が対象高校に属するかの確認）
+  - TeacherStore（トランザクションの開始と、`user` Contextの呼び出し）
+  - `user` Context: `CreateTeacherAccount`（招待待ち=しない、作成時に招待メールを送る=する。氏名カナには氏名と同じ値を設定し、学年は指定しない）
   - TeacherPermissionStore
-- 判断根拠: 教員アカウントと権限レコードの初期状態を同時に整合させる必要があるため
+  - TeacherGradeStore
+- 担当学年の作成: `grade_scope`が全学年（`all_grades`）の場合は、指定された`grade_ids`に関わらず対象高校の全学年を担当学年とする（Rails現行）。それ以外の場合は、指定された`grade_ids`を担当学年とし、対象高校に属するかの判定はUpdateTeacherと同じTeacherGradeAssignmentPolicyで行う
+- 判断根拠: 教員アカウントと権限レコード・担当学年の初期状態を同時に整合させる必要があるため。招待メールは、`user` Contextがコミットされた場合にのみ送信するため、本Contextの権限・担当学年の作成が失敗した場合（ロールバック）は、送信されない。教員アカウント本体の作成規則（仮パスワードの発行・メールアドレスの一意性・招待メールの内容）は`user` Contextに一本化し、本Contextは持たない
 
 ## UpdateTeacher(Handler処理)
 
@@ -290,6 +304,7 @@ Active Record
   - TeacherPermissionStore
   - TeacherGradeStore
   - GradeStore
+- 権限レコードが存在しない対象教員の扱い: 権限項目（`grade_scope` / `manage_other_teachers`）の更新、または`grade_ids`による担当学年の全置換が指定された場合、権限レコードを参照できないため、想定外の状態として内部エラー（500）とする。氏名・メールアドレスのみの更新は影響を受けない。Rails現行が、この場合に特別な扱いをせず、権限情報を参照する処理が例外となって500になることに合わせる
 - 判断根拠: `grade_ids` が指定された場合の全置換と、権限更新の整合性を一貫して保証する必要があるため
 
 ---
@@ -302,7 +317,7 @@ Active Record
 
 ## Transaction終了位置
 
-- InviteTeacherの処理では、教員アカウントと権限レコードの作成が完了した時点でコミットする
+- InviteTeacherの処理では、教員アカウント（`user` Contextの作成操作）・権限レコード・担当学年の作成が完了した時点でコミットする。招待メールの送信依頼は、`user` Contextがアカウントの作成と同一トランザクションで登録するため、コミットされた場合にのみ送信される
 - UpdateTeacherの処理では、プロフィール・権限・担当学年の同期が完了した時点でコミットする
 - ListTeachersの処理ではトランザクションを使用しない
 
@@ -318,12 +333,12 @@ Active Record
 ## Presentation
 
 - 型チェック: HTTP入力の型を検証する
-- 必須チェック: 作成時の `email`、高校IDの必須性を検証する
+- 必須チェック: 作成時の `name` / `email` / `grade_scope` / `manage_other_teachers`、高校IDの必須性を検証する
 - フォーマットチェック: メールアドレス形式、`grade_ids` の配列形式を検証する
 
 ## Domain
 
-- 業務ルール: 指定学年が対象高校に属するかどうか
+- 業務ルール: 指定学年が対象高校に属するかどうか、`grade_scope`が許容値（`own_grade` / `all_grades`）であるか
 - 状態チェック: 現行仕様には教員の状態遷移がないため、更新可能かどうかの状態チェックは行わない
 - 整合性チェック: 更新対象の教員が対象高校に所属しているかどうか
 
@@ -373,20 +388,21 @@ Active Record
 
 - 責務: ユースケース実行時の失敗を表現する
 - 例: 高校未存在、教員未存在、対象教員が指定高校に所属しない
+- 招待時のメールアドレス重複・氏名未入力などのアカウント作成の入力不備は、`user` Contextの作成操作が返すValidationエラーをそのまま422として扱う
 - 判断理由: ユースケースの失敗理由をHTTPレスポンスに変換しやすくするため
 
 ## Infrastructure Error
 
-- 責務: DB接続失敗・永続化失敗を表現する
+- 責務: DB接続失敗・永続化失敗を表現する。教員の更新時に対象教員の権限レコードが存在しない場合のように、業務上は想定されていないデータ状態（Rails現行では例外となり500になる）も、この種別として500に対応させる
 - 判断理由: 技術的な障害を業務エラーと切り分けるため
 
 ---
 
 # 15. Domain Event
 
-本機能では現時点でDomain Eventを採用しない。理由は、教員の招待・更新に対して他処理へ通知するような非同期の副作用が現行仕様に明記されていないためである（招待メール送信の詳細も現行仕様書には記載がなく、推測で設計を追加することは避ける）。
+本機能では現時点でDomain Eventを採用しない。教員の招待時に送信される招待メールは、`user` Contextの`CreateTeacherAccount`が、アカウントの作成と同一トランザクションで、招待メールの送信依頼（規約13の`jobs`テーブル）として登録する。本Contextは、メール送信のためのイベント・アダプタを持たない。
 
-将来的に、招待時のメール送信や権限変更の監査ログ記録といった要件が明確になった場合は、イベント化を検討する。
+将来的に、権限変更の監査ログ記録といった要件が明確になった場合は、イベント化を検討する。
 
 ---
 
@@ -410,13 +426,15 @@ Active Record
 ## Response
 
 - 一覧・作成・更新の成功時は、Rails現行仕様（`Admin::TeacherSerializer` 相当）に近い構造を維持する
+- 一覧は、Rails現行と同じくページングしない（全件を返し、`meta`を返さない）。権限レコードが存在しない教員の`grade_scope` / `manage_other_teachers`は`null`とする
 
 ## Status Code
 
 - 200: 取得・更新成功
-- 201/200: 作成成功の扱いは既存仕様に合わせて統一する
+- 201: 作成成功
 - 422: 入力・業務ルール違反
 - 404: 対象高校・対象教員不存在
+- 500: 更新時に対象教員の権限レコードが存在しない（Rails現行と同じく想定外の状態として扱う）、DB障害等
 
 ## Error Response
 
@@ -449,7 +467,7 @@ Active Record
 
 ## UseCase Test
 
-- 目的: ListTeachersUseCase / InviteTeacherUseCase / UpdateTeacherUseCase の業務振る舞いを検証する
+- 目的: ListTeachersUseCase / InviteTeacherUseCase / UpdateTeacherUseCase の業務振る舞いを検証する。InviteTeacherでは、`user` Contextの`CreateTeacherAccount`を「招待待ち=しない・作成時に招待メールを送る=する」の指定で呼ぶこと、氏名カナに氏名と同じ値を渡すこと、`grade_scope`が全学年の場合に対象高校の全学年が担当学年になること、権限・担当学年の作成に失敗した場合にアカウントも作成されない（招待メールも送信されない）ことを検証する
 
 ## Repository Test
 
@@ -461,7 +479,7 @@ Active Record
 
 ## Integration Test
 
-- 目的: エンドポイント経由で一覧・招待・更新が正常に動作し、他校の学年が拒否されることを確認する
+- 目的: エンドポイント経由で一覧・招待・更新が正常に動作し、他校の学年が拒否されることを確認する。招待では、作成された教員が招待待ちにならず（教員招待通知機能の招待未完了一覧に現れない）、招待メールの送信依頼が登録されることを確認する
 
 ---
 
@@ -470,7 +488,7 @@ Active Record
 | Rails | Go | 設計方針 |
 |---|---|---|
 | Controller | Handler | HTTP入出力の受け取りとレスポンス整形に限定する |
-| Service（Create/UpdateTeacherService） | Handler + Store | 業務処理（権限・担当学年の同期を含む）を担当（Active Record採用のためusecase層は設けない） |
+| Service（Create/UpdateTeacherService） | Handler + Store（教員アカウント本体の作成は`user` Contextの`CreateTeacherAccount`） | 業務処理（権限・担当学年の同期を含む）を担当（Active Record採用のためusecase層は設けない）。`Common::CreateUserService`が担っていた仮パスワードの発行・招待メールの送信は`user` Contextが担う |
 | Model（User, TeacherPermission, TeacherGrade） | struct + Store（同一package） | 業務ルールはstruct/Value Object、永続化はStoreに整理する |
 | Serializer | Response DTO | レスポンス整形をPresentation層に分離する |
 
@@ -502,7 +520,8 @@ Active Record
 | 設計パターン | Active Record | CRUD中心の業務であり、権限・担当学年の永続化と同期を集約しやすいため |
 | Aggregate | Teacher単位 | 権限・担当学年の整合性を担保する単位として十分 |
 | Transaction境界 | Handlerの処理単位（Storeメソッド内） | 教員本体と権限・担当学年の整合性を1操作で保証するため |
-| Domain Event | 未採用 | 現行仕様に非同期の副作用要件が明記されていないため |
+| Domain Event | 未採用 | 招待メールは`user` Contextの送信依頼（`jobs`）に任せ、本Contextに購読者を持たないため |
+| 教員アカウントの作成 | `user` Contextの`CreateTeacherAccount`（招待待ち=しない・作成時メール=する） | Rails現行の`Admin::CreateTeacherService`が共通の作成処理（招待メール送信を含む）を通り、招待待ちにしないため。仮パスワード・招待メールの規則を`user`に一本化するため |
 | Value Object | 一部採用 | 権限の組み合わせと担当学年の全置換ルールを明示するため |
 | Authorization | Middleware（ロール確認）+ Handler/Store（自校スコープ確認） | システムレベルと業務レベルの認可を分離するため |
 
@@ -514,19 +533,25 @@ Active Record
 
 - ControllerがHighSchool取得・教員取得を直接行い、ServiceがUser・TeacherPermission・TeacherGradeの更新を一括で担う
 - 学年の所属確認ロジックがServiceの手続きの中に埋め込まれている
+- 教員の招待（`Admin::CreateTeacherService`）は、共通の作成処理（`Common::CreateUserService`）を継承し、`name` / `email` / `grade_scope` / `manage_other_teachers` / `grade_ids`を受け取る。仮パスワードの発行・教員アカウントの作成・権限と担当学年の作成を1つのトランザクションで行い、作成時に招待メール（`AuthMailer#invite_user`）をコミット後に非同期で送る。教員アカウントは招待待ち（`password_reset_required`）にならず、氏名カナには氏名と同じ値を設定し、学年は設定しない
 
 ## Go設計での変更内容
 
 - 高校・教員の存在確認、学年所属確認をRepository＋Domain Serviceとして明確に分離する
 - 権限情報をValue Object（TeacherPermission）として扱い、単純な属性以上の意味を明示する
 - 担当学年の全置換ルールをGradeAssignmentSetとして明示する
+- 教員アカウント本体の作成と作成時の招待メールの送信依頼を、`user` Contextの`CreateTeacherAccount`（招待待ち=しない・作成時に招待メールを送る=する）に任せ、本Contextは権限と担当学年の作成を担う。同一トランザクションで扱う
+- 一覧のページングなし・権限レコードが存在しない対象教員の扱い（更新時は500）は、Rails現行と同一とする（変更しない）
+- 指定された`grade_ids`に対象高校に属さない学年が含まれる場合、Rails現行は該当のIDを無視して残りで担当学年を作成・置換する（`Admin::CreateTeacherService` / `Admin::UpdateTeacherService`）が、Go設計では、TeacherGradeAssignmentPolicyによる業務ルール違反として拒否する（422）。招待・更新の双方に適用する。`grade_scope`が全学年の場合に指定値を使わず対象高校の全学年とする点は、Rails現行のまま維持する
 
 ## 変更理由
 
+- 他校の学年が紛れ込んだ入力を黙って無視せず、呼び出し側へ誤りとして返すことで、意図しない担当学年での作成・更新を防ぐため
 - Railsの手続き的なService実装をそのまま移植すると、業務ルールが手続きに埋没し保守性が下がるため
 - 責務を明確に分けることで、権限モデルの将来的な拡張に対応しやすくするため
 
 ## 影響範囲
 
 - フロントエンドから見たAPIの外部仕様は維持するため、影響はない
+- 招待時の教員アカウントの作成は、`user` Contextの作成操作の呼び出しになる。Rails現行の挙動（招待待ちにならない・作成時に招待メールが届く）は変わらない
 - 既存DBスキーマは維持するため、データ移行やマイグレーションの追加は不要

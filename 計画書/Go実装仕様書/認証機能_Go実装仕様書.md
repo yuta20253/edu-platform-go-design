@@ -6,13 +6,15 @@
 
 ## 機能概要
 
-ユーザーのログイン・ログアウト・新規登録（student/teacher/admin）・パスワードリセット・ログイン中ユーザー自身の基礎情報取得（`GET /api/v1/me`）を提供し、認証状態（セッションの有効性を表す`jti`、パスワードリセットトークンの有効性、仮アカウントの有効化状態）を管理する機能である。JWTをHTTP Only Cookieで、クライアントAPI互換性を維持したまま提供する。新規登録では、生徒が学校発行の生徒コード（`student_number`）を入力した場合、新規アカウント作成の代わりに、生徒CSVインポート機能が事前に作成した仮アカウントを本人のものとして有効化する分岐を持つ。パスワードリセット対象の検索は、退会（論理削除）済みユーザーを除外して行う。
+ユーザーのログイン・ログアウト・新規登録（student/teacher/admin）・パスワードリセット・ログイン中ユーザー自身の基礎情報取得（`GET /api/v1/me`）を提供し、認証状態（セッションの有効性を表す`jti`、パスワードリセットトークンの有効性、招待状態、仮アカウントの有効化状態）を管理する機能である。JWTをHTTP Only Cookieで、クライアントAPI互換性を維持したまま提供する。新規登録では、生徒が学校発行の生徒コード（`student_number`）を入力した場合、新規アカウント作成の代わりに、`user` Contextの`CreateStudentAccount`が事前に作成した仮アカウント（生徒CSVインポート・教師による生徒の単体登録で作成されたもの）を本人のものとして有効化する分岐を持つ。パスワードリセット対象の検索は、退会（論理削除）済みユーザーを除外して行う。
+
+招待による生徒・教員・管理者アカウントの作成（仮パスワードの発行・招待待ちの初期状態・招待メールの送信依頼）は`user` Contextの責務であり、本機能は招待による作成の起点ではない。本機能が`users`の行を作るのは、本人による自己登録（サインアップ）のみである。一方、招待メールのリンクからのパスワード設定は、パスワードリセットと同じトークンの消費として本機能が受け付け、設定に成功した教員・生徒は招待待ちから招待完了（`password_reset_required`が偽）へ遷移する。管理者は遷移しない（②「3. Bounded Context」「10. 状態遷移図」）。
 
 ## 採用設計パターンとその理由（②からの要約）
 
 ②Go移行・設計仕様書「4. 設計パターン」により、本機能は **Domain Model** を採用する。
 
-- Account（資格情報・`jti`・仮アカウント有効化状態）、PasswordResetToken（発行・有効・期限切れ・消費済み）という状態遷移を持つ概念が中心にあること
+- Account（資格情報・`jti`・招待状態・仮アカウント有効化状態）、PasswordResetToken（発行・有効・期限切れ・消費済み）という状態遷移を持つ概念が中心にあること
 - パスワード照合・ロール別登録要件・仮アカウント有効化要件・リセットトークン有効期限判定・退会済みユーザー除外という複数の業務ルールが複数UseCaseにまたがって再利用されること
 - セキュリティ上重要なロジックを型・サービスとして明示し、レビュー可能性とテスト容易性を高める必要があること
 
@@ -170,8 +172,8 @@ internal/auth/presentation/routes.go
 |`HighSchoolID`|`*uint`|所属高校ID（student/teacherのみ設定、adminはnil）|
 |`GradeID`|`*uint`|学年ID（student/teacherかつ生徒コード管理対象校でない場合のみ設定）|
 |`StudentNumber`|`*valueobject.StudentNumber`|生徒コード（生徒コード管理対象校の生徒のみ設定、他はnil）|
-|`PasswordResetRequired`|`bool`|`true`かつ`ActivatedAt`未設定の間は「仮登録」状態であることを示す（②「6. Entity設計」）|
-|`ActivatedAt`|`*time.Time`|仮アカウントが有効化された日時（通常登録の場合は登録時点で設定）|
+|`PasswordResetRequired`|`bool`|`true`の間は「招待待ち」、`false`の間は「招待完了」を示す。`true`かつ`ActivatedAt`未設定の間は「仮登録」状態でもある（②「6. Entity設計」「10. 状態遷移図」）|
+|`ActivatedAt`|`*time.Time`|仮アカウントが有効化された日時。生徒コードによる仮アカウントの有効化（`Activate`）でのみ設定し、通常登録（自己登録）では設定しない（未設定=nilのまま。Rails現行の自己登録が`activated_at`を設定しないことに合わせる。`user`②「20章」と同じ整理）|
 |`DeletedAt`|`*time.Time`|論理削除日時（退会済みの場合に設定。②「11. Repository設計」の退会済み除外判定に用いる）|
 |`ResetToken`|`*entity.PasswordResetToken`|発行中のパスワードリセットトークン（未発行時はnil）|
 
@@ -179,7 +181,7 @@ internal/auth/presentation/routes.go
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`NewAccount`|`(id uint, email valueobject.Email, passwordHash string, userRoleID uint, jti string, highSchoolID, gradeID *uint, studentNumber *valueobject.StudentNumber, activatedAt *time.Time, deletedAt *time.Time) (*Account, error)`|`(*Account, error)`|不変条件を満たしたAccountを生成するファクトリ|
+|`NewAccount`|`(id uint, email valueobject.Email, passwordHash string, userRoleID uint, jti string, highSchoolID, gradeID *uint, studentNumber *valueobject.StudentNumber, passwordResetRequired bool, activatedAt *time.Time, deletedAt *time.Time) (*Account, error)`|`(*Account, error)`|不変条件を満たしたAccountを生成するファクトリ|
 |`RotateJTI`|`(newJTI string)`|`error`|ログアウト時に`jti`をローテーションし、以前のセッションを無効化する|
 |`UpdatePasswordHash`|`(newHash string)`|`error`|パスワードリセット成功時にハッシュを更新する|
 |`IssuePasswordResetToken`|`(token string, issuedAt time.Time)`|`error`|リセットトークンを発行し保持する|
@@ -187,6 +189,8 @@ internal/auth/presentation/routes.go
 |`HasResetToken`|`()`|`bool`|リセットトークンが発行済みかを判定する|
 |`IsProvisional`|`()`|`bool`|`PasswordResetRequired`が真かつ`ActivatedAt`が未設定かどうかを判定する（②「10. 状態遷移図」の遷移条件をそのまま反映）|
 |`IsDeleted`|`()`|`bool`|退会（論理削除）済みかどうかを判定する|
+|`IsInvitationPending`|`()`|`bool`|`PasswordResetRequired`が真（招待待ち）かどうかを判定する（②「10. 状態遷移図」の招待状態）|
+|`CompleteInvitation`|`(roleName string)`|`error`|パスワードの設定に成功したときに、招待待ちを解消して招待完了へ遷移させる。`roleName`が`teacher`または`student`の場合のみ`PasswordResetRequired`を偽にし、それ以外（`admin`を含む）は変更しない。既に招待完了（偽）の場合も変化しない。`roleName`が空の場合はエラーを返す（②「6. Entity設計」「10. 状態遷移図」）|
 |`Activate`|`(now time.Time)`|`error`|仮登録状態から有効化済み状態へ遷移する（`IsProvisional()`が`false`の場合はエラーを返す）。氏名・氏名カナ等プロフィール項目の反映は本メソッドの責務としない（後述の②からの補足を参照）|
 
 - 不変条件（ファクトリで保証する内容）:
@@ -196,6 +200,8 @@ internal/auth/presentation/routes.go
   - `PasswordResetRequired`が`true`かつ`ActivatedAt`が非nilという組み合わせ（有効化済みなのに仮登録要求フラグが残っている状態）は不変条件違反として`NewAccount`がエラーを返す
 
 > **②からの補足**: ②「5. Aggregate設計」はAccountのAggregate境界から「プロフィール情報（氏名・個人情報・住所等）」を明示的に除外している一方、②「6. Entity設計」はAccountの責務として「有効化時に入力内容（氏名・氏名カナ等）で自身を更新する」を挙げており、両者は文言上ややテンションがある。本書ではAggregate境界（5章）の方を優先し、`Account`構造体自体には`Name`/`NameKana`フィールドを持たせない。「自身を更新する」という6章の記述は、`Activate()`によるドメイン状態（`ActivatedAt`・`PasswordResetRequired`）の遷移と、氏名・氏名カナという非Aggregate項目のRepository経由での永続化（`AccountRepository.ActivateProvisionalAccount`の`ActivateAccountParams`、後述）が1つのUseCase処理内で一体的に行われることとして実装する。旧版の`RegisterUseCase`（通常登録）における`CreateAccountParams`と同じ考え方を、仮アカウント有効化にも適用したものであり、②の記載同士（5章のAggregate境界と6章の責務記述）を矛盾なく実装に落とし込むための判断である（推測ではなく、②の記載同士の整合を取るための判断）。
+
+> **②からの補足**: ②「6. Entity設計」「10. 状態遷移図」は、パスワード設定の成功時に、教員・生徒のみ`password_reset_required`を偽にする（管理者は偽にしない）招待待ち→招待完了の遷移を、Accountの責務として定めている。`Account`はロール名ではなく`UserRoleID`のみを保持するため、`CompleteInvitation`はロール名を引数に取り、UseCaseが`UserRoleRepository.FindByID`で取得した値を渡す構成とした。ロール名は`student` / `teacher` / `admin`の文字列（`SignUpRoleRequirement`と同じ値）とする。`Activate`（生徒コードによる有効化）も`PasswordResetRequired`を偽にするが、こちらは仮登録からの遷移としてロールを問わず`IsProvisional()`を前提とし、`CompleteInvitation`とは別の遷移である（②の記載を実装に落とし込むための判断。推測）。
 
 ### PasswordResetToken（`domain/entity/password_reset_token.go`）
 
@@ -284,11 +290,11 @@ internal/auth/presentation/routes.go
 |`FindByEmailExcludingDeleted`|`(ctx context.Context, email valueobject.Email)`|`(*entity.Account, error)`|メールアドレスによる一意検索（パスワードリセットリクエスト時。退会（論理削除）済みアカウントを除外する。②「11. Repository設計」の退会済み除外方針）|
 |`FindByResetToken`|`(ctx context.Context, token string)`|`(*entity.Account, error)`|リセットトークンによる検索（トークン検証・パスワード更新時）|
 |`FindByStudentNumber`|`(ctx context.Context, studentNumber string)`|`(*entity.Account, error)`|生徒コードによる仮アカウント検索（新規登録時の仮アカウント特定。②「11. Repository設計」）|
-|`Create`|`(ctx context.Context, params CreateAccountParams)`|`(*entity.Account, error)`|アカウントの新規作成（通常登録時）。`CreateAccountParams`にName/NameKanaを含む|
+|`Create`|`(ctx context.Context, params CreateAccountParams)`|`(*entity.Account, error)`|アカウントの新規作成（通常登録＝本人による自己登録時。招待による作成は`user` Contextが行い、本メソッドは行わない）。`CreateAccountParams`にName/NameKanaを含む|
 |`ActivateProvisionalAccount`|`(ctx context.Context, accountID uint, params ActivateAccountParams)`|`error`|仮アカウントを入力内容で更新し、`activated_at`を設定する（②「12. UseCase設計」の仮アカウント有効化フロー）|
 |`UpdateJTI`|`(ctx context.Context, accountID uint, newJTI string)`|`error`|`jti`の更新（ログアウト時）|
 |`SaveResetToken`|`(ctx context.Context, accountID uint, token string, issuedAt time.Time)`|`error`|リセットトークン発行情報の保存|
-|`UpdatePasswordAndConsumeResetToken`|`(ctx context.Context, accountID uint, newPasswordHash string)`|`error`|パスワードハッシュ更新とリセットトークン消費（クリア）を1操作で行う|
+|`UpdatePasswordAndConsumeResetToken`|`(ctx context.Context, accountID uint, newPasswordHash string, passwordResetRequired bool)`|`error`|パスワードハッシュ更新とリセットトークン消費（クリア）に加え、招待状態（`passwordResetRequired`。`Account.CompleteInvitation`適用後の値）の反映を1操作で行う|
 
 `CreateAccountParams`のフィールド: `Email valueobject.Email`, `PasswordHash string`, `UserRoleID uint`, `HighSchoolID *uint`, `GradeID *uint`, `Name string`, `NameKana string`
 
@@ -428,6 +434,8 @@ classDiagram
         +HasResetToken() bool
         +IsProvisional() bool
         +IsDeleted() bool
+        +IsInvitationPending() bool
+        +CompleteInvitation(roleName string) error
         +Activate(now time.Time) error
     }
     class PasswordResetToken {
@@ -479,7 +487,7 @@ classDiagram
         +ActivateProvisionalAccount(ctx, accountID, params) error
         +UpdateJTI(ctx, accountID, newJTI) error
         +SaveResetToken(ctx, accountID, token, issuedAt) error
-        +UpdatePasswordAndConsumeResetToken(ctx, accountID, newHash) error
+        +UpdatePasswordAndConsumeResetToken(ctx, accountID, newHash, passwordResetRequired) error
     }
     class UserRoleRepository {
         <<interface>>
@@ -531,20 +539,46 @@ classDiagram
 
 # 5. 状態遷移図
 
+## Account（招待状態）
+
+```mermaid
+stateDiagram-v2
+    [*] --> InvitationPending : 招待による作成(本Context外。userの作成操作)
+    [*] --> InvitationCompleted : NewAccount(通常登録=自己登録)
+    InvitationPending --> InvitationCompleted : CompleteInvitation(roleName)(ChangePasswordUseCase。教員・生徒のみ)
+    InvitationPending --> InvitationCompleted : Activate()(RegisterUseCaseの仮アカウント有効化分岐)
+
+    note right of InvitationPending
+        管理者は、パスワードを設定しても
+        招待待ちのまま遷移しない
+    end note
+```
+
+遷移条件:
+
+- `InvitationPending`は`Account.IsInvitationPending()`（`PasswordResetRequired == true`）が`true`であることに対応する。`user` Contextが招待による作成時に設定するものであり、招待による作成の起点は本Contextではない
+- `InvitationCompleted`は`PasswordResetRequired == false`であることに対応する。通常登録（自己登録）で作成されたアカウントと、招待待ちにしない指定で`user` Contextが作成した教員は、この状態で始まる
+- `InvitationPending`から`InvitationCompleted`への遷移は次の2つである
+  - `Account.CompleteInvitation(roleName)`: `ChangePasswordUseCase`が、トークンの有効性判定の後、永続化の前に、アカウントのロール名（`UserRoleRepository.FindByID`で取得）を渡して呼ぶ。`roleName`が`teacher`または`student`の場合のみ`PasswordResetRequired`を偽にし、`admin`の場合は変更しない。結果は`AccountRepository.UpdatePasswordAndConsumeResetToken`の`passwordResetRequired`引数として、パスワードハッシュ更新・トークン消費と同一のトランザクションで永続化される。パスワードリセットと招待メールのリンクからのパスワード設定は同じ操作であるため、どちらの経路でもこの遷移が起きる
+  - `Account.Activate(now)`: 下記「Account（仮登録・有効化状態）」の遷移
+- `InvitationCompleted`から`InvitationPending`へ戻る遷移はない
+- `Provisional`（下記）は、`InvitationPending`のうち`ActivatedAt == nil`のアカウントである。`CompleteInvitation`によって`InvitationCompleted`になったアカウントは、`ActivatedAt == nil`でも`PasswordResetRequired == false`のため`Provisional`ではなく、`ProvisionalAccountActivationPolicy.Authorize`が`ErrProvisionalAccountAlreadyActivated`を返す（②「6. Entity設計」）
+
 ## Account（仮登録・有効化状態）
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Active : NewAccount(通常登録, ActivatedAt設定済み)
-    [*] --> Provisional : 生徒CSVインポートによる仮登録(本Context外で作成)
+    [*] --> Active : NewAccount(通常登録, ActivatedAtは未設定のまま)
+    [*] --> Provisional : 生徒アカウントの招待による作成(本Context外。userのCreateStudentAccount)
     Provisional --> Active : Activate()(RegisterUseCaseの仮アカウント有効化分岐)
 ```
 
 遷移条件:
 
 - `Provisional`は`Account.IsProvisional()`（`PasswordResetRequired == true && ActivatedAt == nil`）が`true`であることに対応する
+- `Active`は`Account.IsProvisional()`が`false`であることに対応する。通常登録（自己登録）で作成されたアカウントは`ActivatedAt == nil`のまま`Active`で始まり（`AccountRepository.Create`は`activated_at`を設定しない）、`Activate(now)`を経たアカウントは`ActivatedAt`が設定された`Active`になる。`Active`かどうかを`ActivatedAt`の有無で判定してはならない
 - `Provisional`から`Active`への遷移は`Account.Activate(now)`が担い、`ProvisionalAccountActivationPolicy.Authorize`による事前判定（学校コード一致等）を通過した場合のみ呼び出される
-- `Provisional`状態のアカウントの作成自体（`[*] --> Provisional`）は本Contextの操作範囲外であり、生徒CSVインポート機能が担う
+- `Provisional`状態のアカウントの作成自体（`[*] --> Provisional`）は本Contextの操作範囲外であり、`user` Contextの`CreateStudentAccount`（生徒CSVインポート・教師による生徒の単体登録が呼ぶ）が担う
 
 ## PasswordResetToken
 
@@ -667,17 +701,21 @@ stateDiagram-v2
 ### ChangePasswordUseCase（`application/usecase/change_password_usecase.go`）
 
 - struct名: `ChangePasswordUseCase`
-- コンストラクタが受け取る依存: `AccountRepository`, `*service.PasswordResetLifecyclePolicy`, `PasswordHasher`, `TransactionManager`
+- コンストラクタが受け取る依存: `AccountRepository`, `UserRoleRepository`, `*service.PasswordResetLifecyclePolicy`, `PasswordHasher`, `TransactionManager`
 - 公開メソッド: `(u *ChangePasswordUseCase) Execute(ctx context.Context, cmd dto.ChangePasswordCommand) (dto.ChangePasswordResult, error)`
 - 処理ステップ:
   1. `valueobject.NewRawPassword`で入力を検証し、確認用パスワードとの一致を検証する
   2. `AccountRepository.FindByResetToken`で対象アカウントを検索する
   3. `PasswordResetLifecyclePolicy.CanConsume`でトークンの有効性を判定する
-  4. `PasswordHasher.Hash`で新パスワードをハッシュ化する
-  5. `TransactionManager.WithinTransaction`内で`AccountRepository.UpdatePasswordAndConsumeResetToken`を実行する
-  6. `ChangePasswordResult`を返す
-- トランザクション境界: トークン検証からパスワード更新・トークン消費までを1トランザクションとする
+  4. `UserRoleRepository.FindByID(ctx, account.UserRoleID)`でアカウントのロール名を取得する（ロールが見つからない場合はInfrastructure Error扱い。アカウントのロールIDはマスタに存在する前提）
+  5. `PasswordHasher.Hash`で新パスワードをハッシュ化する
+  6. `account.CompleteInvitation(roleName)`で招待待ちを解消する（教員・生徒のみ`PasswordResetRequired`が偽になる。管理者は変更されない）
+  7. `TransactionManager.WithinTransaction`内で`AccountRepository.UpdatePasswordAndConsumeResetToken(ctx, account.ID, newPasswordHash, account.PasswordResetRequired)`を実行する（パスワードハッシュ更新・トークン消費・招待状態の反映を1操作で行う）
+  8. `ChangePasswordResult`を返す
+- トランザクション境界: トークン検証からパスワード更新・トークン消費・招待待ちの解消（教員・生徒の場合）までを1トランザクションとする
 - 発生しうるApplication Error: `ErrResetTokenNotFound`, `ErrResetTokenExpired`, `ErrResetTokenNotIssued`, `ErrPasswordConfirmationMismatch`
+
+> **②からの補足**: 招待メールのリンクからのパスワード設定は、パスワードリセットと同じトークンの消費であるため、`ChangePasswordUseCase`が招待待ち→招待完了の遷移を担う（②「10. 状態遷移図」「12. UseCase設計」）。招待待ちの解消の対象ロールは、Rails現行の`Auth::ChangePasswordService`に従い教員・生徒のみである（管理者は偽にならない）。既に招待完了のアカウント（招待とは無関係の通常のパスワードリセット）では、`PasswordResetRequired`は偽のまま変化しない。②の「トークン有効性検証からパスワード更新・トークン消費までを1トランザクション」という記載は、招待待ちの解消を含む範囲として実装する。新たなDomain Errorは追加しない。
 
 ### VerifyResetTokenUseCase（`application/usecase/verify_reset_token_usecase.go`）
 
@@ -812,11 +850,11 @@ flowchart TD
 |`FindByEmailExcludingDeleted`|`email = ?`で1件検索|`Unscoped()`を付けない（GORM標準の`gorm.DeletedAt`により`deleted_at IS NULL`が自動付与され、退会済みが自然に除外される）|
 |`FindByResetToken`|`reset_password_token = ?`で1件検索|
 |`FindByStudentNumber`|`student_number = ?`で1件検索|
-|`Create`|`users`テーブルへ1件INSERT相当の作成|`CreateAccountParams`の全フィールドを反映する|
+|`Create`|`users`テーブルへ1件INSERT相当の作成|`CreateAccountParams`の全フィールドを反映する。`activated_at`は設定しない（未設定のまま作成する）。自己登録のみで使用する（招待による作成は`user` Contextが行う）|
 |`ActivateProvisionalAccount`|`id = ?`条件で`email`・`encrypted_password`・`name`・`name_kana`・`activated_at`・`password_reset_required`（falseへ）を更新|
 |`UpdateJTI`|`id = ?`条件で`jti`カラムのみ更新|
 |`SaveResetToken`|`id = ?`条件で`reset_password_token`, `reset_password_sent_at`を更新|
-|`UpdatePasswordAndConsumeResetToken`|`id = ?`条件で`encrypted_password`を更新し、同時に`reset_password_token`, `reset_password_sent_at`をNULLへ更新|
+|`UpdatePasswordAndConsumeResetToken`|`id = ?`条件で`encrypted_password`を更新し、同時に`reset_password_token`, `reset_password_sent_at`をNULLへ更新し、引数`passwordResetRequired`の値を`password_reset_required`へ反映する|`ChangePasswordUseCase`が`Account.CompleteInvitation`適用後の値を渡す（教員・生徒は偽。管理者は現在の値のまま）。3つの更新は1回のUPDATEで行う|
 
 - Entity ⇔ GORMモデルの変換方針: `gormmodel.UserModel`から`entity.Account` / `entity.PasswordResetToken`への変換関数（`toEntity`）、逆方向の変換関数（`toModel`）をrepository実装内の非公開関数として用意する。`Email`変換時は`valueobject.NewEmail`、`StudentNumber`変換時は`valueobject.NewStudentNumber`を通し、DBに不正な形式が入っていた場合はInfrastructure Errorとして扱う。
 
@@ -1027,13 +1065,14 @@ type AuthNotifier interface {
 |RegisterUseCase（通常登録パス）|`AccountRepository.Create`完了時点でCommit、途中の存在確認失敗・作成失敗時はRollback|
 |RegisterUseCase（仮アカウント有効化パス）|`AccountRepository.ActivateProvisionalAccount`完了時点でCommit、`ProvisionalAccountActivationPolicy.Authorize`違反・対象未検出時はRollback（`AuthNotifier`呼び出しはCommit後に行い、トランザクションのスコープ外とする）|
 |RequestPasswordResetUseCase|`AccountRepository.SaveResetToken`完了時点でCommit（対象ユーザーが存在する場合のみトランザクションを使用）|
-|ChangePasswordUseCase|`AccountRepository.UpdatePasswordAndConsumeResetToken`完了時点でCommit、トークン検証失敗時はトランザクションを開始しない|
+|ChangePasswordUseCase|`AccountRepository.UpdatePasswordAndConsumeResetToken`（パスワードハッシュ更新・トークン消費・招待状態の反映）完了時点でCommit、トークン検証失敗時はトランザクションを開始しない|
 |LoginUseCase / VerifyResetTokenUseCase / GetCurrentUserUseCase|トランザクションを使用しない（読み取りのみ）|
 
 ## 複数Repositoryにまたがる場合の扱い
 
 - RegisterUseCase（通常登録パス）は`UserRoleRepository` / `HighSchoolRepository` / `GradeRepository`（参照系、トランザクション不要）と`AccountRepository.Create`（書き込み）を扱うが、参照確認から作成までを1つの`TransactionManager.WithinTransaction`スコープ内で実行し、途中の不整合（不正なロール・高校・学年の組み合わせでの作成）を防ぐ
 - RegisterUseCase（仮アカウント有効化パス）は`HighSchoolRepository.FindByID`（学校コード取得、トランザクション不要な参照）を先に実行した上で、`AccountRepository.FindByStudentNumber`から`ActivateProvisionalAccount`までを1つの`TransactionManager.WithinTransaction`スコープ内で実行する
+- ChangePasswordUseCaseは`UserRoleRepository.FindByID`（ロール名の取得、参照のためトランザクション不要）を先に実行し、`account.CompleteInvitation`の結果を、`AccountRepository.UpdatePasswordAndConsumeResetToken`の1回の呼び出しでパスワードハッシュ更新・トークン消費とともに永続化する。`users`への書き込みは1操作であるため、パスワードだけが更新され招待待ちが残る中間状態は生じない
 
 ---
 
@@ -1199,6 +1238,8 @@ AccountRepository・UserRoleRepositoryはいずれも一意検索または存在
 |`PasswordResetLifecyclePolicy.CanConsume`|未発行・期限切れ・有効の3状態での判定|
 |`Account.IsProvisional`|`PasswordResetRequired`と`ActivatedAt`の組み合わせによる判定|
 |`Account.Activate`|仮登録状態からの遷移成功／既に有効化済みの場合はエラーになること|
+|`Account.IsInvitationPending`|`PasswordResetRequired`が真で`true`、偽で`false`を返すこと|
+|`Account.CompleteInvitation`|`teacher` / `student`で`PasswordResetRequired`が偽になる／`admin`では真のまま変化しない／既に偽の場合は偽のまま変化しない／`roleName`が空の場合はエラーになる／`ActivatedAt`は変更されない|
 |`ProvisionalAccountActivationPolicy.Authorize`|仮アカウント不存在・既に有効化済み・学校コード不一致のそれぞれでエラーが区別されること|
 
 ## UseCase Test
@@ -1207,10 +1248,10 @@ AccountRepository・UserRoleRepositoryはいずれも一意検索または存在
 |-|-|
 |`LoginUseCase`|正しい資格情報でトークンが発行される／誤ったパスワードで`ErrInvalidCredentials`になる／存在しないメールアドレスでも同一エラーになる|
 |`LogoutUseCase`|`jti`が更新されること|
-|`RegisterUseCase`（通常登録）|student/teacherで高校・学年ID不足時にエラーになる／adminで高校・学年ID未指定でも成功する／ロール不正時にエラーになる|
+|`RegisterUseCase`（通常登録）|student/teacherで高校・学年ID不足時にエラーになる／adminで高校・学年ID未指定でも成功する／ロール不正時にエラーになる／作成されたアカウントの`activated_at`が未設定である|
 |`RegisterUseCase`（仮アカウント有効化）|生徒コードに一致する仮アカウントが有効化される（氏名・氏名カナ・パスワードが反映され`activated_at`が設定される）／仮アカウントが存在しない場合`ErrProvisionalAccountNotFound`になる／既に有効化済みの場合`ErrProvisionalAccountAlreadyActivated`になる／学校コード不一致の場合`ErrStudentNumberSchoolMismatch`になる|
 |`RequestPasswordResetUseCase`|ユーザーが存在する場合にトークンが発行されイベントが発行される／存在しない場合・退会済みの場合でも同一の成功結果が返る（②の重点検証項目）|
-|`ChangePasswordUseCase`|有効なトークンでパスワードが更新されトークンが消費される／期限切れトークンでエラーになる／トークン不一致でエラーになる|
+|`ChangePasswordUseCase`|有効なトークンでパスワードが更新されトークンが消費される／期限切れトークンでエラーになる／トークン不一致でエラーになる／教員・生徒の招待待ちのアカウントで、`AccountRepository.UpdatePasswordAndConsumeResetToken`へ`passwordResetRequired`が偽で渡される（招待完了になる）／管理者の招待待ちのアカウントで、`passwordResetRequired`が真のまま渡される（招待待ちのまま）／既に招待完了のアカウント（通常のパスワードリセット）で偽のまま渡される／`UserRoleRepository.FindByID`が失敗した場合にパスワードが更新されない|
 |`VerifyResetTokenUseCase`|有効トークンで`Valid: true`／無効・期限切れで`Valid: false`|
 |`GetCurrentUserUseCase`|アカウント基礎情報・ロール・所属高校/学年・profile Context由来の個人情報/住所/`profile_completed`が正しく合成されること／高校・学年未設定（admin）の場合にnilを許容すること|
 
@@ -1223,7 +1264,7 @@ AccountRepository・UserRoleRepositoryはいずれも一意検索または存在
 |`AccountRepositoryImpl.FindByStudentNumber`|存在する/しない生徒コードでの検索結果|
 |`AccountRepositoryImpl.ActivateProvisionalAccount`|氏名・氏名カナ・パスワードハッシュ・`activated_at`・`password_reset_required`が正しく更新されること|
 |`AccountRepositoryImpl.UpdateJTI`|更新後に`jti`が反映されること|
-|`AccountRepositoryImpl.UpdatePasswordAndConsumeResetToken`|パスワードハッシュ更新とトークンクリアが同時に反映されること|
+|`AccountRepositoryImpl.UpdatePasswordAndConsumeResetToken`|パスワードハッシュ更新とトークンクリアが同時に反映されること／`passwordResetRequired`に偽を渡した場合に`password_reset_required`が偽へ更新され、真を渡した場合は真のまま維持されること|
 |`UserRoleRepositoryImpl.FindByName` / `FindByID`、`HighSchoolRepositoryImpl.Exists` / `FindByID`、`GradeRepositoryImpl.Exists` / `FindByID`|存在する/しないIDでの判定結果|
 
 ## Handler Test
@@ -1244,7 +1285,8 @@ AccountRepository・UserRoleRepositoryはいずれも一意検索または存在
 |-|-|
 |ログイン→Cookie発行→ログアウト|ログアウト後、同一JWTでの再アクセスが認証エラーになること（`jti`不一致の確認）|
 |ロール別登録（通常）|student/teacher/adminそれぞれで正常に登録が完了すること|
-|生徒コードによる仮アカウント有効化|生徒CSVインポート機能で事前作成された仮アカウントが、生徒コード指定の登録リクエストにより有効化されること、有効化後は通常のログインが可能になること|
+|生徒コードによる仮アカウント有効化|`user` Contextの`CreateStudentAccount`（生徒CSVインポート等）で事前作成された仮アカウントが、生徒コード指定の登録リクエストにより有効化されること、有効化後は通常のログインが可能になること|
+|招待メールのリンクからのパスワード設定|`user` Contextが招待待ちで作成した教員・生徒のアカウントが、`PATCH /api/v1/password/reset`でのパスワード設定により招待完了（`password_reset_required`が偽）になること／管理者のアカウントは、パスワードを設定できるが`password_reset_required`が真のまま変わらないこと／パスワード設定で招待完了になった生徒アカウント（`activated_at`は未設定）に、生徒コード指定の登録リクエストを行うと`ErrProvisionalAccountAlreadyActivated`（422）になること|
 |パスワードリセット一連フロー|リクエスト→トークン検証→変更の一連の流れが正常に完了し、消費済みトークンの再利用が拒否されること、退会済みユーザーに対してはトークンが発行されないこと|
 |`GET /api/v1/me`|ログイン中ユーザー自身の情報が、profile Context由来の情報（氏名・個人情報・住所）を含めて正しく返却されること|
 
@@ -1267,6 +1309,8 @@ AccountRepository・UserRoleRepositoryはいずれも一意検索または存在
 |ログイン用`FindByEmail`は退会済みアカウントも対象に含め（`Unscoped()`使用）、パスワードリセット用`FindByEmailExcludingDeleted`のみGORM標準の論理削除自動除外に委ねる設計とした|②「11. Repository設計」がログイン時の退会済み除外要否を明示的に未決定としているため、現状の挙動を変えない（除外しない）解釈を採用した|推測|
 |`ProfileReader`インターフェース（profile Context参照）を`application/usecase`層に具体的なメソッドシグネチャとして定義した|旧版は「概念のみに留め確定させない」としていたが、本タスクで並行してprofile Context側の③文書（プロフィール管理機能_Go実装仕様書）を作成するため、参照可能なデータ構造を踏まえて具体化した|推測（profile Context側の③文書と合わせて最終確定する）|
 |HighSchoolRepositoryImpl / GradeRepositoryImplを、GORMモデルの直接参照ではなくmaster-data Context（共通マスタ参照機能）が公開する`ExistsHighSchool` / `FindHighSchoolByID` / `ExistsGrade` / `FindGradeByID`関数の呼び出しとして実装した|②「11. Repository設計」はHighSchool/GradeRepositoryを「参照専用」とするのみで実装方式までは指定していない。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従い、本タスクで並行して確定した共通マスタ参照機能_Go実装仕様書側の関数シグネチャに合わせて実装方式を確定した|②からの補足（③間の整合を取るための具体化であり、新しい業務ルールの追加ではない）|
+|`Account.CompleteInvitation`が`roleName string`を引数に取り、`ChangePasswordUseCase`が`UserRoleRepository.FindByID`で取得したロール名を渡す構成とした|②「6. Entity設計」「10. 状態遷移図」が、パスワード設定の成功時に教員・生徒のみ招待待ちを解消する（管理者は解消しない）遷移をAccountの責務と定めているが、`Account`は`UserRoleID`のみを保持し、②はメソッドシグネチャを規定していないため|推測（②の遷移規則を実装に落とし込むための判断）|
+|`AccountRepository.UpdatePasswordAndConsumeResetToken`が`passwordResetRequired bool`引数を受け取り、パスワードハッシュ更新・トークン消費・招待状態の反映を1操作とした（`NewAccount`も`passwordResetRequired`引数を受け取る）|②「5. Aggregate設計」「14. Transaction設計」が、パスワード更新・トークン消費・招待待ちの解消を1トランザクションと定めているため。Account EntityのフィールドにあるPasswordResetRequiredを、ファクトリと永続化の双方で受け渡す必要がある|②の記載を実装に落とし込むための判断（推測）|
 |`VerifyResetToken`のレスポンスを個別エラーコードではなく`Valid: bool`を含む200レスポンスとした|②のStatus Code一覧に`password/verify`固有のエラーステータスの明記がないため、既存の確認系エンドポイントの一般的な設計として判断した|推測|
 |`LoginResponse` / `RegisterResponse`を`UserResponse`という単一structに統合した|②「19. API仕様」がログイン・登録・`GET /api/v1/me`のレスポンスをすべて同形式としているため、旧版の別struct定義を統合した|②の記載をより正確に反映するための判断（推測ではない）|
 

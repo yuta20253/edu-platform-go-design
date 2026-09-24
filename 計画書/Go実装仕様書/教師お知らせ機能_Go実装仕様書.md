@@ -143,6 +143,7 @@ internal/announcement/presentation/routes.go
 |scheduledAt|*valueobject.ScheduledAt|公開予定日時（`scheduled`のときのみ設定）|
 |publishedAt|*valueobject.PublishedAt|公開確定日時（`published`のときのみ設定）|
 |targets|[]*AnnouncementTarget|対象指定群（Aggregate内の子Entity）|
+|systemGenerated|bool|システムが自動生成した通知かどうか（`system_generated`）。教師が作成するお知らせは常に`false`。作成後は変更しない（②「6. Entity設計」）|
 
 - 公開method一覧:
 
@@ -156,6 +157,7 @@ internal/announcement/presentation/routes.go
 |ScheduledAt|-|*valueobject.ScheduledAt|公開予定日時を返す|
 |PublishedAt|-|*valueobject.PublishedAt|公開確定日時を返す|
 |Targets|-|[]*AnnouncementTarget|対象指定群を返す|
+|IsSystemGenerated|-|bool|システムが自動生成した通知かどうかを返す|
 |IsOwnedBy|userID uint|bool|指定ユーザーが発信者本人かどうかを判定する|
 |Schedule|scheduledAt time.Time|error|`draft`→`scheduled`へ遷移し、`ScheduledAt`の未来日時検証を行う。許可されない遷移の場合はDomain Errorを返す|
 |Publish|-|error|`draft`または`scheduled`→`published`へ遷移し、`PublishedAt`未設定時は現在時刻を確定する。許可されない遷移の場合はDomain Errorを返す|
@@ -163,6 +165,7 @@ internal/announcement/presentation/routes.go
 - 不変条件（コンストラクタ／ファクトリで保証する内容）:
   - ファクトリ関数 `NewAnnouncement(publisherID uint, title, content string, targets []*AnnouncementTarget) (*Announcement, error)` で生成する
   - 生成時の状態は必ず `draft` とする（②「6. Entity設計」ライフサイクル: 作成（draft）→…）
+  - `NewAnnouncement`で生成するお知らせの`systemGenerated`は必ず`false`とする。システムが自動生成する通知（`systemGenerated = true`、公開済みの状態で作成）の生成は、通知の発行元の機能が本Contextの公開する作成処理を呼び出して行い、本書の対象外とする（②「3. Bounded Context」）
   - `targets` が空の場合は生成不可とする（②「5. Aggregate設計」: 対象未指定は作成不可）
   - `Schedule` / `Publish` は `valueobject.AnnouncementStatus.CanTransitionTo` による許可された遷移のみを受け付ける（②「7. Value Object設計」AnnouncementStatus）
 
@@ -270,7 +273,7 @@ type AnnouncementRepository interface {
 |メソッド|責務|
 |-|-|
 |FindVisibleByViewer|閲覧者が閲覧可能な公開中お知らせを、公開日時降順・ページネーションで取得する（一覧・非authoredタブ）|
-|FindByAuthor|発信者本人が作成したお知らせを取得する（一覧・authoredタブ）|
+|FindByAuthor|発信者本人が作成したお知らせを取得する（一覧・authoredタブ）。システムが自動生成した通知（`systemGenerated = true`）は、発信者が本人であっても含めない|
 |FindVisibleByID|閲覧者が閲覧可能な公開中お知らせを単一取得する（詳細表示）|
 |FindByIDAndOwner|発信者本人が作成したお知らせを所有権チェック込みで単一取得する（状態更新用）|
 |Create|Announcement本体とAnnouncementTarget群を1つの整合性単位として永続化する|
@@ -456,14 +459,14 @@ func (p *AnnouncementVisibilityPolicy) BuildVisibilityCondition(
 |メソッド|条件・ソート・ページネーション|
 |-|-|
 |FindVisibleByViewer|`status = published`かつ`published_at <= now`、かつ対象条件（`target_type = all_users`、または`target_type = by_role AND role_id = viewer.RoleID`、または`target_type = by_grade AND grade_id = viewer.GradeID`、または`target_type = by_school AND (発信者のschool_idがviewer.SchoolIDと一致)`、または`target_type = by_user AND user_id = viewer.UserID`）のOR条件。`published_at`降順、`page.Page`/`page.PerPage`によるOFFSET/LIMIT|
-|FindByAuthor|`publisher_id = ?`、`created_at`降順、OFFSET/LIMIT|
+|FindByAuthor|`publisher_id = ?`かつ`system_generated = false`、`created_at`降順、OFFSET/LIMIT|
 |FindVisibleByID|`id = ?`かつFindVisibleByViewerと同じ可視条件|
 |FindByIDAndOwner|`id = ?`かつ`publisher_id = ?`|
 |Create|`announcements`へ1件INSERT後、`announcement_targets`へ対象件数分INSERT（詳細は「8. Transaction実装方針」）|
 |Update|`announcements`の`status` / `scheduled_at` / `published_at`をUPDATE|
 |FindRecentPublished|`status = published`、`published_at`降順、`LIMIT limit`|
 
-- Entity ⇔ GORMモデルの変換方針: `infrastructure/repository`内に非公開の変換関数（`toEntity(m gorm.AnnouncementModel, targets []gorm.AnnouncementTargetModel) (*entity.Announcement, error)` / `fromEntity(a *entity.Announcement) (gorm.AnnouncementModel, []gorm.AnnouncementTargetModel)`）を置き、Repository実装メソッド内から呼び出す。EntityのValue Object（`AnnouncementStatus`等）とGORMモデルのプリミティブ型（`string`等）の相互変換もこの関数内で行う。
+- Entity ⇔ GORMモデルの変換方針: `infrastructure/repository`内に非公開の変換関数（`toEntity(m gorm.AnnouncementModel, targets []gorm.AnnouncementTargetModel) (*entity.Announcement, error)` / `fromEntity(a *entity.Announcement) (gorm.AnnouncementModel, []gorm.AnnouncementTargetModel)`）を置き、Repository実装メソッド内から呼び出す。EntityのValue Object（`AnnouncementStatus`等）とGORMモデルのプリミティブ型（`string`等）の相互変換もこの関数内で行う。`announcements`の`system_generated`列（bool。既存Rails DBの列）は、Entityの`systemGenerated`と相互変換する（②「17. DB設計方針」）。
 
 ### infrastructure/repository.GradeReferenceRepository / UserReferenceRepository / TeacherPermissionReferenceRepository
 
@@ -684,7 +687,7 @@ Gorm規約に従い、構造体名の複数形がそのままテーブル名規�
 「5. Infrastructure層設計」記載のクエリ内容表のとおり。SQL文そのものはここに記載しない。要点のみ再掲する。
 
 - 閲覧可能条件: `status = published AND published_at <= now()` に加え、対象条件（all_users / by_role / by_grade / by_school / by_user）のOR条件を組み合わせる
-- 作成者条件: `publisher_id = ?`
+- 作成者条件: `publisher_id = ?`かつ`system_generated = false`（システムが自動生成した通知を除く）
 - ソート: 一覧・詳細とも`published_at`降順（`FindByAuthor`のみ`created_at`降順とし、下書き・予約中も含めて新しい順に表示する）
 - ページネーション: `Page`/`PerPage`からOFFSET/LIMITを算出する
 - ダッシュボード向け: `status = published`、`published_at`降順、`LIMIT limit`
@@ -706,7 +709,7 @@ Gorm規約に従い、構造体名の複数形がそのままテーブル名規�
 |AnnouncementStatus.CanTransitionTo|draft→scheduled/published、scheduled→publishedが許可されること／published→他の状態が拒否されること|
 |Announcement.Schedule|draft状態から未来日時でscheduledへ遷移できること／過去日時ではErrScheduledAtNotFutureとなること／published状態からはErrInvalidStatusTransitionとなること|
 |Announcement.Publish|draft/scheduledからpublishedへ遷移し、PublishedAtが確定すること／published状態から再度呼ぶとErrInvalidStatusTransitionとなること|
-|NewAnnouncement|対象指定が0件の場合ErrEmptyTargetsとなること／初期状態がdraftであること|
+|NewAnnouncement|対象指定が0件の場合ErrEmptyTargetsとなること／初期状態がdraftであること／`systemGenerated`が`false`であること|
 |NewTargetCriteria|target_typeごとに必要な参照先が不足している場合にErrInvalidTargetCriteriaとなること|
 |AnnouncementTargetingPolicy.Validate|own_grade権限の教師が自学年以外を指定した場合にErrTargetPermissionViolationとなること／同校でない学年・ユーザーを指定した場合にErrTargetSchoolMismatchとなること|
 
@@ -714,7 +717,7 @@ Gorm規約に従い、構造体名の複数形がそのままテーブル名規�
 
 |対象|テストケース|
 |-|-|
-|ListAnnouncementsUseCase|tab=authoredで発信者本人の一覧のみ取得すること／それ以外で閲覧可能な公開中お知らせのみ取得すること|
+|ListAnnouncementsUseCase|tab=authoredで発信者本人の一覧のみ取得すること（システムが自動生成した通知が含まれないこと）／それ以外で閲覧可能な公開中お知らせのみ取得すること（システムが自動生成した通知が対象条件に合致する場合は含まれること）|
 |ShowAnnouncementUseCase|閲覧可能なお知らせを取得できること／存在しない・閲覧不可の場合にErrAnnouncementNotFoundを返すこと|
 |CreateAnnouncementUseCase|正しい入力で作成が成功すること／targetingPolicy違反時にDomain Errorがそのまま伝播すること／参照先不存在時にErrReferenceNotFoundを返すこと|
 |UpdateAnnouncementStatusUseCase|所有者本人による正しい状態遷移が成功すること／所有者でない場合にErrNotOwnerを返すこと／不正な状態遷移がDomain Errorとして伝播すること|
@@ -724,7 +727,7 @@ Gorm規約に従い、構造体名の複数形がそのままテーブル名規�
 |対象|テストケース|
 |-|-|
 |FindVisibleByViewer|対象条件（all_users/by_role/by_grade/by_school/by_user）ごとに正しく絞り込まれること／未公開・未来日時のscheduledが含まれないこと／ページネーションが正しく機能すること|
-|FindByAuthor|発信者本人のお知らせのみ取得され、状態を問わず含まれること|
+|FindByAuthor|発信者本人のお知らせのみ取得され、状態を問わず含まれること／発信者が本人であっても`system_generated = true`のお知らせは含まれないこと|
 |Create|Announcement本体とAnnouncementTarget群が一括で永続化されること／一部失敗時にロールバックされること|
 |Update|状態・公開予定日時・公開確定日時の更新が反映されること|
 |FindRecentPublished|公開中のお知らせが公開日時降順で上位N件取得されること|
@@ -764,5 +767,6 @@ Gorm規約に従い、構造体名の複数形がそのままテーブル名規�
 |`ErrReferenceNotFound`のHTTP Statusを422とする対応|②「14. Error設計」でApplication Errorに分類されているが個別Statusは明記されていないため、「入力・業務ルール違反」の422区分に含める形で判断した|推測|
 |`TargetCriteria`における`by_grade`の必須項目（`user_role_id`と`grade_id`の両方を要するかの解釈）|②本文の記述をそのまま転記するにとどめ、解釈の確定は行っていない。実装者は②「7. Value Object設計」TargetCriteriaの原文を確認すること|②原文をそのまま引用（解釈は保留）|
 |各外部参照Contextの具体的なRepository・メソッド名（実装時の接続先）|①未提供のため参照不可。各Context自身の②/③文書に依存するため本書では確定できない|参照不可につき保留|
+|Announcement Entityに`systemGenerated`を追加し、`FindByAuthor`の条件へ`system_generated = false`を含めた。システムが自動生成する通知の作成処理（`systemGenerated = true`、公開済みで作成）は、本書の対象外とした|Rails現行では、面談・クラス編成申請の通知（`Common::CreateSystemAnnouncementService`）が、通知の当事者を`publisher_id`に設定してお知らせを作成するため、`publisher_id`だけでは「自身が作成したお知らせ」を判定できない。②「3. Bounded Context」・「6. Entity設計」は、この区分を保持し、`authored`から除外することを定めている。作成処理そのもの（お知らせ実体作成の公開手段）は、面談・教師面談・クラス編成の各②が「Announcement Contextが提供する仕組み」として言及するのみで、具体的な仕様は本書に記載がないため、本書では区分の保持と一覧の除外のみを扱う|②の記載どおり（作成処理の公開手段は保留）|
 
 ---

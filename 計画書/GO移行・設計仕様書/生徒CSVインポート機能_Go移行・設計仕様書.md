@@ -6,7 +6,7 @@
 
 ## 機能概要
 
-教師がCSVファイルを使って、同校の生徒アカウントをまとめて登録・更新できる機能である。Rails現行仕様では、実際のインポート前に内容を検証する事前検証（dry run、同期・DB書き込みなし）と、インポート履歴（ImportHistory）を作成した上で非同期にCSVを処理するインポート実行（create、202 Accepted）の2操作を提供する。行単位のエラーはImportErrorとして記録される。インポートによって新規作成された生徒アカウントには、仮パスワード発行と招待メール送信が行われる。
+教師がCSVファイルを使って、同校の生徒アカウントをまとめて登録・更新できる機能である。Rails現行仕様では、実際のインポート前に内容を検証する事前検証（dry run、同期・DB書き込みなし）と、インポート履歴（ImportHistory）を作成した上で非同期にCSVを処理するインポート実行（create、202 Accepted）の2操作を提供する。行単位のエラーはImportErrorとして記録される。全行が有効でインポートが成功した場合は、インポートされた各生徒（新規作成か既存生徒の更新か）が成功行（ImportedStudent）として履歴ごとに記録される。この記録は、教師がインポート結果を確認し、生徒コードを配布するために、教師インポート履歴管理機能が参照する。インポートによって新規作成された生徒アカウントには、仮パスワード発行と招待メール送信が行われる。
 
 ## 利用者
 
@@ -17,6 +17,7 @@
 - 大量の生徒データを一括で登録・更新できるようにし、手動登録の工数を削減する
 - 実行前に内容を検証できるようにし、誤ったデータの投入を防ぐ
 - 処理結果を履歴として残し、失敗した行を特定できるようにする
+- 成功した行の生徒を履歴ごとに記録し、インポート後に、どの生徒が新規作成・更新されたかを確認できるようにする
 - 実行した教師の所属高校に対象を厳密にスコープし、他校データへの誤登録を防止する
 
 ---
@@ -47,7 +48,8 @@
 
 - CSVアップロードの受付（事前検証・インポート実行の両方）
 - インポート処理の進行状態管理
-- 行単位の成功・失敗記録
+- 行単位の成功・失敗記録（失敗はImportError、成功は、インポートされた生徒の記録であるImportedStudent）
+- 本Contextが記録したインポート履歴（実行結果・成功行・エラー明細）の教師向け参照は、教師インポート履歴管理機能（同一Contextの参照専用のUseCase群）が担う
 - 新規行の生徒アカウント作成の依頼（`user` Contextの`CreateStudentAccount`を呼ぶ。仮パスワードの発行・生徒番号の発行・招待メール送信の依頼は`user`が行う）
 - 既存生徒情報（氏名・氏名カナ・メールアドレス・学年・クラス）の更新（`user` Contextは更新を持たないため、本Contextの責務とする。招待メールは送らず、`password_reset_required`にも触れない）
 
@@ -108,19 +110,20 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 
 - ImportHistory
 - ImportError（行単位のエラー情報）
+- ImportedStudent（成功行の記録。インポートされた生徒と、新規作成か更新かの区別）
 
 ## Aggregate境界
 
 - ImportHistoryが「1回のインポート処理の進行状態・結果集計」を一貫して管理する単位とする
-- ImportErrorはImportHistoryに従属し、単独では存在しない
+- ImportErrorとImportedStudentはImportHistoryに従属し、単独では存在しない
 - 生徒アカウント（User）はAggregateに含めない。生徒アカウントの真正な管理はUser Contextの責務であり、student-import Contextからは、新規行については「作成を依頼する対象」（`user`の`CreateStudentAccount`）、既存生徒については「更新する対象」（本Contextが`users`の限定した列を書き換える）として外部参照する
 
 ## 整合性を保証する単位
 
-- 1回のインポート処理におけるImportHistoryの状態（status / success_count / error_count / total_count）とImportErrorの一覧が常に整合していること
+- 1回のインポート処理におけるImportHistoryの状態（status / success_count / error_count / total_count）とImportErrorの一覧、およびImportedStudentの一覧が常に整合していること（`completed`の履歴にのみImportedStudentが存在し、`failed`の履歴には存在しない）
 - 全行の検証結果が確定するまで生徒データへの反映を一切行わないという、全件成功・全件失敗の整合性
 
-理由: ImportHistoryの状態は全行の検証結果に依存して決定され、1行でも失敗があれば生徒データに一切反映しないという強い整合性要件があるため、ImportHistoryとImportErrorを1つのAggregateとして扱い、集計結果と状態の不整合を防ぐ。生徒データ自体の整合性はUser Context側の責務であるため、Aggregateを分離する。
+理由: ImportHistoryの状態は全行の検証結果に依存して決定され、1行でも失敗があれば生徒データに一切反映しないという強い整合性要件があるため、ImportHistoryとImportError・ImportedStudentを1つのAggregateとして扱い、集計結果と状態の不整合を防ぐ。ImportedStudentは、生徒データへの反映と同じ全件成功・全件失敗の単位で確定する必要があるため、生徒アカウントの反映と同一トランザクションで記録する。生徒データ自体の整合性はUser Context側の責務であるため、Aggregateを分離する。
 
 ---
 
@@ -144,6 +147,14 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 - 状態変化: なし（作成のみ）
 - 保持する責務: row_number、失敗理由（message）を保持する
 - 判断根拠: 失敗行の特定と原因把握という業務要件を満たすための情報であり、ImportHistoryに従属する意味のある業務データであるため
+
+## ImportedStudent
+
+- 役割: インポートが成功した行の生徒を表す概念。どの生徒が、その履歴で新規作成されたか、既存生徒の更新として扱われたかを記録する
+- ライフサイクル: 全行が有効でインポートが成功した場合に、生徒データへの反映と同時に、行ごとに1件作成される。更新・削除は行わない（履歴の一部として保持される）
+- 状態変化: なし（作成のみ）
+- 保持する責務: 対象の生徒（生徒IDのみ。氏名・学年等の生徒情報は保持しない）と、新規作成か更新かの区別（`ImportedStudentAction`）を保持する。同じ履歴に同じ生徒を重複して記録しない
+- 判断根拠: 教師が、インポート結果として「誰が新規作成・更新されたか」を確認し、生徒コードを配布できるようにするための業務データであり、ImportHistoryに従属する意味のある記録であるため。生徒の氏名等はUser Contextが真正な情報源であるため、参照時に解決し、ImportedStudent自体には複製しない（参照時点の生徒情報を表示する。教師インポート履歴管理機能を参照）
 
 ## StudentImportRow（インポート処理中の一時的な行表現）
 
@@ -171,6 +182,12 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 - 採用理由: 進行状態を文字列のまま扱うと、不正な遷移や表記揺れが起きやすいため
 - 独自ルール: processingから開始し、全行の検証結果によってcompleted/failedのいずれかに確定する。終了後の再遷移は許容しない。管理者問題インポート機能の「一部失敗」に相当する状態は持たない
 - Entity属性ではなくValue Objectにする理由: 状態遷移という意味をコード上に明示し、業務ルールの変更に対する影響範囲を型に閉じ込めるため
+
+## ImportedStudentAction
+
+- 採用理由: インポートされた生徒が「新規作成」か「既存生徒の更新」かの2値であり、判定は`StudentAccountUpsertPolicy`が行う。文字列のまま扱うと表記揺れが起きやすく、教師向けの参照でも同じ2値をそのまま使うため
+- 独自ルール: `created`（新規作成）・`updated`（既存生徒の更新）の2値のみ。これ以外の値は許容しない
+- Entity属性ではなくValue Objectにする理由: 2値に業務上の意味があり、生成元（Upsert判定）と参照先（教師インポート履歴管理機能のレスポンス）で同じ意味を共有するため。ImportModeと異なり、不正値のデフォルト解決は行わない（不正値は許容しない）
 
 ## StudentRowValidationResult
 
@@ -206,7 +223,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 
 ## StudentAccountUpsertPolicy
 
-- 責務: 検証済みの行データについて、メールアドレスが同校の既存生徒と一致するかどうかから、新規作成すべきか既存生徒情報を更新すべきかを判定する
+- 責務: 検証済みの行データについて、メールアドレスが同校の既存生徒と一致するかどうかから、新規作成すべきか既存生徒情報を更新すべきかを判定し、反映した結果（対象の生徒と、新規作成か更新かの区別）を呼び出し元へ返す。返却された結果は、UseCaseがImportedStudentとして記録する
 - Entityへ持たせない理由: この判定はStudentImportRow（行データ）とUser Context側の既存生徒データの両方を横断して必要とするため
 - 判断根拠: 新規作成/更新の判定は業務上重要なルールであり、UseCaseに直接書くと再利用性・テスト容易性が下がるため独立したポリシーとして切り出す。判定結果に応じて、新規作成は`user`の`CreateStudentAccount`、既存生徒の更新は本Contextの`StudentAccountRepository`を呼び分ける
 
@@ -233,6 +250,17 @@ classDiagram
       +importHistoryId
       +rowNumber int
       +message string
+    }
+    class ImportedStudent {
+      +id
+      +importHistoryId
+      +userId
+      +action ImportedStudentAction
+    }
+    class ImportedStudentAction {
+      <<ValueObject>>
+      created
+      updated
     }
     class StudentImportRow {
       <<ValueObject（一時表現）>>
@@ -281,6 +309,9 @@ classDiagram
     }
 
     ImportHistory "1" *-- "many" ImportError : 保有
+    ImportHistory "1" *-- "many" ImportedStudent : 成功行を保有
+    ImportedStudent --> ImportedStudentAction : 保持
+    ImportedStudent ..> Student : 生徒IDで外部参照
     ImportHistory --> ImportMode : 保持
     ImportHistory --> ImportStatus : 保持
     StudentRowValidationPolicy ..> StudentImportRow : 検証
@@ -291,6 +322,7 @@ classDiagram
     StudentAccountUpsertPolicy ..> StudentImportRow : 判定
     StudentAccountUpsertPolicy ..> StudentAccountCreationRepository : 新規行の作成を依頼
     StudentAccountUpsertPolicy ..> Student : 既存生徒を更新
+    StudentAccountUpsertPolicy ..> ImportedStudentAction : 新規作成か更新かを返す
 ```
 
 ---
@@ -329,6 +361,15 @@ stateDiagram-v2
 - 責務: 行単位エラーの一括作成、ImportHistory IDによるエラー一覧取得
 - 保持しない責務: エラー内容の妥当性判断
 - 判断根拠: 永続化に特化させるため
+
+## ImportedStudentRepository
+
+- 管理対象: ImportedStudent（成功行の記録）
+- 責務:
+  - 成功行の作成（インポート実行時に、生徒データへの反映と同一トランザクションで、行ごと、または一括で記録する）
+  - ImportHistory IDによる成功行一覧の取得（記録された順。教師インポート履歴管理機能の詳細取得・CSVエクスポートで、生徒の表示情報を付与した参照用の形として取得する）
+- 保持しない責務: 新規作成か更新かの判定（`StudentAccountUpsertPolicy`の責務）、生徒アカウント自体の作成・更新、CSV出力形式への変換
+- 判断根拠: ImportHistory・ImportErrorと同じく、永続化と検索に特化させる。書き込み（本機能）と読み取り（教師インポート履歴管理機能）が同じAggregateへのアクセスであるため、同じRepositoryにまとめる
 
 ## GradeClassResolutionRepository（School/Grade Context提供・参照専用）
 
@@ -380,8 +421,8 @@ stateDiagram-v2
 - 目的: 非同期ワーカーから呼び出され、CSVのヘッダー・全行を検証し、全行が有効な場合のみ生徒データへ反映して結果をImportHistoryへ反映する
 - 入力: import history id
 - 出力: 更新後のImportHistory（状態・カウント）
-- トランザクション範囲: ヘッダー検証・全行検証・（全行有効な場合の）生徒データへの反映・ImportHistoryの終了状態更新を1つのトランザクションで扱う
-- 呼び出すRepository: ImportHistoryRepository, ImportErrorRepository, GradeClassResolutionRepository, StudentAccountRepository（既存生徒の更新）, StudentAccountCreationRepository（新規行の作成。`user`の`CreateStudentAccount`）
+- トランザクション範囲: ヘッダー検証・全行検証・（全行有効な場合の）生徒データへの反映と成功行（ImportedStudent）の記録・ImportHistoryの終了状態更新を1つのトランザクションで扱う
+- 呼び出すRepository: ImportHistoryRepository, ImportErrorRepository, ImportedStudentRepository（全行有効な場合の成功行の記録）, GradeClassResolutionRepository, StudentAccountRepository（既存生徒の更新）, StudentAccountCreationRepository（新規行の作成。`user`の`CreateStudentAccount`）
 - 判断根拠: 「1行でも不正な行があれば全体を失敗とし、有効な行についても一切反映しない」という全件成功・全件失敗の業務要件があるため、管理者問題インポート機能とは異なり行/バッチ単位に分割せず、UseCase全体を1トランザクションとする（詳細は「14. Transaction設計」を参照）
 
 ---
@@ -406,6 +447,7 @@ sequenceDiagram
     participant SR as StudentAccountRepository
     participant CR as StudentAccountCreationRepository(user)
     participant ER as ImportErrorRepository
+    participant IR as ImportedStudentRepository
 
     H->>SU: Execute(current teacher, file, mode)
     SU->>HR: ImportHistoryを作成（processing）
@@ -427,6 +469,8 @@ sequenceDiagram
             EU->>UP: 行ごとに新規作成/更新を判定
             UP->>CR: 新規行はCreateStudentAccountを依頼
             UP->>SR: 既存生徒の行は更新
+            UP-->>EU: 対象の生徒と、新規作成か更新かの区別
+            EU->>IR: 成功行（ImportedStudent）を記録
             EU->>HR: statusをcompletedに更新
         else 1行でも不正
             EU->>ER: 不正行をImportErrorとして記録
@@ -451,7 +495,7 @@ flowchart TD
     G --> H{同校の既存生徒と<br/>メールが一致するか}
     H -- Yes --> I[既存生徒情報を更新<br/>（本Context。招待メールなし）]
     H -- No --> J[userのCreateStudentAccountで<br/>新規生徒アカウントを作成<br/>（仮パスワード・生徒番号の発行・招待メール送信の依頼）]
-    I --> K[全行の反映が完了]
+    I --> K[全行の反映と<br/>成功行（ImportedStudent）の記録が完了]
     J --> K
     K --> F2[全体をcompletedとして確定]
     F1 --> L[success_count/error_count/total_countを記録]
@@ -471,11 +515,11 @@ flowchart TD
 ## Transaction終了位置
 
 - StartStudentImportUseCaseはImportHistory作成完了時にコミットする
-- ExecuteStudentImportUseCaseは、ヘッダー検証・全行検証・（全行有効な場合の）生徒データへの反映・ImportHistoryの終了状態更新までを1つのトランザクションとしてコミットする
+- ExecuteStudentImportUseCaseは、ヘッダー検証・全行検証・（全行有効な場合の）生徒データへの反映と成功行（ImportedStudent）の記録・ImportHistoryの終了状態更新までを1つのトランザクションとしてコミットする
 
 ## 理由
 
-基本方針は「UseCase単位」でのトランザクション管理であり、管理者問題インポート機能とは異なり本機能はこの基本方針からの逸脱を必要としない。むしろ「1行でも不正な行があれば、有効な行についても生徒データへの反映を一切行わない」という全件成功・全件失敗の業務要件そのものが、UseCase全体を1つのトランザクションとすることと合致する。管理者問題インポート機能が行/バッチ単位にトランザクションを分割したのは「部分的成功を許容する」業務要件のためであり、本機能にはその要件がないため、単一トランザクションのままで業務要件を満たせる。新規行の作成を依頼する`user`の`CreateStudentAccount`は、呼び出し側のトランザクションに参加する（`user`②「14. Transaction設計」）ため、1行でも失敗した場合は、それまでに作成したアカウントと招待メールの送信依頼もロールバックされる。
+基本方針は「UseCase単位」でのトランザクション管理であり、管理者問題インポート機能とは異なり本機能はこの基本方針からの逸脱を必要としない。むしろ「1行でも不正な行があれば、有効な行についても生徒データへの反映を一切行わない」という全件成功・全件失敗の業務要件そのものが、UseCase全体を1つのトランザクションとすることと合致する。管理者問題インポート機能が行/バッチ単位にトランザクションを分割したのは「部分的成功を許容する」業務要件のためであり、本機能にはその要件がないため、単一トランザクションのままで業務要件を満たせる。新規行の作成を依頼する`user`の`CreateStudentAccount`は、呼び出し側のトランザクションに参加する（`user`②「14. Transaction設計」）ため、1行でも失敗した場合は、それまでに作成したアカウントと招待メールの送信依頼、および記録した成功行（ImportedStudent）もロールバックされる（失敗した履歴に成功行は残らない）。
 
 ---
 
@@ -629,11 +673,11 @@ Rails現行仕様でもActiveJob（`perform_later`）によって同期処理と
 
 ## 現行DBを利用するか
 
-- 既存Rails DBを継続利用する（`import_histories` / `import_errors` テーブルは、管理者問題インポート機能と共有する）
+- 既存Rails DBを継続利用する（`import_histories` / `import_errors` テーブルは、管理者問題インポート機能と共有する。成功行の記録には、既存Rails DBの`imported_students`テーブル（`import_history_id` / `user_id` / `action`。`import_history_id`と`user_id`の組で一意）を、本Contextが所有するテーブルとして利用する）
 
 ## Schema変更有無
 
-- あり（ファイル添付方式のみ。管理者問題インポート機能と共通の変更）
+- あり（ファイル添付方式のみ。管理者問題インポート機能と共通の変更）。`imported_students`は既存Rails DBのテーブルをそのまま利用し、Go設計での追加変更はない
 
 ## 変更理由
 
@@ -669,7 +713,7 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 - 操作種別: 作成、更新（状態・カウント）、参照
 - 主な検索条件・絞り込み条件: `user_id`、`import_type='student'`
 - 関連テーブルとの結合: 不要
-- ページネーション・ソート: 作成日時降順（Rails現行仕様には教師向けの履歴一覧APIは存在しないため、本Repositoryの参照は主に非同期ワーカーからのID指定取得が中心）
+- ページネーション・ソート: 本機能（インポート実行）における参照は、主に非同期ワーカーからのID指定取得である。教師向けの履歴一覧・詳細参照（状態・期間による絞り込み、並び替え、ページング）は、教師インポート履歴管理機能が同じRepositoryへ検索操作を追加して担う
 
 ## ImportErrorRepository
 
@@ -678,6 +722,14 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 - 主な検索条件・絞り込み条件: `import_history_id`
 - 関連テーブルとの結合: 不要
 - ページネーション・ソート: 不要
+
+## ImportedStudentRepository
+
+- 対象テーブル: `imported_students`
+- 操作種別: 作成（インポート実行時の成功行の記録）、参照（ImportHistory IDによる成功行の取得。教師インポート履歴管理機能）
+- 主な検索条件・絞り込み条件: `import_history_id`
+- 関連テーブルとの結合: 書き込みでは不要。参照では、教師インポート履歴管理機能が生徒の表示情報（`users`・学年・学級）を結合して取得する
+- ページネーション・ソート: 参照は記録された順（IDの昇順）。ページネーションは行わない
 
 ## GradeClassResolutionRepository
 
@@ -701,15 +753,15 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 
 ## Domain Test
 
-- 目的: ImportStatus/ImportModeの正規化ルール、CsvHeaderValidationPolicy・StudentRowValidationPolicyによる検証ロジック、AllOrNothingImportAggregationPolicyによる全件成功・全件失敗の判定ロジック、StudentAccountUpsertPolicyによる新規作成/更新判定ロジックを検証する（新規行が`user`の`CreateStudentAccount`の呼び出しに、既存行が更新に振り分けられること）
+- 目的: ImportStatus/ImportModeの正規化ルール、CsvHeaderValidationPolicy・StudentRowValidationPolicyによる検証ロジック、AllOrNothingImportAggregationPolicyによる全件成功・全件失敗の判定ロジック、StudentAccountUpsertPolicyによる新規作成/更新判定ロジック（新規行が`user`の`CreateStudentAccount`の呼び出しに、既存行が更新に振り分けられること、および対象の生徒と新規作成か更新かの区別が返ること）、ImportedStudentの不変条件（同じ履歴に同じ生徒を重複して記録しないこと、`ImportedStudentAction`が2値のみであること）を検証する
 
 ## UseCase Test
 
-- 目的: DryRunStudentImportUseCase（DB書き込みなしの検証結果算出）、StartStudentImportUseCase（受付処理）、ExecuteStudentImportUseCase（全行検証と全件成功・全件失敗の反映）の業務振る舞いを検証する
+- 目的: DryRunStudentImportUseCase（DB書き込みなしの検証結果算出）、StartStudentImportUseCase（受付処理）、ExecuteStudentImportUseCase（全行検証と全件成功・全件失敗の反映。全行有効な場合に、新規作成・更新の区別つきで成功行が記録されること、1行でも不正な場合に成功行が一切残らないこと）の業務振る舞いを検証する
 
 ## Repository Test
 
-- 目的: ImportHistoryRepository / ImportErrorRepositoryの永続化・検索の正確性、GradeClassResolutionRepositoryの名称解決の正確性、StudentAccountRepositoryの更新（招待メールを送らず`password_reset_required`に触れないこと）・メール一致確認の正確性を検証する
+- 目的: ImportHistoryRepository / ImportErrorRepository / ImportedStudentRepositoryの永続化・検索の正確性（ImportedStudentRepositoryは、同じ履歴への同じ生徒の重複記録が一意制約で拒否されること、記録された順に取得できることを含む）、GradeClassResolutionRepositoryの名称解決の正確性、StudentAccountRepositoryの更新（招待メールを送らず`password_reset_required`に触れないこと）・メール一致確認の正確性を検証する
 
 ## Handler Test
 
@@ -728,10 +780,10 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 | Controller（Api::V1::Teacher::ImportStudentsController） | Handler | HTTP入力（ファイル）の受け取りとレスポンス整形に限定する |
 | Form（Teacher::StudentImportForm） | Request DTO + Validation | 入力検証をPresentation層で分離する |
 | Service（Teacher::StudentCsvDryRunService, Csv::DryRunService） | UseCase（DryRunStudentImportUseCase）+ Domain Service | 検証ロジックをDomain Serviceに集約し、DB書き込みを行わない構成を明確化する |
-| Service（Teacher::StudentCsvImportService, Teacher::StudentCsvBatchImportService, Csv::BatchImportService） | UseCase（ExecuteStudentImportUseCase）+ Domain Service（StudentRowValidationPolicy, AllOrNothingImportAggregationPolicy, StudentAccountUpsertPolicy） | CSV処理の手続きと業務ルール判定を分離する |
+| Service（Teacher::StudentCsvImportService, Teacher::StudentCsvBatchImportService, Csv::BatchImportService） | UseCase（ExecuteStudentImportUseCase）+ Domain Service（StudentRowValidationPolicy, AllOrNothingImportAggregationPolicy, StudentAccountUpsertPolicy） | CSV処理の手続きと業務ルール判定を分離する。Railsが行ごとの反映処理の中で行っている成功行の記録は、UpsertPolicyが返す結果をUseCaseがImportedStudentRepositoryへ記録する形にする |
 | Csv::HeaderValidator | Domain Service（CsvHeaderValidationPolicy） | ヘッダー検証ロジックを独立させ、dry run・実行の双方から再利用する |
 | Job（Teacher::StudentCsvImportJob） | Domain Event（StudentImportRequested）購読による非同期実行 | 非同期実行のトリガーを明示的にモデル化する |
-| Model（ImportHistory / ImportError） | Entity（ImportHistory Aggregate） | 状態管理と結果集計をEntity/Aggregateに集約する |
+| Model（ImportHistory / ImportError / ImportedStudent） | Entity（ImportHistory Aggregate） | 状態管理と結果集計、成功行の記録をEntity/Aggregateに集約する |
 | Service（Student::CreateStudentService, Common::CreateUserService） | `user` Contextの`CreateStudentAccount`（本Contextは`StudentAccountCreationRepository`経由で呼ぶ） | アカウント作成の実処理は`user`が共通で担い、CSV一括登録・教師生徒参照機能の単体登録のそれぞれが呼ぶ |
 | Service（Teacher::StudentCsvImportService#update_existing_user） | StudentAccountRepository（既存生徒の更新） | 既存生徒の更新は本Contextの責務とする（`user`は更新を持たない）。招待メールを送らず、`password_reset_required`にも触れない |
 
@@ -762,10 +814,10 @@ RailsのファイルアップロードはActiveStorage（Rails固有の多態関
 |-|-|-|
 |設計パターン|Domain Model|全件成功・全件失敗の集計ルールと行単位の判定ロジックが業務の中核となるため|
 |Context名|student-import|管理者問題インポート機能の`question-import`という命名パターン（対象リソース名＋`-import`）に倣うため|
-|Aggregate|ImportHistory（ImportErrorを含む）|進行状態と結果集計の整合性を保つ単位として妥当なため|
+|Aggregate|ImportHistory（ImportError・ImportedStudentを含む）|進行状態と結果集計の整合性を保つ単位として妥当なため|
 |Transaction境界|UseCase単位（管理者問題インポート機能と異なり分割しない）|全件成功・全件失敗という業務要件が、UseCase全体を1トランザクションとすることと合致するため|
 |Domain Event|採用（StudentImportRequested）|同期受付と非同期処理の境界を明示するため。規約13章の「確実に実行したい処理」に該当する|
-|Value Object|採用（ImportMode / ImportStatus / StudentRowValidationResult）|モード・状態・行結果の意味を明示するため|
+|Value Object|採用（ImportMode / ImportStatus / ImportedStudentAction / StudentRowValidationResult）|モード・状態・成功行の区別（新規作成か更新か）・行結果の意味を明示するため|
 |Domain Service|CsvHeaderValidationPolicy / StudentRowValidationPolicy / AllOrNothingImportAggregationPolicy / StudentAccountUpsertPolicy|検証・集計・新規作成/更新判定という複数の業務ルールを分離するため|
 |Context間連携|新規行の生徒アカウント作成は`user`の`CreateStudentAccount`を呼ぶ。既存生徒の更新は本Contextが持つ|アカウント作成ロジックを`user`に集約して重複実装を避けるため。`user`は更新を持たないため、更新は本Contextに残す|
 

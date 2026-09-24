@@ -22,7 +22,7 @@ Active Record・Domain Model・Event Sourcingは、②「4. 設計パターン�
 
 - `GET /api/v1/teacher/students`（生徒一覧取得。`per_page`による可変ページング対応）
 - `GET /api/v1/teacher/students/:id`（生徒詳細取得）
-- `POST /api/v1/teacher/students`（生徒アカウントの新規登録。新規追加）
+- `POST /api/v1/teacher/students`（生徒アカウントの新規登録）
 
 の3エンドポイントの実装に必要な、`application`関数・`infrastructure`関数・Handler・Routing・Request/Response構造体の実装単位を規定する。①Rails実装（Teacher::StudentsQuery・Teacher::CreateStudentForm等の実装詳細）は本書作成時点で未提供のため参照不可であり、該当箇所は②の記載のみを根拠とする。
 
@@ -52,7 +52,7 @@ internal/student_directory/
     └── response/
 ```
 
-**②からの補足**: アーキテクチャ規約「8. 命名規約」により、`internal/`配下のディレクトリ名は英単語1語または短いスネークケースとする。②のContext名`student-directory`と`internal/`配下のディレクトリ名の対応関係は②に明記がないため、本書では`internal/student_directory`と判断した（推測、旧版からの判断を維持）。今回`presentation/request/`を新設した理由は「6. Presentation層設計」参照。
+**②からの補足**: アーキテクチャ規約「8. 命名規約」により、`internal/`配下のディレクトリ名は英単語1語または短いスネークケースとする。②のContext名`student-directory`と`internal/`配下のディレクトリ名の対応関係は②に明記がないため、本書では`internal/student_directory`と判断した（推測）。`presentation/request/`を設ける理由は「6. Presentation層設計」参照。
 
 ## 作成するファイル一覧
 
@@ -142,7 +142,7 @@ internal/student_directory/presentation/routes.go
 | | `Name` | `string` | 出力 | 氏名 |
 | | `Email` | `string` | 出力 | メールアドレス |
 
-**②からの補足**: `RequestingTeacher`のフィールド構成は②「13. Authorization設計」の記述から導出したものであり、具体的な型・フィールド名は②に明記がないため実装仕様書側の判断である（推測、旧版からの判断を維持）。`ListStudentsOutput.PerPage`は、リクエストで指定された値（または②16章のデフォルト値10・上限100を適用した値）をそのまま返す構成とした。
+**②からの補足**: `RequestingTeacher`のフィールド構成は②「13. Authorization設計」の記述から導出したものであり、具体的な型・フィールド名は②に明記がないため実装仕様書側の判断である（推測）。`ListStudentsOutput.PerPage`は、リクエストで指定された値（または②16章のデフォルト値10・上限100を適用した値）をそのまま返す構成とした。
 
 ## application関数
 
@@ -171,7 +171,7 @@ internal/student_directory/presentation/routes.go
 - トランザクション境界: なし
 - 発生しうるApplication Error: `ErrStudentNotFound`（対象生徒が存在しない、または権限範囲外である場合）
 
-### CreateStudent（新規追加）
+### CreateStudent
 
 - 関数シグネチャ: `func CreateStudent(ctx context.Context, creator StudentAccountCreator, input CreateStudentInput) (CreateStudentOutput, error)`
 - 依存: `StudentAccountCreator`インターフェース（本関数の引数として受け取る。コーディング規約「7. インターフェース」の「利用側で定義する」方針、および規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造（struct化しない）の両方を満たすため、依存をstructフィールドではなく関数引数として受け取る構成とする。定義・実装は「5. Infrastructure層設計」「Context間連携」参照）
@@ -271,7 +271,7 @@ flowchart TD
   - `condition.GradeID`が指定されている場合、`grade_id`が一致する条件を追加
   - 対象が存在しない場合は`found=false`を返す（権限範囲外で条件に一致しない場合も同様に`found=false`となる）
 
-### FindGradeWithClass（`infrastructure/grade_class_query.go`、新規追加）
+### FindGradeWithClass（`infrastructure/grade_class_query.go`）
 
 - 関数シグネチャ: `func FindGradeWithClass(ctx context.Context, gradeID uint, schoolClassID uint) (record GradeClassRecord, found bool, err error)`
 - 発行するクエリ内容:
@@ -280,7 +280,7 @@ flowchart TD
   - いずれかが存在しない場合は`found=false`を返す
 - `GradeClassRecord`のフィールド: `GradeID uint` / `SchoolClassID uint` / `HighSchoolID uint`
 
-**②からの補足**: ②「11. Repository設計」は`GradeRepository`/`SchoolClassRepository`を「School/Grade Context提供・参照専用」としているが、当該Contextの②/③文書は本タスクでは提供されていない。本書では旧版の判断を踏襲し、`student_directory`自身のinfrastructure関数として`grades`/`school_classes`テーブルを直接参照する構成とした（推測。当該Contextの③文書が整備され次第、参照専用の公開関数呼び出しへ置き換える必要がある）。
+**②からの補足**: ②「11. Repository設計」は`GradeRepository`/`SchoolClassRepository`を「School/Grade Context提供・参照専用」としているが、当該Contextの②/③文書は本タスクでは提供されていない。本書では、`student_directory`自身のinfrastructure関数として`grades`/`school_classes`テーブルを直接参照する構成とした（推測。当該Contextの③文書が整備され次第、参照専用の公開関数呼び出しへ置き換える必要がある）。
 
 ### StudentSearchCondition（infrastructure内の検索条件型）
 
@@ -334,7 +334,7 @@ flowchart TD
   3. `application.ShowStudentInput`を組み立て、`application.ShowStudent`を呼び出す
   4. `ErrStudentNotFound`が返却された場合は`404`を返す
   5. 成功時は`StudentDetailResponse`へ変換し、`200`で返す
-- 処理順序（`Create`、新規追加）:
+- 処理順序（`Create`）:
   1. current teacher情報を取得し、`RequestingTeacher`へ変換する（②13章：新規登録は担当学年権限の有無を問わず、同校の教師であれば実行できるため、追加の業務権限チェックは行わない）
   2. リクエストボディを`request.CreateStudentRequest`へバインドし、Presentation Validation（型・必須・フォーマット）を行う
   3. `application.CreateStudentInput`を組み立て、`h.creator`を渡して`application.CreateStudent`を呼び出す
@@ -343,7 +343,7 @@ flowchart TD
 
 ## Request / Response DTO
 
-**②からの補足**: 旧版では正式なRequest DTO packageを設けず、Handler内でクエリ・パスパラメータを直接バインドする方針としていた。`POST /api/v1/teacher/students`の追加に伴い、5フィールドの必須・フォーマット検証が必要になったため、本書では`presentation/request/student_request.go`を新設する（判断理由：コーディング規約「16. 構造体タグ」に従い、Ginの`binding`タグによる宣言的な検証を行うため。`page`・`per_page`・`id`は単純な型変換のみであるため、引き続きHandler内で直接バインドする）。
+**②からの補足**: `POST /api/v1/teacher/students`には5フィールドの必須・フォーマット検証が必要になるため、本書では`presentation/request/student_request.go`を設ける（判断理由：コーディング規約「16. 構造体タグ」に従い、Ginの`binding`タグによる宣言的な検証を行うため。`page`・`per_page`・`id`は単純な型変換のみであるため、引き続きHandler内で直接バインドする）。
 
 ### Request（`presentation/request/student_request.go`）
 
@@ -356,7 +356,7 @@ flowchart TD
 | | `SchoolClassID uint` | `binding:"required"` |
 
 - `page`（クエリパラメータ）: `int`。バインド方式・必須有無は17章参照
-- `per_page`（クエリパラメータ、新規追加）: `int`。未指定時は10、100件を超える場合は100へ正規化する（②16章。正規化自体は`application.ListStudents`が担い、Presentation層では型チェックのみ行う）
+- `per_page`（クエリパラメータ）: `int`。未指定時は10、100件を超える場合は100へ正規化する（②16章。正規化自体は`application.ListStudents`が担い、Presentation層では型チェックのみ行う）
 - `id`（パスパラメータ）: `uint`。整数への変換が必要（②12章「必須チェック: 詳細取得時のid（route由来）を検証する」）
 
 ### Response（`presentation/response/student_response.go`）
@@ -380,7 +380,7 @@ flowchart TD
 | | `TotalPages` | `int` |
 | | `TotalCount` | `int` |
 | | `PerPage` | `int` |
-| `StudentCreateResponse`（新規追加） | `Message` | `string`（②16章「message（『生徒の新規作成に成功しました。』相当）を維持する」） |
+| `StudentCreateResponse` | `Message` | `string`（②16章「message（『生徒の新規作成に成功しました。』相当）を維持する」） |
 
 ## Routing
 
@@ -508,7 +508,7 @@ Transaction Script採用のため、application関数内のガード節で以下
 |-|-|-|
 | 生徒 | `users` | 生徒データの実体はUser Contextが管理する（②3章）。GORMモデル定義自体の所在は17章参照 |
 | 学年 | `grades` | 絞り込み条件・登録時の同校確認・レスポンスの学年情報として参照 |
-| クラス | `school_classes` | 登録時の同校・学年整合性確認として参照（新規追加） |
+| クラス | `school_classes` | 登録時の同校・学年整合性確認として参照 |
 | 所属校 | `high_schools` | 絞り込み条件・レスポンスの所属校情報として参照 |
 
 ## 主要クエリの条件・ソート・ページネーション方針
@@ -535,7 +535,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 
 対象外（Transaction Script採用のため、Domain層を設けない）。
 
-## Application関数 Test（旧: UseCase Test）
+## Application関数 Test（Transaction Script採用のため、UseCase Testの読み替え）
 
 |対象|テストケース|
 |-|-|
@@ -593,7 +593,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 
 | No. | 判断した内容 | 判断理由 | 推測かどうか |
 |-|-|-|-|
-| 1 | `internal/`配下のディレクトリ名を`internal/student_directory`とした | ②のContext名`student-directory`とディレクトリ名の対応関係が②に明記がないため | 推測（旧版からの判断を維持） |
+| 1 | `internal/`配下のディレクトリ名を`internal/student_directory`とした | ②のContext名`student-directory`とディレクトリ名の対応関係が②に明記がないため | 推測 |
 | 2 | ②7章のGradeScope・StudentEnrollmentTarget（Value Object）、②8章のStudentEnrollmentPolicy（Domain Service）を独立した型・structとして実装せず、application関数内のガード節・非公開関数として表現することとした | 規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造の方針に従った。②の設計判断（絞り込み条件・同校妥当性ルールという概念）自体は変更していない | 実装構造上の判断（規約に基づく） |
 | 3 | `StudentAccountCreator`インターフェースをTransaction Script側（`application`パッケージ）で定義し、`user`の`CreateStudentAccount`を呼ぶ薄い実装をDI配線で渡す構成とした | ②「3. Bounded Context」が`user`の`CreateStudentAccount`を直接呼ぶと定めているが、Transaction Script側からの具体的な呼び出し方式（DIの形）までは②に明記がない。`user`③が未作成のため、呼び出す関数の型は`user`③で確定する | 推測 |
 | 4 | `page`・`per_page`パラメータが不正な形式の場合の挙動（400を返す想定） | ②12章では「型チェック」を行うことのみ記載され、具体的な失敗時挙動の記載がない | 推測 |

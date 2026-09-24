@@ -97,6 +97,7 @@ internal/interview/domain/repository/interview_request_repository.go
 internal/interview/domain/repository/interview_request_message_repository.go
 internal/interview/domain/repository/teacher_assignment_repository.go
 internal/interview/domain/repository/student_reference_repository.go
+internal/interview/domain/repository/user_name_reference_repository.go
 internal/interview/domain/repository/teacher_permission_reference_repository.go
 
 internal/interview/domain/service/interview_request_state_transition_policy.go
@@ -135,6 +136,7 @@ internal/interview/infrastructure/repository/interview_request_repository.go
 internal/interview/infrastructure/repository/interview_request_message_repository.go
 internal/interview/infrastructure/repository/teacher_assignment_repository.go
 internal/interview/infrastructure/repository/student_reference_repository.go
+internal/interview/infrastructure/repository/user_name_reference_repository.go
 internal/interview/infrastructure/repository/teacher_permission_reference_repository.go
 internal/interview/infrastructure/repository/transaction_manager.go
 
@@ -357,6 +359,19 @@ type StudentReferenceRepository interface {
 
 - 責務: 教員視点の新規申請時に、対象生徒の存在確認・学年情報の取得を提供する（教師面談機能②「11. Repository設計」外部参照Repository（Student / TeacherPermission）、教師面談機能②「12. UseCase設計」CreateInterviewRequestUseCase）。教員視点でのみ利用するが、Domain層は生徒視点・教員視点で共有するため本書で定義する
 
+### UserNameReferenceRepository（参照用、User Context）
+
+- interface名: `UserNameReferenceRepository`
+- メソッドシグネチャ一覧:
+
+```go
+type UserNameReferenceRepository interface {
+    FindNamesByIDs(ctx context.Context, userIDs []uint) (map[uint]string, error)
+}
+```
+
+- 責務: 面談の一覧・詳細に含める生徒名・教員名、およびメッセージの送信者名を、ユーザーIDから解決して返す（氏名は面談側に複製せず、表示時に解決する。②「3. Bounded Context」の「User Context」への依存。`ユーザー基盤機能_Go移行・設計仕様書.md`「3. Bounded Context」の集約表で、面談・教師面談が「メッセージ送信者名の表示」のために`GetUserAttributes`（複数ID）を参照するとされているものと同じ参照手段を、生徒名・教員名の表示にも用いる）。存在しないIDは結果に含めない。生徒視点・教員視点の双方から利用する
+
 ### TeacherPermissionReferenceRepository（参照用、Teacher Permission Context）
 
 - interface名: `TeacherPermissionReferenceRepository`
@@ -371,7 +386,7 @@ type TeacherPermissionReferenceRepository interface {
 
 - 責務: 教員が担当学年制限（`own_grade`）を持つかどうか、持つ場合の担当学年IDを取得する（教師面談機能②「11. Repository設計」、教師面談機能②「8. Domain Service」InterviewEligibilityPolicy）。教員視点でのみ利用する
 
-**②からの補足（推測）**: 上記3つの参照用Repository（TeacherAssignmentRepository / StudentReferenceRepository / TeacherPermissionReferenceRepository）の具体的なメソッド名・シグネチャは、いずれの②にも責務の記載のみで明記がないため、コーディング規約「5. インターフェース」（利用側で定義する）・アーキテクチャ規約「6. Context間連携ルール」に従って実装のために補った。
+**②からの補足（推測）**: 上記4つの参照用Repository（TeacherAssignmentRepository / StudentReferenceRepository / UserNameReferenceRepository / TeacherPermissionReferenceRepository）の具体的なメソッド名・シグネチャは、いずれの②にも責務の記載のみで明記がないため、コーディング規約「5. インターフェース」（利用側で定義する）・アーキテクチャ規約「6. Context間連携ルール」に従って実装のために補った。
 
 ## Domain Service
 
@@ -591,40 +606,42 @@ stateDiagram-v2
 |`CreateInterviewRequestMessageCommand`|`CurrentStudentID uint`, `InterviewRequestID uint`, `Body string`|Command|
 |`PageRequest`|`Page int`, `PerPage int`|Query（一覧系Queryの内包型）|
 |`PageInfo`|`Page int`, `PerPage int`, `TotalCount int`, `TotalPages int`|Query（一覧系Resultの内包型）|
-|`InterviewRequestListItem`|`ID uint`, `TeacherID uint`, `Status string`, `ReasonCategory *string`, `ScheduledAt *time.Time`, `CreatedAt time.Time`|Query（Result内包型）|
+|`InterviewRequestListItem`|`ID uint`, `StudentID uint`, `StudentName string`, `TeacherID uint`, `TeacherName string`, `Status string`, `ReasonCategory *string`, `ScheduledAt *time.Time`, `CreatedAt time.Time`|Query（Result内包型）|
 |`ListInterviewRequestsResult`|`Items []InterviewRequestListItem`, `PageInfo PageInfo`|Query|
-|`InterviewRequestDetailResult`|`ID uint`, `TeacherID uint`, `Status string`, `ReasonCategory *string`, `ReasonDetail string`, `ScheduledAt *time.Time`, `CompletedAt *time.Time`, `CancelledAt *time.Time`, `CancelReason string`, `LockVersion int64`, `CreatedAt time.Time`|Query|
+|`InterviewRequestDetailResult`|`ID uint`, `StudentID uint`, `StudentName string`, `TeacherID uint`, `TeacherName string`, `Status string`, `ReasonCategory *string`, `ReasonDetail string`, `ScheduledAt *time.Time`, `CompletedAt *time.Time`, `CancelledAt *time.Time`, `CancelReason string`, `LockVersion int64`, `CreatedAt time.Time`|Query|
 |`CreateInterviewRequestResult`|`ID uint`, `Message string`|Command|
 |`CancelInterviewRequestResult`|`Message string`|Command|
-|`InterviewRequestMessageItem`|`ID uint`, `SenderID uint`, `Body string`, `CreatedAt time.Time`|Query（Result内包型）|
+|`InterviewRequestMessageItem`|`ID uint`, `SenderID uint`, `SenderName string`, `Body string`, `CreatedAt time.Time`|Query（Result内包型）|
 |`ListInterviewRequestMessagesResult`|`Items []InterviewRequestMessageItem`, `PageInfo PageInfo`|Query|
-|`CreateInterviewRequestMessageResult`|`ID uint`, `SenderID uint`, `Body string`, `CreatedAt time.Time`|Command|
+|`CreateInterviewRequestMessageResult`|`ID uint`, `SenderID uint`, `SenderName string`, `Body string`, `CreatedAt time.Time`|Command|
 
-**②からの補足**: フィールド構成は面談機能②「12. UseCase設計」の入力・出力記述、②「19. API仕様」のリクエスト・レスポンス記述を根拠に具体化した（推測。①未提供のため参照不可）。
+**②からの補足**: フィールド構成は面談機能②「12. UseCase設計」の入力・出力記述、②「19. API仕様」のリクエスト・レスポンス記述を根拠に具体化した（推測。①未提供のため参照不可）。ただし、生徒名・教員名・送信者名（`StudentName` / `TeacherName` / `SenderName`）を保持する点は、Rails現行の`InterviewRequestSerializer`（`student_id` / `student_name` / `teacher_id` / `teacher_name`を返す）・`InterviewRequestMessageSerializer`（`sender_id` / `sender_name`を返す）で確認した事実に基づく（推測ではない）。氏名は`UserNameReferenceRepository`で表示時に解決する。
 
 ## UseCase
 
 ### ListInterviewRequestsUseCase
 
 - struct名: `ListInterviewRequestsUseCase`
-- コンストラクタが受け取る依存: `repo repository.InterviewRequestRepository`
+- コンストラクタが受け取る依存: `repo repository.InterviewRequestRepository`, `userNameRepo repository.UserNameReferenceRepository`
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, query dto.ListInterviewRequestsQuery) (dto.ListInterviewRequestsResult, error)`
 - 処理ステップ:
   1. `query.Status`が指定されていれば`valueobject.NewInterviewRequestStatus`でVOへ変換する
   2. `repo.FindAllForStudent(ctx, query.CurrentStudentID, status, query.Page)`を呼び出す
-  3. 取得したEntity群を`dto.ListInterviewRequestsResult`へ変換して返す
+  3. 取得したEntity群の生徒ID・教員IDをまとめて`userNameRepo.FindNamesByIDs`に渡し、氏名を一括で解決する（1件ずつ問い合わせない）
+  4. 取得したEntity群と解決した氏名から`dto.ListInterviewRequestsResult`を組み立てて返す
 - トランザクション境界: 読み取りのみのためトランザクションは使用しない（面談機能②「14. Transaction設計」）
 - 発生しうるApplication Error: なし（一覧取得自体は失敗しない前提。Infrastructure Errorはそのまま上位へ伝播する）
 
 ### ShowInterviewRequestUseCase
 
 - struct名: `ShowInterviewRequestUseCase`
-- コンストラクタが受け取る依存: `repo repository.InterviewRequestRepository`
+- コンストラクタが受け取る依存: `repo repository.InterviewRequestRepository`, `userNameRepo repository.UserNameReferenceRepository`
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, query dto.ShowInterviewRequestQuery) (dto.InterviewRequestDetailResult, error)`
 - 処理ステップ:
   1. `repo.FindByIDForStudent(ctx, query.InterviewRequestID, query.CurrentStudentID)`を呼び出す
   2. 取得できなければ`ErrInterviewRequestNotFound`（Application Error）を返す
-  3. 取得したEntityを`dto.InterviewRequestDetailResult`へ変換して返す
+  3. 生徒ID・教員IDを`userNameRepo.FindNamesByIDs`に渡して氏名を解決する
+  4. 取得したEntityと解決した氏名から`dto.InterviewRequestDetailResult`を組み立てて返す
 - トランザクション境界: 読み取りのみのためトランザクションは使用しない
 - 発生しうるApplication Error: `ErrInterviewRequestNotFound`（対象面談が存在しない、または自分が当事者でない）
 
@@ -661,30 +678,32 @@ stateDiagram-v2
 ### ListInterviewRequestMessagesUseCase
 
 - struct名: `ListInterviewRequestMessagesUseCase`
-- コンストラクタが受け取る依存: `interviewRepo repository.InterviewRequestRepository`, `messageRepo repository.InterviewRequestMessageRepository`
+- コンストラクタが受け取る依存: `interviewRepo repository.InterviewRequestRepository`, `messageRepo repository.InterviewRequestMessageRepository`, `userNameRepo repository.UserNameReferenceRepository`
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, query dto.ListInterviewRequestMessagesQuery) (dto.ListInterviewRequestMessagesResult, error)`
 - 処理ステップ:
   1. `interviewRepo.FindByIDForStudent(ctx, query.InterviewRequestID, query.CurrentStudentID)`で当事者確認込みの対象取得を行う。取得できなければ`ErrInterviewRequestNotFound`（Application Error）を返す
   2. `messageRepo.FindAllByInterviewRequestID(ctx, query.InterviewRequestID, query.Page)`でメッセージ一覧を取得する
-  3. `dto.ListInterviewRequestMessagesResult`へ変換して返す
+  3. 送信者IDをまとめて`userNameRepo.FindNamesByIDs`に渡し、送信者名を一括で解決する
+  4. メッセージと送信者名から`dto.ListInterviewRequestMessagesResult`を組み立てて返す
 - トランザクション境界: 読み取りのみのためトランザクションは使用しない
 - 発生しうるApplication Error: `ErrInterviewRequestNotFound`（当事者以外のメッセージ閲覧を防ぐため、面談側の当事者確認を経由する。面談機能②「12. UseCase設計」ListInterviewRequestMessages判断根拠）
 
 ### CreateInterviewRequestMessageUseCase
 
 - struct名: `CreateInterviewRequestMessageUseCase`
-- コンストラクタが受け取る依存: `interviewRepo repository.InterviewRequestRepository`, `messageRepo repository.InterviewRequestMessageRepository`, `txManager application.TransactionManager`, `jobPublisher jobqueue.JobPublisher`
+- コンストラクタが受け取る依存: `interviewRepo repository.InterviewRequestRepository`, `messageRepo repository.InterviewRequestMessageRepository`, `userNameRepo repository.UserNameReferenceRepository`, `txManager application.TransactionManager`, `jobPublisher jobqueue.JobPublisher`
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, cmd dto.CreateInterviewRequestMessageCommand) (dto.CreateInterviewRequestMessageResult, error)`
 - 処理ステップ:
   1. `interviewRepo.FindByIDForStudent(ctx, cmd.InterviewRequestID, cmd.CurrentStudentID)`で当事者確認込みの対象取得を行う。取得できなければ`ErrInterviewRequestNotFound`（Application Error）を返す
   2. `entity.NewInterviewRequestMessage(cmd.InterviewRequestID, cmd.CurrentStudentID, cmd.Body)`でメッセージEntityを生成する
   3. `txManager.WithinTransaction`内で以下を行う:
      a. `messageRepo.Create(ctx, msg)`でメッセージを永続化する
-     b. `ir.TransitionToScheduling()`を呼び出す。終了状態（`completed`/`cancelled`）の場合は`ErrInterviewNotActive`（Domain Error）を返す。`requested`状態であれば`scheduling`へ遷移し、それ以外の進行中状態（`scheduling`/`confirmed`）では状態を変更しない（冪等）
-     c. 状態が変化した場合のみ`interviewRepo.Update(ctx, ir)`を実行する
-     d. `jobPublisher.Publish`でメッセージ着信通知のジョブを登録する
-  4. `dto.CreateInterviewRequestMessageResult`を返す
-- トランザクション境界: 当事者確認はトランザクション外（読み取りのみ）で行い、メッセージ作成・状態遷移判定・状態更新・ジョブ登録を1トランザクションで扱う（面談機能②「14. Transaction設計」）
+     b. `interviewRepo.FindByIDForStudent(ctx, cmd.InterviewRequestID, cmd.CurrentStudentID)`で最新の面談を再取得する（トランザクション外で取得した面談が、他の操作により古くなっている可能性があるため。面談機能②「12. UseCase設計」CreateInterviewRequestMessage）
+     c. 再取得した`ir`に対して`ir.TransitionToScheduling()`を呼び出す。終了状態（`completed`/`cancelled`）の場合は`ErrInterviewNotActive`（Domain Error）を返す。`requested`状態であれば`scheduling`へ遷移し、それ以外の進行中状態（`scheduling`/`confirmed`）では状態を変更しない（冪等）
+     d. 状態が変化した場合のみ`interviewRepo.Update(ctx, ir)`を実行する。`errors.Is(err, domainerror.ErrOptimisticLockConflict)`となった場合（他の操作との競合）は、他の操作で既に状態が進んだものとみなしてエラーを握りつぶし、遷移を行わない。この場合もa.で作成したメッセージは維持し、トランザクションをロールバックしない（面談機能②「12. UseCase設計」）
+     e. `jobPublisher.Publish`でメッセージ着信通知のジョブを登録する
+  4. トランザクション後、送信者の氏名を`userNameRepo.FindNamesByIDs`で解決し（読み取りのみ。トランザクション外）、`dto.CreateInterviewRequestMessageResult`を返す
+- トランザクション境界: 当事者確認はトランザクション外（読み取りのみ）で行い、メッセージ作成・面談の再取得・状態遷移判定・状態更新・ジョブ登録を1トランザクションで扱う。状態更新の楽観ロック競合（`ErrOptimisticLockConflict`）は遷移のスキップとして扱い、メッセージ作成・ジョブ登録は維持してコミットする（面談機能②「14. Transaction設計」）
 - 発生しうるApplication Error: `ErrInterviewRequestNotFound`
 - 発生しうるDomain Error: `ErrInterviewNotActive`
 
@@ -709,8 +728,9 @@ sequenceDiagram
     UC->>UC: entity.NewInterviewRequestMessage(...)
     UC->>TX: WithinTransaction(fn)
     TX->>IRMR: Create(msg)
+    TX->>IRR: FindByIDForStudent（最新の面談を再取得）
     TX->>UC: ir.TransitionToScheduling()
-    TX->>IRR: Update(ir)（状態が変化した場合のみ）
+    TX->>IRR: Update(ir)（状態が変化した場合のみ。楽観ロック競合は遷移をスキップしてメッセージは維持）
     TX->>JP: Publish("interview_request_notification", payload, now)
     TX-->>UC: nil
     UC-->>H: CreateInterviewRequestMessageResult
@@ -777,7 +797,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 
 - Entity ⇔ GORMモデルの変換方針: 単純なフィールド対応のため、非公開の変換関数で相互変換する（Value Objectを持たないため変換は単純な代入のみ）
 
-### infrastructure/repository.TeacherAssignmentRepository / StudentReferenceRepository / TeacherPermissionReferenceRepository
+### infrastructure/repository.TeacherAssignmentRepository / StudentReferenceRepository / UserNameReferenceRepository / TeacherPermissionReferenceRepository
 
 - 実装方針: 各Contextが公開するRepository（School Context・User Context・Teacher Permission Context）を呼び出すアダプタとして実装する。アーキテクチャ規約「6. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない
 - **②からの補足**: 呼び出し先となる各Contextの具体的なRepository・メソッド名は、各Context自身の②/③Go移行・設計仕様書に依存するため、本書では確定できない。①も未提供のため参照不可。実装時に該当Contextの②/③文書を参照して確定する必要がある（推測を含む）
@@ -864,17 +884,17 @@ Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastruct
 
 |struct名|フィールドと型|
 |-|-|
-|`InterviewRequestListItemResponse`|`ID uint`, `TeacherID uint`, `Status string`, `ReasonCategory *string`, `ScheduledAt *time.Time`, `CreatedAt time.Time`|
+|`InterviewRequestListItemResponse`|`ID uint`, `StudentID uint`, `StudentName string`, `TeacherID uint`, `TeacherName string`, `Status string`, `ReasonCategory *string`, `ScheduledAt *time.Time`, `CreatedAt time.Time`|
 |`InterviewRequestListResponse`|`Items []InterviewRequestListItemResponse`, `Page int`, `PerPage int`, `TotalCount int`, `TotalPages int`|
-|`InterviewRequestDetailResponse`|`ID uint`, `TeacherID uint`, `Status string`, `ReasonCategory *string`, `ReasonDetail string`, `ScheduledAt *time.Time`, `CompletedAt *time.Time`, `CancelledAt *time.Time`, `CancelReason string`, `LockVersion int64`, `CreatedAt time.Time`|
+|`InterviewRequestDetailResponse`|`ID uint`, `StudentID uint`, `StudentName string`, `TeacherID uint`, `TeacherName string`, `Status string`, `ReasonCategory *string`, `ReasonDetail string`, `ScheduledAt *time.Time`, `CompletedAt *time.Time`, `CancelledAt *time.Time`, `CancelReason string`, `LockVersion int64`, `CreatedAt time.Time`|
 |`CreateInterviewRequestResponse`|`Message string`|
 |`CancelInterviewRequestResponse`|`Message string`|
-|`InterviewRequestMessageResponse`|`ID uint`, `SenderID uint`, `Body string`, `CreatedAt time.Time`|
+|`InterviewRequestMessageResponse`|`ID uint`, `SenderID uint`, `SenderName string`, `Body string`, `CreatedAt time.Time`|
 |`InterviewRequestMessageListResponse`|`Items []InterviewRequestMessageResponse`, `Page int`, `PerPage int`, `TotalCount int`, `TotalPages int`|
 
 EntityであるInterviewRequest／InterviewRequestMessageをそのまま返さず、必ずResponse DTOへ変換する（アーキテクチャ規約「6. データフロー」）。
 
-**②からの補足**: 各Responseの具体的なフィールド構成は、面談機能②「19. API仕様」の記載（「レスポンスは面談申請一覧」等の概要記述）から実装のために補った（推測。①未提供のため参照不可。実装時にフロントエンド互換性の観点で最終確認が必要）。
+**②からの補足**: 各Responseの具体的なフィールド構成は、面談機能②「19. API仕様」の記載（「レスポンスは面談申請一覧」等の概要記述）から実装のために補った（推測。①未提供のため参照不可。実装時にフロントエンド互換性の観点で最終確認が必要）。ただし、生徒名・教員名・送信者名（`StudentName` / `TeacherName` / `SenderName`）を返す点は、Rails現行のSerializerで確認した事実に基づく（推測ではない。「6. Application層設計」DTOの補足を参照）。
 
 ## Routing
 
@@ -938,7 +958,7 @@ Error Response方針: 面談機能②「19. API仕様」の「既存のerrors形
 
 - `CreateInterviewRequestUseCase`: `InterviewRequestRepository.Create`と`JobPublisher.Publish`（ジョブ登録）がいずれも成功した時点でコミットする。いずれかが失敗した場合はロールバックする
 - `CancelInterviewRequestUseCase`: `InterviewRequestRepository.Update`（楽観的排他制御付き）と`JobPublisher.Publish`がいずれも成功した時点でコミットする。`Update`の`RowsAffected == 0`（版数競合）の場合もロールバックする
-- `CreateInterviewRequestMessageUseCase`: `InterviewRequestMessageRepository.Create`・（状態変化時のみ）`InterviewRequestRepository.Update`・`JobPublisher.Publish`がいずれも成功した時点でコミットする
+- `CreateInterviewRequestMessageUseCase`: `InterviewRequestMessageRepository.Create`・（状態変化時のみ）`InterviewRequestRepository.Update`・`JobPublisher.Publish`が成功した時点でコミットする。ただし`InterviewRequestRepository.Update`が`ErrOptimisticLockConflict`を返した場合は、遷移をスキップしたものとして扱い、メッセージ作成・ジョブ登録は維持したままコミットする（ロールバックしない。他のエラーの場合はロールバックする）
 
 ## 複数Repositoryにまたがる場合の扱い
 
@@ -1067,6 +1087,7 @@ GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf("...: %
 |InterviewRequestMessageRepository|Create|interview_request_messages|-|なし|
 |TeacherAssignmentRepository|IsAssignedToStudent|（School Context所有テーブル）|teacher_id、生徒の所属クラスID|クラス担当情報との結合が必要|
 |StudentReferenceRepository|Exists / GradeIDOf|（User Context所有テーブル）|student_id|なし|
+|UserNameReferenceRepository|FindNamesByIDs|（User Context所有テーブル）|user_idの集合（IN条件）|なし|
 |TeacherPermissionReferenceRepository|IsOwnGradeScope / OwnGradeID|（Teacher Permission Context所有テーブル）|teacher_id|なし|
 
 SQL文そのものは記載しない。
@@ -1101,7 +1122,9 @@ SQL文そのものは記載しない。
 |`CreateInterviewRequestUseCase`|担当教員でない場合に`ErrTeacherNotAssigned`となること／重複申請時に`ErrDuplicateActiveInterview`となること／正常系でjobPublisherが呼び出されること|
 |`CancelInterviewRequestUseCase`|lock_version不一致で`ErrOptimisticLockConflict`となること／進行中でない面談で`ErrInterviewNotActive`となること|
 |`ListInterviewRequestMessagesUseCase`|当事者以外のアクセスで`ErrInterviewRequestNotFound`となること|
-|`CreateInterviewRequestMessageUseCase`|requested状態への投稿でschedulingへ遷移すること／終了状態への投稿で`ErrInterviewNotActive`となること|
+|`ListInterviewRequestsUseCase` / `ShowInterviewRequestUseCase`|生徒名・教員名が解決されて返ること（氏名の解決を、面談の件数によらず一括で行うこと）|
+|`ListInterviewRequestMessagesUseCase`|送信者名が解決されて返ること|
+|`CreateInterviewRequestMessageUseCase`|requested状態への投稿でschedulingへ遷移すること／終了状態への投稿で`ErrInterviewNotActive`となること／状態更新が`ErrOptimisticLockConflict`となった場合にエラーにならず、メッセージ作成とジョブ登録が維持されること（状態はschedulingへ遷移しないこと）／作成したメッセージの送信者名が返ること|
 
 ## Repository Test
 
@@ -1144,4 +1167,6 @@ SQL文そのものは記載しない。
 |新規申請時のHTTP Status Codeを201とした|②「19. API仕様」Status Codeの記載が「201/200: メッセージ作成・面談申請作成成功の扱いは既存仕様に合わせて統一する」と曖昧であり、①未提供のため実際のRails挙動を参照できない。REST慣例に基づき作成=201と仮置きした|推測（実装着手前にRails現行仕様の確認を推奨）|
 |`LockVersion`の初期値（新規作成時）を0または1のいずれにするかは本書で確定しなかった|②はLockVersionの競合判定ルールのみを記載し、初期値を明記していない。GORMの`optimisticlock.Version`はゼロ値から開始し初回更新時に1へインクリメントされる標準的な挙動に委ねるのが妥当だが、①未提供のため実際のRails（`lock_version`のデフォルト値）との整合性は実装時に確認が必要である|推測|
 |通知連携先Contextの表記（Notification Context／Announcement Context）の不一致をジョブ種別文字列で抽象化した|面談機能②「3. Bounded Context」はNotification Context、教師面談機能②「3. Bounded Context」はAnnouncement Contextと表記しており、②間で通知先Contextの名称が一致していない。③ではこの差異を解決せず、ジョブ種別・ワーカーハンドラの実装側で吸収する方針とした|推測（②間の表記差異そのものは③の責務で解決できないため、実装時に該当Contextの最新②/③文書を参照して確定する必要がある）|
+|生徒名・教員名・送信者名を、面談側に複製せず、`UserNameReferenceRepository`（User Contextの参照）で表示時に解決する構成とした|Rails現行のSerializerが`student_name` / `teacher_name` / `sender_name`を返すことを確認した。②は氏名の解決方法を明記していないが、②「3. Bounded Context」がUser Contextへの依存（メッセージ送信者名の表示）を定めており、氏名を面談のテーブルに持たない現行DBとも整合する。`ユーザー基盤機能_Go移行・設計仕様書.md`の集約表は「メッセージ送信者名の表示」のみを挙げているが、生徒名・教員名の表示にも同じ参照手段（`GetUserAttributes`の複数ID指定に相当）を用いる|推測（返却項目に氏名を含める点はRails現行のSerializerで確認済み。解決方法は推測）|
+|メッセージ投稿時の状態遷移を、面談を再取得したうえで行い、楽観ロック競合を遷移のスキップとして扱う（メッセージ作成は維持する）構成とした|面談機能②「12. UseCase設計」・「14. Transaction設計」の記載（Rails現行の`Common::PostInterviewRequestMessageService`が、状態更新をメッセージ作成から独立させ、競合を無視する挙動）を実装単位に落とし込んだ。1つのトランザクション内で、`Update`が競合（`RowsAffected == 0`）を返しても、メッセージ作成・ジョブ登録はコミットされる|②の記載どおり|
 

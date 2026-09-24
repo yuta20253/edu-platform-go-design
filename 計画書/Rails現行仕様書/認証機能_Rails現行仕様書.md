@@ -153,7 +153,7 @@
 2. `Auth::SignUpService` で次の処理を実行する。
    - `UserRole.find_by(name: user_role_name)` を検索し、存在しない場合は `SignUpError` を返す。
    - 生徒が `student_number` を入力した場合は新規ユーザーを作成せず、生徒コードに対応する既存ユーザー（学校側で事前登録済みの仮アカウント）を検索し、生徒コードに含まれる学校コードと選択した高校が一致すること、対象ユーザーが未有効化（`password_reset_required` が true）であることを確認したうえで、入力内容で更新し `activated_at` を設定してアカウントを有効化する。有効化に伴い、元のメールアドレス宛にアカウント有効化完了のメールを送信する。
-   - 上記に該当しない `student` または `teacher` の場合、`high_school_id` と `grade_id` を検証し、存在しない場合は `SignUpError` を返したうえで `User.create!` によりユーザーを新規作成する。
+   - 上記に該当しない `student` または `teacher` の場合、`high_school_id` と `grade_id` を検証し、存在しない場合は `SignUpError` を返したうえで `User.create!` によりユーザーを新規作成する。この通常登録（自己登録）では、有効化日時（`activated_at`）は設定されない（未設定のまま作成される）。`activated_at` が設定されるのは、上記の生徒コードによる仮アカウントの有効化のときだけである。
 3. `CurrentUserSerializer` で登録（または有効化）されたユーザー情報を返却する。
 
 ### Response

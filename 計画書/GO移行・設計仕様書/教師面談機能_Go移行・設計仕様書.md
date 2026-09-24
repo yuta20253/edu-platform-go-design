@@ -48,7 +48,7 @@
 
 ## 他Contextとの依存関係
 
-- User Context: 生徒・教師の識別情報、教師の所属校情報の参照に依存する
+- User Context: 生徒・教師の識別情報、教師の所属校情報、面談の一覧・詳細に含める生徒名・教師名とメッセージ投稿者名の表示の参照に依存する（Rails現行の`InterviewRequestSerializer`は`student_name` / `teacher_name`、`InterviewRequestMessageSerializer`は`sender_name`を返す。氏名は面談側に複製せず、表示時にUser Contextから解決する）
 - Teacher Permission Context: 教師が新規申請可能な生徒の範囲（担当学年制限の有無）判定に依存する
 - Announcement Context（`announcement`）: 面談の申請・確定・キャンセル・メッセージ投稿の都度、相手方へのお知らせ送信に依存する
 
@@ -114,9 +114,9 @@ Domain Model
 
 - 新規申請時: 面談本体の作成と、重複申請チェックの結果を同一の業務操作の中で整合させる
 - 更新時（確定・完了・キャンセル）: 状態遷移の可否判定と楽観ロックの検証を1つの単位として保証する
-- メッセージ投稿時: メッセージの作成と、それに伴う面談本体の状態遷移（該当する場合）を1つの単位として保証する
+- メッセージ投稿時: メッセージの作成と、それに伴う面談本体の状態遷移（該当する場合）を1つの単位として扱う。ただし、状態遷移が他の操作との競合（楽観ロックの不一致）により行えなかった場合は、他の操作で既に状態が進んだものとみなして遷移を行わず、メッセージの作成は維持する（Rails現行の`Common::PostInterviewRequestMessageService`と同じ）
 
-理由: メッセージの投稿は面談の状態に直接影響を与える。面談本体とメッセージを別々のAggregateとして扱うと、両者の整合性を保証する層が分散し、「メッセージは保存されたが状態遷移が反映されない」といった不整合が生じうるため、1つのAggregateとして扱う。
+理由: メッセージの投稿は面談の状態に直接影響を与える。面談本体とメッセージを別々のAggregateとして扱うと、両者の整合性を保証する層が分散し、「メッセージは保存されたが状態遷移が反映されない」といった不整合が生じうるため、1つのAggregateとして扱う。ただし、双方が同時にメッセージを送った場合などに、状態遷移の競合が保存済みのメッセージまで巻き戻すことは避ける。競合による遷移のスキップは、状態が既に他の操作で進んでいることの結果であり、不整合ではないため許容する。
 
 ---
 
@@ -325,19 +325,19 @@ stateDiagram-v2
 
 - 目的: 自身が担当教師である面談の一覧を、状態で絞り込んで取得する
 - 入力: current teacher, status（任意）, page, per_page
-- 出力: 面談一覧、ページ情報
+- 出力: 面談一覧（生徒名・教師名を含む）、ページ情報
 - トランザクション範囲: 読み取りのみ、トランザクション不要
-- 呼び出すRepository: InterviewRequestRepository
-- 判断根拠: 単一条件での検索・ページネーションのみであり、書き込みを伴わないため
+- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照（一覧内の生徒・教師の氏名を一括で解決する）
+- 判断根拠: 単一条件での検索・ページネーションのみであり、書き込みを伴わないため。氏名は面談側に持たないため、表示時に参照して付与する
 
 ## ShowInterviewRequestUseCase
 
 - 目的: 指定面談の詳細を取得する
 - 入力: current teacher, interview request id
-- 出力: 面談詳細
+- 出力: 面談詳細（生徒名・教師名を含む）
 - トランザクション範囲: 読み取りのみ
-- 呼び出すRepository: InterviewRequestRepository
-- 判断根拠: 自身が担当教師である面談のみを対象とする単純な参照処理であるため
+- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照
+- 判断根拠: 自身が担当教師である面談のみを対象とする単純な参照処理であるため。氏名は表示時に参照して付与する
 
 ## CreateInterviewRequestUseCase
 
@@ -370,19 +370,19 @@ stateDiagram-v2
 
 - 目的: 自身が担当教師である面談に紐づくメッセージ一覧を取得する
 - 入力: current teacher, interview request id, page, per_page
-- 出力: メッセージ一覧、ページ情報
+- 出力: メッセージ一覧（投稿者名を含む）、ページ情報
 - トランザクション範囲: 読み取りのみ
-- 呼び出すRepository: InterviewRequestRepository
-- 判断根拠: 単純な参照処理であるため
+- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照
+- 判断根拠: 単純な参照処理であるため。投稿者名は表示時に参照して付与する
 
 ## PostInterviewRequestMessageUseCase
 
 - 目的: 面談にメッセージを投稿し、必要に応じて状態遷移を行う
 - 入力: current teacher, interview request id, body
-- 出力: 作成したメッセージ
-- トランザクション範囲: メッセージの作成と（該当する場合の）状態遷移を1トランザクションで扱う
-- 呼び出すRepository: InterviewRequestRepository
-- 判断根拠: 当事者判定・進行中判定・状態遷移はInterviewRequest Aggregateが一貫して担う必要があるため
+- 出力: 作成したメッセージ（投稿者名を含む）
+- トランザクション範囲: メッセージの作成と（該当する場合の）状態遷移を1トランザクションで扱う。状態遷移は、メッセージ作成後に最新の面談を取得し直して判定し、他の操作との競合（楽観ロックの不一致）により更新できなかった場合は、遷移を行わず（他の操作で既に状態が進んだものとみなす）、エラーにせず、作成したメッセージは維持する（競合を理由にメッセージ作成をロールバックしない）
+- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照（投稿者名）
+- 判断根拠: 当事者判定・進行中判定・状態遷移はInterviewRequest Aggregateが一貫して担う必要があるため。ただし、保存済みのメッセージを状態遷移の競合で巻き戻さないよう、競合は遷移のスキップとして扱う（面談機能_Go移行・設計仕様書「12. UseCase設計」CreateInterviewRequestMessageと同じ）
 
 ---
 
@@ -470,7 +470,7 @@ flowchart TD
 
 ## Transaction終了位置
 
-- 各UseCaseの永続化（面談の作成・更新、メッセージの作成）が完了した時点でコミットする
+- 各UseCaseの永続化（面談の作成・更新、メッセージの作成）が完了した時点でコミットする。ただし、PostInterviewRequestMessageUseCaseにおける状態遷移の更新が楽観ロックの競合となった場合は、遷移のスキップとして扱い、メッセージの作成は維持したままコミットする
 - ListInterviewRequestsUseCase / ShowInterviewRequestUseCase / ListInterviewRequestMessagesUseCaseではトランザクションを使用しない
 
 ## 理由
@@ -629,14 +629,14 @@ Rails現行仕様書は、申請・確定・キャンセル・メッセージ投
 ### GET /api/v1/teacher/interview_requests
 
 - Request: status（任意、状態での絞り込み）、page（任意）、per_page（任意、未指定時20件・最大100件）
-- Response: 面談一覧（状態・申請理由・希望日時・確定日時・完了日時・キャンセル情報・生徒名・教師名等を含む）、ページ情報
+- Response: 面談一覧（各面談の`id`, `status`, `initiator_role`, `reason_category`, `reason_detail`, `scheduled_at`（確定日時）, `completed_at`, `cancelled_at`, `cancel_reason`, `lock_version`, `created_at`, `student_id`, `student_name`, `teacher_id`, `teacher_name`）、ページ情報
 - Status Code: 200
 - Error Response: なし（認証前提）
 
 ### GET /api/v1/teacher/interview_requests/:id
 
 - Request: id（route）
-- Response: 面談詳細
+- Response: 面談詳細（一覧の各面談と同じ項目。生徒名・教師名を含む）
 - Status Code: 200 / 404（対象面談なし、または担当教師でない）
 - Error Response: 既存のerrors形式を踏襲する
 
@@ -656,22 +656,22 @@ Rails現行仕様書は、申請・確定・キャンセル・メッセージ投
 
 ### DELETE /api/v1/teacher/interview_requests/:id
 
-- Request: reason（任意）、lock_version（任意、Rails現行仕様では明示必須とはされていないが、他ユーザーによる状態変化との競合検出のため指定を推奨する）
+- Request: reason（任意）、lock_version（必須）
 - Response: message（「面談をキャンセルしました」相当）
-- Status Code: 200 / 404 / 422（進行中でない面談へのキャンセル試行）
+- Status Code: 200 / 404 / 409（楽観ロック競合）/ 422（lock_version未指定、進行中でない面談へのキャンセル試行）
 - Error Response: 既存のerrors形式を踏襲する
 
 ### GET /api/v1/teacher/interview_requests/:interview_request_id/messages
 
 - Request: interview_request_id（route）、page（任意）、per_page（任意、未指定時20件・最大100件）
-- Response: メッセージ一覧（本文・投稿者ID・投稿者名・投稿日時）、ページ情報
+- Response: メッセージ一覧（各メッセージの`id`, `body`, `sender_id`（投稿者ID）, `sender_name`（投稿者名）, `created_at`）、ページ情報
 - Status Code: 200 / 404
 - Error Response: 既存のerrors形式を踏襲する
 
 ### POST /api/v1/teacher/interview_requests/:interview_request_id/messages
 
 - Request: interview_request_id（route）、body
-- Response: 作成したメッセージ
+- Response: 作成したメッセージ（`id`, `body`, `sender_id`, `sender_name`, `created_at`）
 - Status Code: 201 / 404 / 422
 - Error Response: 既存のerrors形式を踏襲する
 
