@@ -82,7 +82,7 @@ type User struct {
 他のフィールドを primaryKey タグで主キーとして設定できます
 
 ```go
-// Set field `UUID` as primary field
+// フィールド `UUID` を主キーとして設定する
 type Animal struct {
   ID     int64
   UUID   string `gorm:"primaryKey"`
@@ -106,7 +106,7 @@ type Tabler interface {
     TableName() string
 }
 
-// TableName overrides the table name used by User to `profiles`
+// TableName は User が使用するテーブル名を `profiles` に上書きする
 func (User) TableName() string {
   return "profiles"
 }
@@ -133,10 +133,10 @@ db.Scopes(UserTable(user)).Create(&user)
 Tableメソッドで一時的にテーブル名を指定できます。例:
 
 ```go
-// Create table `deleted_users` with struct User's fields
+// 構造体 User のフィールドで `deleted_users` テーブルを作成する
 db.Table("deleted_users").AutoMigrate(&User{})
 
-// Query data from another table
+// 別のテーブルからデータを取得する
 var deletedUsers []User
 db.Table("deleted_users").Find(&deletedUsers)
 // SELECT * FROM deleted_users;
@@ -149,7 +149,7 @@ FROM句でサブクエリを使用する方法については、 From SubQuery �
 
 ### NamingStrategy
 
-GORM allows users to change the default naming conventions by overriding the default NamingStrategy, which is used to build TableName, ColumnName, JoinTableName, RelationshipFKName, CheckerName, IndexName, Check out GORM Config for details
+GORMでは、デフォルトの NamingStrategy を上書きすることで、TableName、ColumnName、JoinTableName、RelationshipFKName、CheckerName、IndexName の生成に使われるデフォルトの命名規則を変更できます。詳細は GORM Config を参照してください。
 
 ## 3. カラム名
 
@@ -157,10 +157,10 @@ GORM allows users to change the default naming conventions by overriding the def
 
 ```go
 type User struct {
-  ID        uint      // column name is `id`
-  Name      string    // column name is `name`
-  Birthday  time.Time // column name is `birthday`
-  CreatedAt time.Time // column name is `created_at`
+  ID        uint      // カラム名は `id`
+  Name      string    // カラム名は `name`
+  Birthday  time.Time // カラム名は `birthday`
+  CreatedAt time.Time // カラム名は `created_at`
 }
 ```
 
@@ -168,9 +168,9 @@ column タグか NamingStrategy を利用することでカラム名を上書き
 
 ```go
 type Animal struct {
-  AnimalID int64     `gorm:"column:beast_id"`         // set name to `beast_id`
-  Birthday time.Time `gorm:"column:day_of_the_beast"` // set name to `day_of_the_beast`
-  Age      int64     `gorm:"column:age_of_the_beast"` // set name to `age_of_the_beast`
+  AnimalID int64     `gorm:"column:beast_id"`         // カラム名を `beast_id` に設定する
+  Birthday time.Time `gorm:"column:day_of_the_beast"` // カラム名を `day_of_the_beast` に設定する
+  Age      int64     `gorm:"column:age_of_the_beast"` // カラム名を `age_of_the_beast` に設定する
 }
 ```
 
@@ -181,12 +181,12 @@ type Animal struct {
 CreatedAtフィールドを持つモデルの場合、フィールドの値がゼロ値であれば、レコード作成時に現在時刻が設定されます。
 
 ```go
-db.Create(&user) // set `CreatedAt` to current time
+db.Create(&user) // `CreatedAt` に現在時刻を設定する
 
 user2 := User{Name: "jinzhu", CreatedAt: time.Now()}
-db.Create(&user2) // user2's `CreatedAt` won't be changed
+db.Create(&user2) // user2 の `CreatedAt` は変更されない
 
-// To change its value, you could use `Update`
+// 値を変更するには `Update` を使用する
 db.Model(&user).Update("CreatedAt", time.Now())
 ```
 
@@ -203,17 +203,17 @@ type User struct {
 UpdatedAtフィールドを持つモデルの場合、フィールドの値がゼロ値であれば、レコードの更新時または作成時に現在時刻が設定されます。
 
 ```go
-db.Save(&user) // set `UpdatedAt` to current time
+db.Save(&user) // `UpdatedAt` に現在時刻を設定する
 
-db.Model(&user).Update("name", "jinzhu") // will set `UpdatedAt` to current time
+db.Model(&user).Update("name", "jinzhu") // `UpdatedAt` に現在時刻を設定する
 
-db.Model(&user).UpdateColumn("name", "jinzhu") // `UpdatedAt` won't be changed
+db.Model(&user).UpdateColumn("name", "jinzhu") // `UpdatedAt` は変更されない
 
 user2 := User{Name: "jinzhu", UpdatedAt: time.Now()}
-db.Create(&user2) // user2's `UpdatedAt` won't be changed when creating
+db.Create(&user2) // user2 の `UpdatedAt` は作成時には変更されない
 
 user3 := User{Name: "jinzhu", UpdatedAt: time.Now()}
-db.Save(&user3) // user3's `UpdatedAt` will change to current time when updating
+db.Save(&user3) // user3 の `UpdatedAt` は更新時に現在時刻へ変更される
 ```
 
 autoUpdateTime タグを falseに設定すると、タイムスタンプのトラッキングを無効にできます。例：
