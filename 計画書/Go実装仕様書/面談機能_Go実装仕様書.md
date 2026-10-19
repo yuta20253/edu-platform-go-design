@@ -332,7 +332,7 @@ type InterviewRequestMessageRepository interface {
 
 - 保持しない責務: メッセージ投稿に伴う面談状態の更新（UseCase・InterviewRequestの責務。両②「11. Repository設計」）
 
-### TeacherAssignmentRepository（参照用、School Context）
+### TeacherAssignmentRepository（参照用、`master-data` Context）
 
 - interface名: `TeacherAssignmentRepository`
 - メソッドシグネチャ一覧:
@@ -345,7 +345,7 @@ type TeacherAssignmentRepository interface {
 
 - 責務: 指定教員が指定生徒の所属クラスを担当しているかどうかを確認する（面談機能②「11. Repository設計」TeacherAssignmentRepository）。生徒視点の新規申請（本書）から利用する。教員情報自体の作成・更新は保持しない
 
-### StudentReferenceRepository（参照用、User Context）
+### StudentReferenceRepository（参照用、`user` Context）
 
 - interface名: `StudentReferenceRepository`
 - メソッドシグネチャ一覧:
@@ -359,7 +359,7 @@ type StudentReferenceRepository interface {
 
 - 責務: 教員視点の新規申請時に、対象生徒の存在確認・学年情報の取得を提供する（教師面談機能②「11. Repository設計」外部参照Repository（Student / TeacherPermission）、教師面談機能②「12. UseCase設計」CreateInterviewRequestUseCase）。教員視点でのみ利用するが、Domain層は生徒視点・教員視点で共有するため本書で定義する
 
-### UserNameReferenceRepository（参照用、User Context）
+### UserNameReferenceRepository（参照用、`user` Context）
 
 - interface名: `UserNameReferenceRepository`
 - メソッドシグネチャ一覧:
@@ -370,9 +370,9 @@ type UserNameReferenceRepository interface {
 }
 ```
 
-- 責務: 面談の一覧・詳細に含める生徒名・教員名、およびメッセージの送信者名を、ユーザーIDから解決して返す（氏名は面談側に複製せず、表示時に解決する。②「3. Bounded Context」の「User Context」への依存。`ユーザー基盤機能_Go移行・設計仕様書.md`「3. Bounded Context」の集約表で、面談・教師面談が「メッセージ送信者名の表示」のために`GetUserAttributes`（複数ID）を参照するとされているものと同じ参照手段を、生徒名・教員名の表示にも用いる）。存在しないIDは結果に含めない。生徒視点・教員視点の双方から利用する
+- 責務: 面談の一覧・詳細に含める生徒名・教員名、およびメッセージの送信者名を、ユーザーIDから解決して返す（氏名は面談側に複製せず、表示時に解決する。②「3. Bounded Context」の「`user` Context」への依存。`ユーザー基盤機能_Go移行・設計仕様書.md`「3. Bounded Context」の集約表で、面談・教師面談が「メッセージ送信者名の表示」のために`GetUserAttributes`（複数ID）を参照するとされているものと同じ参照手段を、生徒名・教員名の表示にも用いる）。存在しないIDは結果に含めない。生徒視点・教員視点の双方から利用する
 
-### TeacherPermissionReferenceRepository（参照用、Teacher Permission Context）
+### TeacherPermissionReferenceRepository（参照用、`teacher-permission` Context）
 
 - interface名: `TeacherPermissionReferenceRepository`
 - メソッドシグネチャ一覧:
@@ -428,7 +428,7 @@ func (p *InterviewEligibilityPolicy) IsEligible(ctx context.Context, teacherID, 
 ```
 
 - 責務: 教員が新規申請できる相手の生徒かどうか（教員の閲覧権限範囲内の生徒か）を判定する（教師面談機能②「8. Domain Service」InterviewEligibilityPolicy）。`own_grade`権限制約を持つ教員が、自身の担当学年以外の生徒を指定していないかを判定する
-- 判断根拠: 判定には教員の権限情報（Teacher Permission Context）という、InterviewRequest単体では保持しない外部情報が必要なため（教師面談機能②「8. Domain Service」）。教員視点の新規申請（教師面談機能）でのみ利用するが、Domain層は生徒視点・教員視点で共有するため本書で定義する
+- 判断根拠: 判定には教員の権限情報（`teacher-permission` Context）という、InterviewRequest単体では保持しない外部情報が必要なため（教師面談機能②「8. Domain Service」）。教員視点の新規申請（教師面談機能）でのみ利用するが、Domain層は生徒視点・教員視点で共有するため本書で定義する
 
 ## クラス図
 
@@ -799,7 +799,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 
 ### infrastructure/repository.TeacherAssignmentRepository / StudentReferenceRepository / UserNameReferenceRepository / TeacherPermissionReferenceRepository
 
-- 実装方針: 各Contextが公開するRepository（School Context・User Context・Teacher Permission Context）を呼び出すアダプタとして実装する。アーキテクチャ規約「5. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない
+- 実装方針: 各Contextが公開するRepository（`master-data` Context・`user` Context・`teacher-permission` Context）を呼び出すアダプタとして実装する。アーキテクチャ規約「5. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない
 - **②からの補足**: 呼び出し先となる各Contextの具体的なRepository・メソッド名は、各Context自身の②/③Go移行・設計仕様書に依存するため、本書では確定できない。①も未提供のため参照不可。実装時に該当Contextの②/③文書を参照して確定する必要がある（推測を含む）
 
 ## TransactionManager実装
@@ -820,9 +820,9 @@ type TransactionManager interface {
 
 - 実装対象: 本Context自体では実装しない。規約「13. 非同期ジョブ実行パターン（JobQueue）」で定義された共通基盤（`jobs`テーブル + ポーリングワーカー、配置例: `internal/shared/jobqueue`）を利用する
 - 呼び出し元: `CreateInterviewRequestUseCase` / `CancelInterviewRequestUseCase` / `CreateInterviewRequestMessageUseCase`（いずれも生徒視点。面談機能②「14. Transaction設計」相手方への通知は業務データの書き込みと同一トランザクション内でジョブとして登録する）
-- 実装方針: `jobType`を`"interview_request_notification"`とし、`payload`に通知種別（申請/取消/メッセージ投稿）・面談ID・通知先教員IDを含めるJSONペイロードを渡す。ワーカー側のハンドラ登録（`main.go`の`HandlerMap`）で、Announcement Context（またはNotification Context）へのお知らせ実体作成を行う。具体的な通知先Context・実体作成処理は本Contextのスコープ外とする（規約「13. 非同期ジョブ実行パターン」の適用範囲、面談機能②「3. Bounded Context」Notification Contextへの依存）
+- 実装方針: `jobType`を`"interview_request_notification"`とし、`payload`に通知種別（申請/取消/メッセージ投稿）・面談ID・通知先教員IDを含めるJSONペイロードを渡す。ワーカー側のハンドラ登録（`main.go`の`HandlerMap`）で、`announcement` Context（または`teacher-notification` Context）へのお知らせ実体作成を行う。具体的な通知先Context・実体作成処理は本Contextのスコープ外とする（規約「13. 非同期ジョブ実行パターン」の適用範囲、面談機能②「3. Bounded Context」`teacher-notification` Contextへの依存）
 
-**②からの補足**: 面談機能②「3. Bounded Context」は依存先を「Notification Context」と表記するが、教師面談機能②「3. Bounded Context」は依存先を「Announcement Context（`announcement`）」と表記しており、両②文書で通知連携先のContext名の表記が異なる。本書ではいずれのContextも指すジョブ種別（`"interview_request_notification"`）として抽象化し、実際の通知先Context解決はワーカー側のハンドラ実装に委ねる（推測。実装時に該当Contextの②/③文書を参照して確定する必要がある）。
+**②からの補足**: 面談機能②「3. Bounded Context」は依存先を「`teacher-notification` Context」と表記するが、教師面談機能②「3. Bounded Context」は依存先を「`announcement` Context（`announcement`）」と表記しており、両②文書で通知連携先のContext名の表記が異なる。本書ではいずれのContextも指すジョブ種別（`"interview_request_notification"`）として抽象化し、実際の通知先Context解決はワーカー側のハンドラ実装に委ねる（推測。実装時に該当Contextの②/③文書を参照して確定する必要がある）。
 
 Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastructure/queue`）としての本Context固有実装は「対象外」とする。
 
@@ -1085,10 +1085,10 @@ GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf("...: %
 |InterviewRequestRepository|Create/Update|interview_requests|主キー（Update時はlock_versionも条件に含む）|なし|
 |InterviewRequestMessageRepository|FindAllByInterviewRequestID|interview_request_messages|interview_request_id|なし|
 |InterviewRequestMessageRepository|Create|interview_request_messages|-|なし|
-|TeacherAssignmentRepository|IsAssignedToStudent|（School Context所有テーブル）|teacher_id、生徒の所属クラスID|クラス担当情報との結合が必要|
-|StudentReferenceRepository|Exists / GradeIDOf|（User Context所有テーブル）|student_id|なし|
-|UserNameReferenceRepository|FindNamesByIDs|（User Context所有テーブル）|user_idの集合（IN条件）|なし|
-|TeacherPermissionReferenceRepository|IsOwnGradeScope / OwnGradeID|（Teacher Permission Context所有テーブル）|teacher_id|なし|
+|TeacherAssignmentRepository|IsAssignedToStudent|（`master-data` Context所有テーブル）|teacher_id、生徒の所属クラスID|クラス担当情報との結合が必要|
+|StudentReferenceRepository|Exists / GradeIDOf|（`user` Context所有テーブル）|student_id|なし|
+|UserNameReferenceRepository|FindNamesByIDs|（`user` Context所有テーブル）|user_idの集合（IN条件）|なし|
+|TeacherPermissionReferenceRepository|IsOwnGradeScope / OwnGradeID|（`teacher-permission` Context所有テーブル）|teacher_id|なし|
 
 SQL文そのものは記載しない。
 
@@ -1166,7 +1166,7 @@ SQL文そのものは記載しない。
 |生徒視点の通知を規約「13. 非同期ジョブ実行パターン」の「確実に実行したい処理」（jobsテーブル）に、教員視点の通知を「ベストエフォートで良い処理」（ゴルーチン）に分類した|面談機能②「14. Transaction設計」は「業務データの書き込みと同一トランザクション内でジョブとして登録する（Transactional Outboxパターン）」と明記しており、規約13章の「確実に実行したい処理」に該当する。教師面談機能②「18. Domain Event」は「ベストエフォートで良い処理に分類する」と明記しており、両②で意図的に異なる非同期処理方式が選択されている。③では両者の記載をそのまま実装方針に反映した|補足（②の記載をそのまま反映したものであり、③独自の判断ではない）|
 |新規申請時のHTTP Status Codeを201とした|②「19. API仕様」Status Codeの記載が「201/200: メッセージ作成・面談申請作成成功の扱いは既存仕様に合わせて統一する」と曖昧であり、①未提供のため実際のRails挙動を参照できない。REST慣例に基づき作成=201と仮置きした|推測（実装着手前にRails現行仕様の確認を推奨）|
 |`LockVersion`の初期値（新規作成時）を0または1のいずれにするかは本書で確定しなかった|②はLockVersionの競合判定ルールのみを記載し、初期値を明記していない。GORMの`optimisticlock.Version`はゼロ値から開始し初回更新時に1へインクリメントされる標準的な挙動に委ねるのが妥当だが、①未提供のため実際のRails（`lock_version`のデフォルト値）との整合性は実装時に確認が必要である|推測|
-|通知連携先Contextの表記（Notification Context／Announcement Context）の不一致をジョブ種別文字列で抽象化した|面談機能②「3. Bounded Context」はNotification Context、教師面談機能②「3. Bounded Context」はAnnouncement Contextと表記しており、②間で通知先Contextの名称が一致していない。③ではこの差異を解決せず、ジョブ種別・ワーカーハンドラの実装側で吸収する方針とした|推測（②間の表記差異そのものは③の責務で解決できないため、実装時に該当Contextの最新②/③文書を参照して確定する必要がある）|
-|生徒名・教員名・送信者名を、面談側に複製せず、`UserNameReferenceRepository`（User Contextの参照）で表示時に解決する構成とした|Rails現行のSerializerが`student_name` / `teacher_name` / `sender_name`を返すことを確認した。②は氏名の解決方法を明記していないが、②「3. Bounded Context」がUser Contextへの依存（メッセージ送信者名の表示）を定めており、氏名を面談のテーブルに持たない現行DBとも整合する。`ユーザー基盤機能_Go移行・設計仕様書.md`の集約表は「メッセージ送信者名の表示」のみを挙げているが、生徒名・教員名の表示にも同じ参照手段（`GetUserAttributes`の複数ID指定に相当）を用いる|推測（返却項目に氏名を含める点はRails現行のSerializerで確認済み。解決方法は推測）|
+|通知連携先Contextの表記（`teacher-notification` Context／`announcement` Context）の不一致をジョブ種別文字列で抽象化した|面談機能②「3. Bounded Context」は`teacher-notification` Context、教師面談機能②「3. Bounded Context」は`announcement` Contextと表記しており、②間で通知先Contextの名称が一致していない。③ではこの差異を解決せず、ジョブ種別・ワーカーハンドラの実装側で吸収する方針とした|推測（②間の表記差異そのものは③の責務で解決できないため、実装時に該当Contextの最新②/③文書を参照して確定する必要がある）|
+|生徒名・教員名・送信者名を、面談側に複製せず、`UserNameReferenceRepository`（`user` Contextの参照）で表示時に解決する構成とした|Rails現行のSerializerが`student_name` / `teacher_name` / `sender_name`を返すことを確認した。②は氏名の解決方法を明記していないが、②「3. Bounded Context」が`user` Contextへの依存（メッセージ送信者名の表示）を定めており、氏名を面談のテーブルに持たない現行DBとも整合する。`ユーザー基盤機能_Go移行・設計仕様書.md`の集約表は「メッセージ送信者名の表示」のみを挙げているが、生徒名・教員名の表示にも同じ参照手段（`GetUserAttributes`の複数ID指定に相当）を用いる|推測（返却項目に氏名を含める点はRails現行のSerializerで確認済み。解決方法は推測）|
 |メッセージ投稿時の状態遷移を、面談を再取得したうえで行い、楽観ロック競合を遷移のスキップとして扱う（メッセージ作成は維持する）構成とした|面談機能②「12. UseCase設計」・「14. Transaction設計」の記載（Rails現行の`Common::PostInterviewRequestMessageService`が、状態更新をメッセージ作成から独立させ、競合を無視する挙動）を実装単位に落とし込んだ。1つのトランザクション内で、`Update`が競合（`RowsAffected == 0`）を返しても、メッセージ作成・ジョブ登録はコミットされる|②の記載どおり|
 

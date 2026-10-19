@@ -50,15 +50,15 @@
   - 招待待ち状態で作成するか: する（Rails現行の`Teacher::CreateTeacherForm`は`password_reset_required`を真にして作成する）
   - 作成時に招待メールを送るか: しない（Rails現行は作成時にメールを送らない。招待メールは、教員招待通知機能（teacher-notification）が後から送る。教員一覧の招待状況は「未送信」から始まる）
   - 氏名・氏名カナ・メールアドレス・所属校ID・学年ID: 入力値（氏名カナ・学年IDを含む）を設定する。所属校IDは操作者の所属校とする
-- School/Grade Context: 担当学年の存在確認、同校判定に依存する
-- Teacher Permission Context: 着任時に初期権限（`grade_scope` / `manage_other_teachers`）を設定する。ただし作成後の権限変更ライフサイクルはTeacher Permission Contextが所有する。また、新規教員作成の実行可否そのものを判定する「他職員操作権限」の参照元でもある
-- Teacher Notification Context（teacher-notification）: 教員一覧取得時に、各教員への直近の招待通知状況（招待未送信／送信成功／送信失敗）を参照するために依存する（参照専用）
+- `master-data` Context: 担当学年の存在確認、同校判定に依存する
+- `teacher-permission` Context: 着任時に初期権限（`grade_scope` / `manage_other_teachers`）を設定する。ただし作成後の権限変更ライフサイクルは`teacher-permission` Contextが所有する。また、新規教員作成の実行可否そのものを判定する「他職員操作権限」の参照元でもある
+- `teacher-notification` Context（teacher-notification）: 教員一覧取得時に、各教員への直近の招待通知状況（招待未送信／送信成功／送信失敗）を参照するために依存する（参照専用）
 
 ## 依存する理由
 
-教員アカウント本体の作成（`users`の1行の作成・仮パスワードの発行）は`user` Contextに、学年情報は School/Grade Contextに委ねる。教員アカウントの作成は、これら他Contextの情報・操作を前提として成立する。また、初期権限の設定は行うが、以後の権限変更・保護ルール（自己更新禁止・最後の教員保護等）はTeacher Permission Contextの責務であるため、作成時点のみ本Contextが関与し、以降の権限ライフサイクル管理はTeacher Permission Contextへ委譲する。
+教員アカウント本体の作成（`users`の1行の作成・仮パスワードの発行）は`user` Contextに、学年情報は `master-data` Contextに委ねる。教員アカウントの作成は、これら他Contextの情報・操作を前提として成立する。また、初期権限の設定は行うが、以後の権限変更・保護ルール（自己更新禁止・最後の教員保護等）は`teacher-permission` Contextの責務であるため、作成時点のみ本Contextが関与し、以降の権限ライフサイクル管理は`teacher-permission` Contextへ委譲する。
 
-教員一覧には各教員への招待通知状況を併せて表示する業務要件があるが、招待通知の送信・履歴管理自体はTeacher Notification Context（教員招待通知機能）が所有する責務である。本Contextは一覧表示のために招待状況を参照するのみとし、招待通知に関する業務ルール（送信対象の絞り込み、送信結果の記録等）はTeacher Notification Context側に置く。これにより、招待通知の仕様変更が本Contextに波及する範囲を「参照結果の表示」のみに限定できる。
+教員一覧には各教員への招待通知状況を併せて表示する業務要件があるが、招待通知の送信・履歴管理自体は`teacher-notification` Context（教員招待通知機能）が所有する責務である。本Contextは一覧表示のために招待状況を参照するのみとし、招待通知に関する業務ルール（送信対象の絞り込み、送信結果の記録等）は`teacher-notification` Context側に置く。これにより、招待通知の仕様変更が本Contextに波及する範囲を「参照結果の表示」のみに限定できる。
 
 ---
 
@@ -88,7 +88,7 @@ Active Record
 ### Domain Model
 
 - 教員アカウント自体に状態遷移や、複数Entityにまたがる複雑な業務ルールの蓄積は現時点で存在しない
-- 権限に関する状態的な業務ルール（自己更新禁止・最後の教員保護等）はTeacher Permission Context側で扱うため、本機能側でDomain Modelを導入する必然性が薄い
+- 権限に関する状態的な業務ルール（自己更新禁止・最後の教員保護等）は`teacher-permission` Context側で扱うため、本機能側でDomain Modelを導入する必然性が薄い
 
 ### Event Sourcing
 
@@ -112,7 +112,7 @@ Active Record
 ## Aggregate境界
 
 - Aggregateの構成と整合性ルールは管理者教員管理機能と共通とする。本機能がAggregateに関与するのは、教員の参照（一覧・詳細）と、新規教員の作成（着任）という1回の業務操作の範囲に限定される
-- 作成後のTeacherの参照（一覧・詳細）や、TeacherPermissionの以後の変更は、それぞれ別の関心事（参照、Teacher Permission Contextでの更新）として扱い、本機能の着任作成の範囲外とする
+- 作成後のTeacherの参照（一覧・詳細）や、TeacherPermissionの以後の変更は、それぞれ別の関心事（参照、`teacher-permission` Contextでの更新）として扱い、本機能の着任作成の範囲外とする
 
 ## 整合性を保証する単位
 
@@ -137,7 +137,7 @@ Active Record
 ## TeacherPermission
 
 - 役割: 着任時に設定する初期権限（学年閲覧範囲・他教員管理権限）を表す（管理者教員管理機能「7. Value Object設計」のTeacherPermissionと同一の概念である）
-- ライフサイクル: 教員作成時に1度だけ作成される。以後の変更はTeacher Permission Contextの責務
+- ライフサイクル: 教員作成時に1度だけ作成される。以後の変更は`teacher-permission` Contextの責務
 - 状態変化: 本機能の範囲では持たない（作成のみ）
 - 保持する責務:
   - `grade_scope` が許容値であることを保持・検証する
@@ -176,7 +176,7 @@ Active Record
 - 採用理由: `own_grade` / `all_grades` という許容値が決まっており、任意の整数・文字列を許すべきではないため
 - 独自ルール:
   - 定義済みの値以外を許容しない
-- Entity属性ではなくValue Objectにする理由: 許容値のチェックを型として表現し、教師権限管理機能（Teacher Permission Context）および管理者教員管理機能のTeacherPermission（`grade_scope`の許容値）と概念を共有しやすくするため（推測: 両機能はTeacherPermissionという同一概念を扱うため、Value Objectとしての定義を揃えておくことが将来の一貫性維持に資すると考えられる）
+- Entity属性ではなくValue Objectにする理由: 許容値のチェックを型として表現し、教師権限管理機能（`teacher-permission` Context）および管理者教員管理機能のTeacherPermission（`grade_scope`の許容値）と概念を共有しやすくするため（推測: 両機能はTeacherPermissionという同一概念を扱うため、Value Objectとしての定義を揃えておくことが将来の一貫性維持に資すると考えられる）
 
 ## Value Objectを採用しないもの
 
@@ -190,7 +190,7 @@ Active Record
 
 - 責務: 指定された学年（grade_id）が、着任させる教師の所属校と一致するかどうかを判定する
 - 管理者教員管理機能「8. Domain Service」のTeacherGradeAssignmentPolicyと同一のPolicyを共有する。本機能では新規作成時に指定された学年（単一の`grade_id`）が対象となる
-- Entityへ持たせない理由: 判定にはTeacher・TeacherGradeAssignment単体の情報だけでなく、School/Grade Contextが管理する学年の所属校情報という外部情報が必要なため
+- Entityへ持たせない理由: 判定にはTeacher・TeacherGradeAssignment単体の情報だけでなく、`master-data` Contextが管理する学年の所属校情報という外部情報が必要なため
 - 判断根拠: 同校制約はTeacher・TeacherGradeAssignmentいずれか一方の責務に寄せると不自然であり、両者の整合性を横断的に判定するDomain Serviceとして切り出すことで、判定ロジックの所在を明確にする
 
 ## 追加で必要としないService
@@ -229,7 +229,7 @@ Active Record
 - 教師視点で利用する検索機能:
   - `user_id` による取得
 - 保持しない責務:
-  - 権限の更新・保護ルール判定（Teacher Permission Contextの責務）
+  - 権限の更新・保護ルール判定（`teacher-permission` Contextの責務）
 - 判断根拠: 教師視点では作成時点の初期化と参照のみを行い、以後の権限管理と役割を分離するため
 
 ## TeacherGradeStore
@@ -244,14 +244,14 @@ Active Record
   - 学年の存在確認・同校判定（TeacherGradeAssignmentPolicyおよびGrade参照Storeの責務）
 - 判断根拠: 担当学年の永続化に責務を限定するため
 
-## GradeStore（School/Grade Context提供・参照専用）
+## GradeStore（`master-data` Context提供・参照専用）
 
 - 管理対象: Grade（参照専用）
 - 責務:
   - 指定学年の存在確認、所属校の取得
 - 保持しない責務:
   - 割当可否の最終判断（TeacherGradeAssignmentPolicyの責務）
-- 判断根拠: 学年情報の真正な管理はSchool/Grade Contextに残すため
+- 判断根拠: 学年情報の真正な管理は`master-data` Contextに残すため
 
 ---
 
@@ -269,8 +269,8 @@ Active Record
 - トランザクション範囲: 読み取りのみ、トランザクションは不要
 - 呼び出すStore:
   - TeacherStore
-  - TeacherNotificationStatusStore（Teacher Notification Context提供・参照専用。教員ごとの直近の招待通知状況を取得する）
-- 判断根拠: 単純な絞り込み・ページネーションに加え、Teacher Notification Contextへの参照を組み合わせるだけの処理であり、招待通知自体の送信・記録ロジックは持たないため
+  - TeacherNotificationStatusStore（`teacher-notification` Context提供・参照専用。教員ごとの直近の招待通知状況を取得する）
+- 判断根拠: 単純な絞り込み・ページネーションに加え、`teacher-notification` Contextへの参照を組み合わせるだけの処理であり、招待通知自体の送信・記録ロジックは持たないため
 
 ## ShowTeacher(Handler処理)
 
@@ -438,7 +438,7 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 
 - 一覧・詳細のレスポンス構造はRails現行仕様に近い意味を維持する。一覧のページ情報（`meta`）は、`current_page` / `total_pages` / `total_count` / `per_page`を維持する
 - 作成のレスポンスは、Rails現行仕様と同じく`message`（`教員の新規作成に成功しました。`）のみとし、作成された教員の情報は返さない
-- 一覧レスポンスには、各教員の直近の招待通知状況（`invitation_status`。Teacher Notification Contextからの参照結果。通知未送信の場合は「未送信」扱い）を含める
+- 一覧レスポンスには、各教員の直近の招待通知状況（`invitation_status`。`teacher-notification` Contextからの参照結果。通知未送信の場合は「未送信」扱い）を含める
 
 ## Status Code
 
@@ -507,7 +507,7 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 | Query（TeachersQuery） | TeacherStore | 検索条件の実行をStoreの責務として整理する |
 | Serializer | Presenter / Response DTO | レスポンス整形をPresentation層に分離する |
 | Model（User, TeacherPermission, TeacherGrade） | Teacher / TeacherPermission / TeacherGradeAssignment（struct）+ TeacherStore / TeacherPermissionStore / TeacherGradeStore（同一package。管理者教員管理機能と共有） | 業務ルールと永続化をstruct/Storeに整理する |
-| `TeacherNotification`（招待状況の参照のみ） | Teacher Notification Context（teacher-notification）への参照呼び出し | 招待通知の所有・業務ルールは別Contextに残し、本機能は参照のみ行う |
+| `TeacherNotification`（招待状況の参照のみ） | `teacher-notification` Context（teacher-notification）への参照呼び出し | 招待通知の所有・業務ルールは別Contextに残し、本機能は参照のみ行う |
 
 ---
 
@@ -542,7 +542,7 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 | Value Object | 採用（NameKana/Email/GradeScope） | 形式・許容値のルールを型として明示し再利用するため |
 | Domain Service | TeacherGradeAssignmentPolicy | 同校制約の判定がTeacher・TeacherGradeAssignment単体の責務に収まらないため（管理者教員管理機能と共有） |
 | Authorization（作成時） | Handler処理内での「他職員操作権限」確認 | ロール確認（Middleware）とは別に、業務権限としてHandler処理内で明示的に判定する必要があるため |
-| Context間連携 | Teacher Notification Context（teacher-notification）を参照専用で利用 | 招待通知の所有・業務ルールを本Contextに持ち込まず、一覧表示のための参照に限定するため |
+| Context間連携 | `teacher-notification` Context（teacher-notification）を参照専用で利用 | 招待通知の所有・業務ルールを本Contextに持ち込まず、一覧表示のための参照に限定するため |
 
 ---
 
@@ -561,7 +561,7 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 - 入力形式検証をPresentation層、業務的な値検証をValue Object、同校制約の判定をDomain Serviceに分離する
 - 複数レコードの同時作成処理をCreateTeacher（Handler処理）に集約し、その一部として「他職員操作権限」の確認を明示的な最初のステップとして位置づける。操作者の権限レコードが存在しない場合の扱い（500）、一覧のページング（既定値20件・上限100件）、作成レスポンス（`message`のみ）は、Rails現行と同一とする（変更しない）
 - 検索条件の実行をTeacherStoreに集約する
-- 招待状況の参照をTeacher Notification Context（teacher-notification）への参照呼び出しとして明確化し、招待通知自体の業務ルールは本機能側に持ち込まない
+- 招待状況の参照を`teacher-notification` Context（teacher-notification）への参照呼び出しとして明確化し、招待通知自体の業務ルールは本機能側に持ち込まない
 - 教員アカウント本体（`users`の1行）の作成を、`user` Contextの`CreateTeacherAccount`（招待待ち=する・作成時に招待メールを送る=しない）に任せ、本Contextは権限・担当学年の作成を担う。3つの作成は同一トランザクションで扱う
 
 ## 変更理由

@@ -280,7 +280,7 @@ flowchart TD
   - いずれかが存在しない場合は`found=false`を返す
 - `GradeClassRecord`のフィールド: `GradeID uint` / `SchoolClassID uint` / `HighSchoolID uint`
 
-**②からの補足**: ②「11. Repository設計」は`GradeRepository`/`SchoolClassRepository`を「School/Grade Context提供・参照専用」としているが、当該Contextの②/③文書は本タスクでは提供されていない。本書では、`student_directory`自身のinfrastructure関数として`grades`/`school_classes`テーブルを直接参照する構成とした（推測。当該Contextの③文書が整備され次第、参照専用の公開関数呼び出しへ置き換える必要がある）。
+**②からの補足**: ②「11. Repository設計」は`GradeRepository`/`SchoolClassRepository`を「`master-data` Context提供・参照専用」としているが、当該Contextの②/③文書は本タスクでは提供されていない。本書では、`student_directory`自身のinfrastructure関数として`grades`/`school_classes`テーブルを直接参照する構成とした（推測。当該Contextの③文書が整備され次第、参照専用の公開関数呼び出しへ置き換える必要がある）。
 
 ### StudentSearchCondition（infrastructure内の検索条件型）
 
@@ -506,7 +506,7 @@ Transaction Script採用のため、application関数内のガード節で以下
 
 | 参照対象 | テーブル | 備考 |
 |-|-|-|
-| 生徒 | `users` | 生徒データの実体はUser Contextが管理する（②3章）。GORMモデル定義自体の所在は17章参照 |
+| 生徒 | `users` | 生徒データの実体は`user` Contextが管理する（②3章）。GORMモデル定義自体の所在は17章参照 |
 | 学年 | `grades` | 絞り込み条件・登録時の同校確認・レスポンスの学年情報として参照 |
 | クラス | `school_classes` | 登録時の同校・学年整合性確認として参照 |
 | 所属校 | `high_schools` | 絞り込み条件・レスポンスの所属校情報として参照 |
@@ -599,7 +599,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 | 4 | `page`・`per_page`パラメータが不正な形式の場合の挙動（400を返す想定） | ②12章では「型チェック」を行うことのみ記載され、具体的な失敗時挙動の記載がない | 推測 |
 | 5 | `per_page`のデフォルト値10・上限100件への正規化処理をApplication層（`ListStudents`関数内）に置いた | ②16章に数値自体は明記されているが、正規化を行う層はPresentation/Applicationのいずれかが②に明記されていない。業務ルール（デフォルト値・上限）に近いためApplication層に置いた | 推測 |
 | 6 | 生徒詳細レスポンス（`StudentDetailResponse`）の関連情報フィールドの具体的な内容を確定していない | ②16章は「生徒の基本情報と関連情報を維持する」とのみ記載し、具体的なフィールドはRails実装（①）に依存する。①は本書作成時点で未提供のため参照不可 | ①未提供のため参照不可 |
-| 7 | 生徒データ（`users`テーブル）・学年（`grades`）・クラス（`school_classes`）に対応するGORMモデルを本Contextが独自定義するか、他Context側の既存定義を参照するかを確定していない | School/Grade Context自体の②文書がまだ存在せず、User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が定める公開参照操作の③Go実装仕様書も未作成であるため | 推測 |
+| 7 | 生徒データ（`users`テーブル）・学年（`grades`）・クラス（`school_classes`）に対応するGORMモデルを本Contextが独自定義するか、他Context側の既存定義を参照するかを確定していない | `master-data` Context自体の②文書がまだ存在せず、`user` Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が定める公開参照操作の③Go実装仕様書も未作成であるため | 推測 |
 | 8 | 未認証時401・ロール不一致時403というHTTP Statusの割り当て | ②16章のStatus Code一覧に認証・認可失敗時の記載がない | 推測 |
 | 9 | `CreateStudent`は自身でトランザクションを開始せず、アカウントの保存と招待メール送信依頼の登録のトランザクションは`user`の`CreateStudentAccount`に任せ、`FindGradeWithClass`（事前確認）はそのトランザクションに含めない構成とした | 本Context自身の書き込みがなく、`user`の作成操作が呼び出し側のトランザクションがなければ自身で開始する（`user`②「14. Transaction設計」）ため | 推測 |
 

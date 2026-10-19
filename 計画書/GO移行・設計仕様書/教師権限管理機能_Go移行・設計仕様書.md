@@ -45,7 +45,7 @@
 ## 他Contextとの依存関係
 
 - teacher-management Context（教師教員管理機能・管理者教員管理機能）: 更新対象教員が同校に存在するか、着任時に作成された権限レコードの参照に依存する。教員アカウント自体の作成・一覧管理はteacher-management Contextの責務であり、本Contextは権限の参照・更新のみを担う
-- User Context: current user（更新操作を行う教師）の識別、所属校情報の参照に依存する
+- `user` Context: current user（更新操作を行う教師）の識別、所属校情報の参照に依存する
 
 ## 依存する理由
 

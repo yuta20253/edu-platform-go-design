@@ -326,9 +326,9 @@ type InterviewEventNotifier interface {
 }
 ```
 
-実装は「8. Infrastructure層設計」を参照。②「18. Domain Event」の採用理由（4つの異なる状態変化それぞれに非同期通知が必要）どおり、UseCase内で`event.InterviewRequested`等（面談機能_Go実装仕様書「3. Domain層設計」Domain Eventで定義済み）を組み立て、`InterviewEventNotifier`経由でAnnouncement Context側のお知らせ実体作成処理へ委譲する。
+実装は「8. Infrastructure層設計」を参照。②「18. Domain Event」の採用理由（4つの異なる状態変化それぞれに非同期通知が必要）どおり、UseCase内で`event.InterviewRequested`等（面談機能_Go実装仕様書「3. Domain層設計」Domain Eventで定義済み）を組み立て、`InterviewEventNotifier`経由で`announcement` Context側のお知らせ実体作成処理へ委譲する。
 
-**②からの補足**: `InterviewEventNotifier`という具体的なインターフェース名・メソッドシグネチャは②に明記がなく、②「18. Domain Event」のイベント名・利用目的（Announcement Contextへの通知依頼を同期処理から切り離す）から実装のために補った（推測）。
+**②からの補足**: `InterviewEventNotifier`という具体的なインターフェース名・メソッドシグネチャは②に明記がなく、②「18. Domain Event」のイベント名・利用目的（`announcement` Contextへの通知依頼を同期処理から切り離す）から実装のために補った（推測）。
 
 ---
 
@@ -397,10 +397,10 @@ flowchart TD
 
 - 実装対象: `internal/interview_request/infrastructure/notification/interview_event_notifier.go`（本書固有の追加ディレクトリ。教師面談機能側のみが利用するため面談機能_Go実装仕様書には含まれない）
 - 呼び出し元: `CreateInterviewRequestUseCase` / `UpdateInterviewRequestStatusUseCase` / `CancelInterviewRequestUseCase` / `PostInterviewRequestMessageUseCase`（いずれも教員視点。「6. Application層設計」参照）
-- 実装方針: 規約「13. 非同期ジョブ実行パターン（JobQueue）」の「ベストエフォートで良い処理」に分類し、`jobs`テーブルを経由せずUseCaseから直接goroutineを起動する（規約13章の例：`go func() { ctx := context.Background(); ... }()`）。`InterviewEventNotifier`の実装は、Announcement Context（お知らせ機能と共通の仕組み。②「3. Bounded Context」「9. 非同期処理」参照）が公開するお知らせ実体作成処理を呼び出すアダプタとする。アーキテクチャ規約「5. Context間連携ルール」に従い、Announcement Contextの内部Entity・Infrastructure実装には直接依存しない
+- 実装方針: 規約「13. 非同期ジョブ実行パターン（JobQueue）」の「ベストエフォートで良い処理」に分類し、`jobs`テーブルを経由せずUseCaseから直接goroutineを起動する（規約13章の例：`go func() { ctx := context.Background(); ... }()`）。`InterviewEventNotifier`の実装は、`announcement` Context（お知らせ機能と共通の仕組み。②「3. Bounded Context」「9. 非同期処理」参照）が公開するお知らせ実体作成処理を呼び出すアダプタとする。アーキテクチャ規約「5. Context間連携ルール」に従い、`announcement` Contextの内部Entity・Infrastructure実装には直接依存しない
 - 失敗時の扱い: 通知の送達に失敗しても面談自体の状態（申請・確定・キャンセル・メッセージ）は正しく確定しているため、確実な再送（`jobs`テーブルによるリトライ）までは行わない。失敗はログ出力のみとする（②「18. Domain Event」採用理由の推測どおり）
 
-**②からの補足**: 呼び出し先となるAnnouncement Contextの具体的なRepository・関数名は、Announcement Context自身の②/③Go移行・設計仕様書に依存するため、本書では確定できない。①も未提供のため参照不可（推測を含む）。
+**②からの補足**: 呼び出し先となる`announcement` Contextの具体的なRepository・関数名は、`announcement` Context自身の②/③Go移行・設計仕様書に依存するため、本書では確定できない。①も未提供のため参照不可（推測を含む）。
 
 ---
 
@@ -473,7 +473,7 @@ flowchart TD
 
 EntityであるInterviewRequest／InterviewRequestMessageをそのまま返さず、必ずResponse DTOへ変換する（アーキテクチャ規約「6. データフロー」）。
 
-**②からの補足**: 各Responseの具体的なフィールド構成は、②「19. API仕様」各エンドポイント記述に基づく。面談の一覧・詳細（同じ項目）とメッセージのフィールドは、Rails現行の`InterviewRequestSerializer`（`id` / `status` / `initiator_role` / `reason_category` / `reason_detail` / `scheduled_at` / `completed_at` / `cancelled_at` / `cancel_reason` / `lock_version` / `created_at` / `student_id` / `student_name` / `teacher_id` / `teacher_name`）・`InterviewRequestMessageSerializer`（`id` / `body` / `sender_id` / `sender_name` / `created_at`）と、Rails現行仕様書（教師面談機能）で確認した事実に基づく（推測ではない）。生徒名・教師名・投稿者名は、面談側に複製せず、`UserNameReferenceRepository`（面談機能_Go実装仕様書「3. Domain層設計」で定義済み。User Contextの参照）で表示時に解決して、Response DTOに保持する。
+**②からの補足**: 各Responseの具体的なフィールド構成は、②「19. API仕様」各エンドポイント記述に基づく。面談の一覧・詳細（同じ項目）とメッセージのフィールドは、Rails現行の`InterviewRequestSerializer`（`id` / `status` / `initiator_role` / `reason_category` / `reason_detail` / `scheduled_at` / `completed_at` / `cancelled_at` / `cancel_reason` / `lock_version` / `created_at` / `student_id` / `student_name` / `teacher_id` / `teacher_name`）・`InterviewRequestMessageSerializer`（`id` / `body` / `sender_id` / `sender_name` / `created_at`）と、Rails現行仕様書（教師面談機能）で確認した事実に基づく（推測ではない）。生徒名・教師名・投稿者名は、面談側に複製せず、`UserNameReferenceRepository`（面談機能_Go実装仕様書「3. Domain層設計」で定義済み。`user` Contextの参照）で表示時に解決して、Response DTOに保持する。
 
 ## Routing
 
@@ -546,7 +546,7 @@ Error Response方針: 面談機能_Go実装仕様書「10. API仕様」と同一
 
 ## 複数Repository（またはStore・関数）にまたがる場合の扱い
 
-本Context内でAnnouncement Context以外に書き込みを行うRepositoryは存在しない。`InterviewEventNotifier`による通知は、②「14. Transaction設計」の理由（1回の業務操作に対して状態・楽観ロック・メッセージの整合性を保つことがトランザクションの目的であり、通知はベストエフォート処理であるためトランザクション範囲には含めない）に従い、トランザクションコミット後に非同期（goroutine）で実行する。
+本Context内で`announcement` Context以外に書き込みを行うRepositoryは存在しない。`InterviewEventNotifier`による通知は、②「14. Transaction設計」の理由（1回の業務操作に対して状態・楽観ロック・メッセージの整合性を保つことがトランザクションの目的であり、通知はベストエフォート処理であるためトランザクション範囲には含めない）に従い、トランザクションコミット後に非同期（goroutine）で実行する。
 
 ---
 
@@ -653,8 +653,8 @@ GORMが返すDB接続エラー等は、Repository実装内（面談機能_Go実�
 |InterviewRequestRepository|Update|interview_requests|主キー・lock_version条件|
 |InterviewRequestMessageRepository|FindAllByInterviewRequestID|interview_request_messages|interview_request_id|
 |InterviewRequestMessageRepository|Create|interview_request_messages|-|
-|StudentReferenceRepository|Exists / GradeIDOf|（User Context所有テーブル）|student_id|
-|TeacherPermissionReferenceRepository|IsOwnGradeScope / OwnGradeID|（Teacher Permission Context所有テーブル）|teacher_id|
+|StudentReferenceRepository|Exists / GradeIDOf|（`user` Context所有テーブル）|student_id|
+|TeacherPermissionReferenceRepository|IsOwnGradeScope / OwnGradeID|（`teacher-permission` Context所有テーブル）|teacher_id|
 
 ②「20. DB設計方針」・面談機能②「20. DB設計方針」いずれも既存Schemaに対する変更提案はなく、本書でも変更は行わない。
 
@@ -716,8 +716,8 @@ GORMが返すDB接続エラー等は、Repository実装内（面談機能_Go実�
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
 |Application層・Presentation層を`teacher`サブパッケージとして、面談機能_Go実装仕様書の`student`サブパッケージと分離した|面談機能_Go実装仕様書「2. ディレクトリ構成」の②からの補足のとおり、同一Aggregateを2つのUseCase/Handler群が操作する構成でstruct名の衝突を避けるため。両書で一貫した構造とする必要があるため、本書でも踏襲した|補足（面談機能_Go実装仕様書の構造判断を踏襲したものであり、②の設計方針自体は変更していない）|
-|`InterviewEventNotifier`という具体的なインターフェース名・メソッドシグネチャの新設|②「18. Domain Event」はイベント名・発火タイミング・利用目的のみを明記し、実際にAnnouncement Contextへ通知を委譲するためのGoのインターフェース設計までは記載していないため、コーディング規約「5. インターフェース」に従い実装のために補った|推測|
+|`InterviewEventNotifier`という具体的なインターフェース名・メソッドシグネチャの新設|②「18. Domain Event」はイベント名・発火タイミング・利用目的のみを明記し、実際に`announcement` Contextへ通知を委譲するためのGoのインターフェース設計までは記載していないため、コーディング規約「5. インターフェース」に従い実装のために補った|推測|
 |`CreateInterviewRequestUseCase`（教員視点）に`ErrStudentNotFound`という対象生徒不存在のApplication Errorを追加した|②「17. Error設計」のエラー仕様表には「対象生徒が存在しない」という個別シナリオの記載がないが、`StudentReferenceRepository.Exists`による存在確認自体は②「11. Repository設計」外部参照Repositoryの責務として明記されているため、確認結果がfalseの場合のエラーハンドリングを③側で補った|推測|
 |`UpdateInterviewRequestStatusUseCase`の`confirmed`更新成功時のみ通知を送る（`completed`更新時は通知しない）とした|教師面談機能②「13. シーケンス図・処理フロー図」処理フロー図が「confirmedへの更新か」で通知要否を分岐させる形で明示しているため、そのまま反映した|補足（②の記載をそのまま反映したもの）|
-|Response DTOに生徒名・教師名・投稿者名を保持し、`UserNameReferenceRepository`（面談機能_Go実装仕様書で定義）を通じてUser Contextから表示時に解決する構成とした|Rails現行の`InterviewRequestSerializer`が`student_name` / `teacher_name`を、`InterviewRequestMessageSerializer`が`sender_name`を返すことを確認した。②「19. API仕様」は「生徒名・教師名等を含む」「投稿者名」と記載するが、氏名の解決方法（本Context内での非正規化保持か、参照先Context呼び出しによる解決か）を明記していない。本Contextは生徒・教師の氏名データを所有しない（User Contextが真正な情報源。②「3. Bounded Context」の依存）ため、氏名は面談側に複製せず参照によって解決する。`ユーザー基盤機能_Go移行・設計仕様書.md`の集約表は「メッセージ送信者名の表示」のみを挙げているが、生徒名・教師名の表示にも同じ参照手段を用いる|推測（返却項目に氏名を含める点はRails現行のSerializerで確認済み。解決方法は推測）|
+|Response DTOに生徒名・教師名・投稿者名を保持し、`UserNameReferenceRepository`（面談機能_Go実装仕様書で定義）を通じて`user` Contextから表示時に解決する構成とした|Rails現行の`InterviewRequestSerializer`が`student_name` / `teacher_name`を、`InterviewRequestMessageSerializer`が`sender_name`を返すことを確認した。②「19. API仕様」は「生徒名・教師名等を含む」「投稿者名」と記載するが、氏名の解決方法（本Context内での非正規化保持か、参照先Context呼び出しによる解決か）を明記していない。本Contextは生徒・教師の氏名データを所有しない（`user` Contextが真正な情報源。②「3. Bounded Context」の依存）ため、氏名は面談側に複製せず参照によって解決する。`ユーザー基盤機能_Go移行・設計仕様書.md`の集約表は「メッセージ送信者名の表示」のみを挙げているが、生徒名・教師名の表示にも同じ参照手段を用いる|推測（返却項目に氏名を含める点はRails現行のSerializerで確認済み。解決方法は推測）|
 

@@ -52,8 +52,8 @@ Railsの Controller / Service / Serializer 構造をそのまま移植するの�
 
 ## 他Contextとの依存関係
 
-- HighSchool Context: 対象高校の存在確認、教員が所属する高校の特定に依存する
-- Grade Context: 担当学年として指定された `grade_ids` が、対象高校に属する学年であることの確認に依存する
+- `master-data` Context: 対象高校の存在確認、教員が所属する高校の特定に依存する
+- `master-data` Context: 担当学年として指定された `grade_ids` が、対象高校に属する学年であることの確認に依存する
 - `user` Context: 教員アカウント本体（`users`の1行）の作成と、作成時の招待メールの送信依頼は、`user` Contextの`CreateTeacherAccount`に依存する。管理者による教員作成では、次のとおり指定する（`user`②「12. UseCase設計」の経路ごとの指定値）
   - 招待待ち状態で作成するか: しない（Rails現行の`Admin::CreateTeacherService`は`password_reset_required`を偽のままにする。このため、教員招待通知機能の「招待未完了の教員一覧」には現れない）
   - 作成時に招待メールを送るか: する

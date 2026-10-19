@@ -278,7 +278,7 @@ type AnnouncementRepository interface {
 |FindByIDAndOwner|発信者本人が作成したお知らせを所有権チェック込みで単一取得する（状態更新用）|
 |Create|Announcement本体とAnnouncementTarget群を1つの整合性単位として永続化する|
 |Update|Announcementの状態・公開予定日時・公開確定日時を永続化する|
-|FindRecentPublished|公開中お知らせを公開日時降順で上位N件取得する（Teacher Dashboard Contextからの参照用、②「3. Bounded Context」他Contextとの依存関係）|
+|FindRecentPublished|公開中お知らせを公開日時降順で上位N件取得する（`teacher-dashboard` Contextからの参照用、②「3. Bounded Context」他Contextとの依存関係）|
 
 ### GradeReferenceRepository / UserReferenceRepository / TeacherPermissionReferenceRepository
 
@@ -417,7 +417,7 @@ func (p *AnnouncementVisibilityPolicy) BuildVisibilityCondition(
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, cmd dto.CreateAnnouncementCommand) (dto.CreateAnnouncementResult, error)`
 - 処理ステップ:
   1. `cmd.Targets`各要素から`valueobject.NewTargetCriteria`でVOを組み立てる（不正な組み合わせはDomain Errorとして返る）
-  2. 発信者の所属校IDを取得する（②「3. Bounded Context」User Context参照。取得元インターフェースは`domain/repository`の外部参照Repositoryを想定）
+  2. 発信者の所属校IDを取得する（②「3. Bounded Context」`user` Context参照。取得元インターフェースは`domain/repository`の外部参照Repositoryを想定）
   3. `targetingPolicy.Validate(ctx, cmd.CurrentUserID, publisherSchoolID, criteriaList)`を呼び出す
   4. `[]*entity.AnnouncementTarget`を`valueobject.NewTargetCriteria`の結果から生成する
   5. `entity.NewAnnouncement(cmd.CurrentUserID, cmd.Title, cmd.Content, targets)`でAggregateを生成する
@@ -470,7 +470,7 @@ func (p *AnnouncementVisibilityPolicy) BuildVisibilityCondition(
 
 ### infrastructure/repository.GradeReferenceRepository / UserReferenceRepository / TeacherPermissionReferenceRepository
 
-- 実装方針: 各Contextが公開するRepository（例: School Contextの学年Repository、User Contextのユーザーaccount Repository、Teacher Permission Contextの権限Repository）を呼び出すアダプタとして実装する。アーキテクチャ規約「5. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない。
+- 実装方針: 各Contextが公開するRepository（例: `master-data` Contextの学年Repository、`user` Contextのユーザーaccount Repository、`teacher-permission` Contextの権限Repository）を呼び出すアダプタとして実装する。アーキテクチャ規約「5. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない。
 - **②からの補足**: 呼び出し先となる各Contextの具体的なRepository・メソッド名は、各Context自身の②Go移行・設計仕様書（announcement以外のContext）に依存するため、本書では確定できない。①も未提供のため参照不可。実装時に該当Contextの②/③文書を参照して確定する必要がある（推測を含む）。
 
 ## 外部連携実装
@@ -767,6 +767,6 @@ Gorm規約に従い、構造体名の複数形がそのままテーブル名規�
 |`ErrReferenceNotFound`のHTTP Statusを422とする対応|②「14. Error設計」でApplication Errorに分類されているが個別Statusは明記されていないため、「入力・業務ルール違反」の422区分に含める形で判断した|推測|
 |`TargetCriteria`における`by_grade`の必須項目（`user_role_id`と`grade_id`の両方を要するかの解釈）|②本文の記述をそのまま転記するにとどめ、解釈の確定は行っていない。実装者は②「7. Value Object設計」TargetCriteriaの原文を確認すること|②原文をそのまま引用（解釈は保留）|
 |各外部参照Contextの具体的なRepository・メソッド名（実装時の接続先）|①未提供のため参照不可。各Context自身の②/③文書に依存するため本書では確定できない|参照不可につき保留|
-|Announcement Entityに`systemGenerated`を追加し、`FindByAuthor`の条件へ`system_generated = false`を含めた。システムが自動生成する通知の作成処理（`systemGenerated = true`、公開済みで作成）は、本書の対象外とした|Rails現行では、面談・クラス編成申請の通知（`Common::CreateSystemAnnouncementService`）が、通知の当事者を`publisher_id`に設定してお知らせを作成するため、`publisher_id`だけでは「自身が作成したお知らせ」を判定できない。②「3. Bounded Context」・「6. Entity設計」は、この区分を保持し、`authored`から除外することを定めている。作成処理そのもの（お知らせ実体作成の公開手段）は、面談・教師面談・クラス編成の各②が「Announcement Contextが提供する仕組み」として言及するのみで、具体的な仕様は本書に記載がないため、本書では区分の保持と一覧の除外のみを扱う|②の記載どおり（作成処理の公開手段は保留）|
+|Announcement Entityに`systemGenerated`を追加し、`FindByAuthor`の条件へ`system_generated = false`を含めた。システムが自動生成する通知の作成処理（`systemGenerated = true`、公開済みで作成）は、本書の対象外とした|Rails現行では、面談・クラス編成申請の通知（`Common::CreateSystemAnnouncementService`）が、通知の当事者を`publisher_id`に設定してお知らせを作成するため、`publisher_id`だけでは「自身が作成したお知らせ」を判定できない。②「3. Bounded Context」・「6. Entity設計」は、この区分を保持し、`authored`から除外することを定めている。作成処理そのもの（お知らせ実体作成の公開手段）は、面談・教師面談・クラス編成の各②が「`announcement` Contextが提供する仕組み」として言及するのみで、具体的な仕様は本書に記載がないため、本書では区分の保持と一覧の除外のみを扱う|②の記載どおり（作成処理の公開手段は保留）|
 
 ---

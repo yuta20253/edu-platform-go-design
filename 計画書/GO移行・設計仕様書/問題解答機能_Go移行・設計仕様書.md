@@ -51,10 +51,10 @@
 
 ## 他Contextとの依存関係
 
-- Task Context: タスクの所有権・存在確認・状態更新に依存する
-- Unit Context: 単元の存在とタスクとの紐づき確認に依存する
+- `task-management` Context: タスクの所有権・存在確認・状態更新に依存する
+- `curriculum` Context: 単元の存在とタスクとの紐づき確認に依存する
 - Question Context: 問題・選択肢・ヒントの参照に依存する
-- User Context: 認証済み生徒の識別に依存する
+- `user` Context: 認証済み生徒の識別に依存する
 
 ## 依存する理由
 

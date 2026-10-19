@@ -104,28 +104,28 @@ Rails現行実装（`main`の`7a424a1e`時点）の作成処理の要点は以�
 
 ## 他Contextからの依存の集約（Userに関する言及の全件）
 
-他の②が`users`のデータを「User Context」等として参照している箇所を、実際に必要としている内容ごとに集約した。②での呼称は文書によって「User Context」「User/Account Context」「Account/Authentication Context」「Student/School Context」と揺れているが、いずれも`users`テーブルの情報を指している。
+他の②が`users`のデータを「`user` Context」等として参照している箇所を、実際に必要としている内容ごとに集約した。②での呼称は文書によって「`user` Context」「`user` Context」「`user` Context」「`user` Context」と揺れているが、いずれも`users`テーブルの情報を指している。
 
 |依存元（機能・Context）|②での呼称|必要としている内容|種別|本②での扱い|
 |-|-|-|-|-|
-|お知らせ（`announcement`）|User Context|生徒の所属高校・役割・学年（お知らせの対象判定）、発行者の氏名・氏名カナ（表示）|参照|GetUserAttributes|
-|教師お知らせ（`announcement`）|User Context|発行者・閲覧者の識別と`high_school_id` / `user_role_id` / `grade_id`、対象ユーザー（`by_user`）が存在し発信者と同校であることの確認|参照|GetUserAttributes（複数ID）|
-|管理者お知らせ管理（`announcement`）|User Context|発行者（管理者）の識別、発行者アカウントの無効化状態（発行者が無効化されている場合に他の管理者へ操作を許可する判定）|参照|GetUserAttributes（無効化済みも返す）|
-|面談・教師面談（`interview-request`）|User Context|生徒・教員の識別、教員の所属校、生徒の所属学年、メッセージ送信者名の表示|参照|GetUserAttributes（複数ID）|
-|クラス編成（`school-class`）|User Context|申請者・承認者・生徒の識別、教師の所属校、削除申請の対象クラスに在籍する生徒がいないことの確認|参照|GetUserAttributes、CountUsers（クラス指定。Rails現行は`school_class.users.exists?`で無効化済みも含む）|
-|教師権限管理（`teacher-permission`）|User Context|操作者の識別・所属校、校内に他の有効な教員が存在するかの確認（最後の有効教員の保護）|参照|GetUserAttributes、CountUsers（除外ID指定）|
-|教員招待通知（`teacher-notification`）|User Context|同校の招待未完了（初回パスワード未設定）の教員一覧、教員の識別・所属校、招待メールの再送とその成否|参照・招待メールの送信依頼|参照はSearchUsers（役割・所属校・招待完了状態）。再送はRequestInvitationEmail（即時方式。成否は結果として返り、`TeacherNotification`への記録は`teacher-notification`が行う）|
-|管理者高校学年参照（`school-directory`）|User/Account Context|高校ごとの生徒数（有効な生徒のみ）と教員数（Rails現行は無効化済みを含む）|参照（集計）|CountUsers（所属校別）|
-|管理者ダッシュボード（`admin-dashboard`）|User Context|役割ごとの人数（Rails現行は無効化済みを含む全ユーザー）|参照（集計）|CountUsers（役割別）|
-|教師ダッシュボード（`teacher-dashboard`）|Student/School Context（実体は`users`。推測）|同校の学年別生徒数（Rails現行は無効化済みを含み、1〜3年のみ）|参照（集計）|CountUsers（学年別。学年の年次への変換は呼び出し側）|
-|教師生徒参照（`student-directory`）|User Context|生徒・学年・所属校の実体情報（一覧・詳細）、生徒アカウント本体の作成|参照・作成|作成はCreateStudentAccount。一覧・詳細はページネーション・結合を伴うため自前の参照モデルを持つ（本Contextの外）|
-|生徒CSVインポート（`student-import`）|User Context|生徒アカウント本体の作成・更新、仮パスワード発行・招待メール送信、メールアドレスが既存アカウントと重複するかの確認|作成・参照・更新|作成はCreateStudentAccount、既存アカウントの確認はFindUserByEmail。既存生徒の更新は本Contextの外|
-|教員管理（`teacher-management`。教師教員管理・管理者教員管理）|User Context（教師側）／Account/Authentication Context（管理者側）|教員アカウント本体（氏名・メールアドレス・ロール）の作成|作成|CreateTeacherAccount|
-|アカウント連携（`account-linking`）|User Context|生徒番号による検索、学籍情報の更新、統合元の論理削除|参照・更新・論理削除|本Contextの外に残す例外（上記）。自前のRepositoryを維持する|
-|認証（`authentication`）|User/Account Context|アカウント基礎情報（メール・パスワードハッシュ・ロール・`jti`）の作成・更新、仮アカウントの有効化|作成（自己登録）・更新|本Contextの外。認証②の`Account`集約が担う（未解決の論点1・3）|
+|お知らせ（`announcement`）|`user` Context|生徒の所属高校・役割・学年（お知らせの対象判定）、発行者の氏名・氏名カナ（表示）|参照|GetUserAttributes|
+|教師お知らせ（`announcement`）|`user` Context|発行者・閲覧者の識別と`high_school_id` / `user_role_id` / `grade_id`、対象ユーザー（`by_user`）が存在し発信者と同校であることの確認|参照|GetUserAttributes（複数ID）|
+|管理者お知らせ管理（`announcement`）|`user` Context|発行者（管理者）の識別、発行者アカウントの無効化状態（発行者が無効化されている場合に他の管理者へ操作を許可する判定）|参照|GetUserAttributes（無効化済みも返す）|
+|面談・教師面談（`interview-request`）|`user` Context|生徒・教員の識別、教員の所属校、生徒の所属学年、メッセージ送信者名の表示|参照|GetUserAttributes（複数ID）|
+|クラス編成（`school-class`）|`user` Context|申請者・承認者・生徒の識別、教師の所属校、削除申請の対象クラスに在籍する生徒がいないことの確認|参照|GetUserAttributes、CountUsers（クラス指定。Rails現行は`school_class.users.exists?`で無効化済みも含む）|
+|教師権限管理（`teacher-permission`）|`user` Context|操作者の識別・所属校、校内に他の有効な教員が存在するかの確認（最後の有効教員の保護）|参照|GetUserAttributes、CountUsers（除外ID指定）|
+|教員招待通知（`teacher-notification`）|`user` Context|同校の招待未完了（初回パスワード未設定）の教員一覧、教員の識別・所属校、招待メールの再送とその成否|参照・招待メールの送信依頼|参照はSearchUsers（役割・所属校・招待完了状態）。再送はRequestInvitationEmail（即時方式。成否は結果として返り、`TeacherNotification`への記録は`teacher-notification`が行う）|
+|管理者高校学年参照（`school-directory`）|`user` Context|高校ごとの生徒数（有効な生徒のみ）と教員数（Rails現行は無効化済みを含む）|参照（集計）|CountUsers（所属校別）|
+|管理者ダッシュボード（`admin-dashboard`）|`user` Context|役割ごとの人数（Rails現行は無効化済みを含む全ユーザー）|参照（集計）|CountUsers（役割別）|
+|教師ダッシュボード（`teacher-dashboard`）|`user` Context（実体は`users`。推測）|同校の学年別生徒数（Rails現行は無効化済みを含み、1〜3年のみ）|参照（集計）|CountUsers（学年別。学年の年次への変換は呼び出し側）|
+|教師生徒参照（`student-directory`）|`user` Context|生徒・学年・所属校の実体情報（一覧・詳細）、生徒アカウント本体の作成|参照・作成|作成はCreateStudentAccount。一覧・詳細はページネーション・結合を伴うため自前の参照モデルを持つ（本Contextの外）|
+|生徒CSVインポート（`student-import`）|`user` Context|生徒アカウント本体の作成・更新、仮パスワード発行・招待メール送信、メールアドレスが既存アカウントと重複するかの確認|作成・参照・更新|作成はCreateStudentAccount、既存アカウントの確認はFindUserByEmail。既存生徒の更新は本Contextの外|
+|教員管理（`teacher-management`。教師教員管理・管理者教員管理）|`user` Context（教師側）／`user` Context（管理者側）|教員アカウント本体（氏名・メールアドレス・ロール）の作成|作成|CreateTeacherAccount|
+|アカウント連携（`account-linking`）|`user` Context|生徒番号による検索、学籍情報の更新、統合元の論理削除|参照・更新・論理削除|本Contextの外に残す例外（上記）。自前のRepositoryを維持する|
+|認証（`authentication`）|`user` Context|アカウント基礎情報（メール・パスワードハッシュ・ロール・`jti`）の作成・更新、仮アカウントの有効化|作成（自己登録）・更新|本Contextの外。認証②の`Account`集約が担う（未解決の論点1・3）|
 |プロフィール管理（`profile`）|authenticationを`users`の情報源と記述|氏名・氏名カナ・住所IDの更新|更新|本Contextの外|
-|管理者アカウント管理（`admin-account-management`）|Account/Authentication Context|管理者アカウントの作成・更新・論理削除|作成・更新・論理削除|作成はCreateAdminAccount。更新・論理削除は本Contextの外|
-|タスク管理・タスク下書き・目標管理・学習ログ・問題解答|User Context|認証済み生徒の識別と所有権の確認|識別のみ|本Contextの操作は不要。識別は認証Middlewareが`current user`として渡し（規約7）、所有権は各Contextが自身のテーブルの`user_id`で判定するため|
+|管理者アカウント管理（`admin-account-management`）|`user` Context|管理者アカウントの作成・更新・論理削除|作成・更新・論理削除|作成はCreateAdminAccount。更新・論理削除は本Contextの外|
+|タスク管理・タスク下書き・目標管理・学習ログ・問題解答|`user` Context|認証済み生徒の識別と所有権の確認|識別のみ|本Contextの操作は不要。識別は認証Middlewareが`current user`として渡し（規約7）、所有権は各Contextが自身のテーブルの`user_id`で判定するため|
 
 この表から、公開する参照操作は「ID指定の取得」「メールアドレス指定の取得」「条件指定の一覧」「人数集計」の4つで、上記の全ての参照ニーズを満たせると判断した。作成操作は生徒・教員・管理者の3つ、招待メールの送信依頼は1つとし、他の②が必要とする範囲に限る。
 
@@ -732,7 +732,7 @@ Transaction Script採用のためdomain層を持たない。業務ルールの�
 
 以下は、本Contextが検証しない項目と、その理由である。
 
-- 学級が学年に属すること、学年が所属校に属すること、所属校・学年・クラスの実在: 呼び出し元の`student-import`（`StudentRowValidationPolicy`）・`student-directory`（同校妥当性検証）・`teacher-management`が、それぞれの②で検証している。本Contextで再検証するには、School Contextの参照が新たに必要になり、同じ規則が複数Contextに分散する。Rails現行では`User`モデルの`school_class_belongs_to_grade`検証が最後の砦だが、Goでは呼び出し元に寄せる（設計差分管理）。存在しないIDは、DBの外部キー制約が最終的に拒否する
+- 学級が学年に属すること、学年が所属校に属すること、所属校・学年・クラスの実在: 呼び出し元の`student-import`（`StudentRowValidationPolicy`）・`student-directory`（同校妥当性検証）・`teacher-management`が、それぞれの②で検証している。本Contextで再検証するには、`master-data` Contextの参照が新たに必要になり、同じ規則が複数Contextに分散する。Rails現行では`User`モデルの`school_class_belongs_to_grade`検証が最後の砦だが、Goでは呼び出し元に寄せる（設計差分管理）。存在しないIDは、DBの外部キー制約が最終的に拒否する
 - 氏名カナのカタカナ形式: 呼び出し元が検証する（`NameValidatable`）。管理者による教員作成では、氏名カナ欄がないため氏名カナに氏名と同じ値を設定しており（`Admin::CreateTeacherService`）、非カタカナが渡される場合がある
 - 氏名の最大文字数以外の内容: 文字数の上限（100文字。`users.name` / `name_kana`の列定義）のみを確認する
 
@@ -1087,7 +1087,7 @@ HTTPエンドポイントを持たないため、Rails APIとの差分は存在�
 
 |項目|採用|判断理由|
 |-|-|-|
-|Context名|`user`|規約4章の命名規則（kebab-case）に従い、他の②が「User Context」と呼ぶ依存先を定義するため|
+|Context名|`user`|規約4章の命名規則（kebab-case）に従い、他の②が「`user` Context」と呼ぶ依存先を定義するため|
 |責務|参照・アカウント作成・招待メールの送信依頼|他の②が実際に必要としている範囲（3章の集約表）に限定するため|
 |設計パターン|Transaction Script|状態遷移・複数Entityにまたがる不変条件がなく、規則が1〜2文で説明できるため。参照・作成とも同じパターンで扱う|
 |Aggregate|未採用|整合性を保証すべき集約の不変条件がなく、`Account`集約は認証②が持つため|

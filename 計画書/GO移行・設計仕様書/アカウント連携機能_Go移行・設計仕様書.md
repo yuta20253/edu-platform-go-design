@@ -49,12 +49,12 @@
 
 ## 他Contextとの依存関係
 
-- User Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`。参照とアカウント作成を担い、アカウントの更新・論理削除は同Contextの責務に含まれない）: 本機能は統合対象・統合先いずれもUser実体（アカウント）の学籍情報を直接参照・更新する。これは他機能のような「参照専用の依存」ではなく、User Context本来のデータに対する書き込みを本機能が担う数少ない例外である
-- School Context（高校）: 統合対象候補とログイン中アカウントが同一高校に所属するかどうかの判定に、高校IDの参照が必要なため依存する
+- `user` Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`。参照とアカウント作成を担い、アカウントの更新・論理削除は同Contextの責務に含まれない）: 本機能は統合対象・統合先いずれもUser実体（アカウント）の学籍情報を直接参照・更新する。これは他機能のような「参照専用の依存」ではなく、`user` Context本来のデータに対する書き込みを本機能が担う数少ない例外である
+- `master-data` Context（高校）: 統合対象候補とログイン中アカウントが同一高校に所属するかどうかの判定に、高校IDの参照が必要なため依存する
 
 ## 依存する理由
 
-アカウント統合は、その定義上「2つのUserレコードの学籍情報を1つに集約する」業務であり、User実体への依存を切り離すことができない。User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）は参照とアカウント作成を担い、アカウントの更新・論理削除は本Contextの外に残す例外として位置づけている。したがって、本機能が必要とする範囲（生徒番号検索・学籍情報更新・論理削除）に限定したRepositoryを本Context内に定義する。
+アカウント統合は、その定義上「2つのUserレコードの学籍情報を1つに集約する」業務であり、User実体への依存を切り離すことができない。`user` Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）は参照とアカウント作成を担い、アカウントの更新・論理削除は本Contextの外に残す例外として位置づけている。したがって、本機能が必要とする範囲（生徒番号検索・学籍情報更新・論理削除）に限定したRepositoryを本Context内に定義する。
 
 ---
 
@@ -97,7 +97,7 @@ Domain Model
 
 ## Aggregateに含めるEntity
 
-- AccountLinkAuditのみ。TargetAccount・MergeCandidateAccountはUser Context本来の所有物であるため、本Contextのアグリゲートには含めず「本機能の業務目的に限定して更新する外部参照Entity」として扱う
+- AccountLinkAuditのみ。TargetAccount・MergeCandidateAccountは`user` Context本来の所有物であるため、本Contextのアグリゲートには含めず「本機能の業務目的に限定して更新する外部参照Entity」として扱う
 
 ## Aggregate境界
 
@@ -292,7 +292,7 @@ stateDiagram-v2
 - 保持しない責務:
   - 認証・パスワード管理等、本機能に無関係なUser操作
   - 適格性そのものの判定（AccountLinkEligibilityPolicyの責務）
-- 判断根拠: 「3. Bounded Context」のとおり、User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）は参照とアカウント作成を担い、更新・論理削除は本Contextに残す例外であるため、本機能が必要とする範囲（学籍情報の参照・更新・論理削除）に限定したRepositoryとして定義する
+- 判断根拠: 「3. Bounded Context」のとおり、`user` Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）は参照とアカウント作成を担い、更新・論理削除は本Contextに残す例外であるため、本機能が必要とする範囲（学籍情報の参照・更新・論理削除）に限定したRepositoryとして定義する
 
 ## AccountLinkAuditRepository
 
@@ -620,7 +620,7 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 | 項目 | 採用 | 判断理由 |
 |-|-|-|
 | 設計パターン | Domain Model | 5つの適格性条件が2つのEntity間の比較ロジックとして集約されているため |
-| Aggregate | AccountLinkAudit単体 | 統合先・統合元はUser Context本来の所有物であり、本Contextのアグリゲートには含めないため |
+| Aggregate | AccountLinkAudit単体 | 統合先・統合元は`user` Context本来の所有物であり、本Contextのアグリゲートには含めないため |
 | Transaction境界 | 統合処理（コピー・削除・成功ログ）とレート制限判定・失敗ログ記録を分離 | 「失敗時はデータを変更しないが、失敗ログは必ず残す」という現行仕様の原則を両立するため |
 | Domain Event | 未採用 | 現行仕様に非同期副作用が存在しないため |
 | Value Object | StudentNumber / AccountLinkEligibility / AccountLinkResultを採用 | 書式・判定結果・結果値の意味を型として明示するため |

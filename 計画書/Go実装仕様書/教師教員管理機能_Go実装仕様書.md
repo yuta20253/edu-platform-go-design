@@ -84,7 +84,7 @@ internal/teacher_management/
 - `internal/teacher_management`の`GradeReferenceChecker`・`TeacherAccountCreator`・`TeacherAccountInput`（`dependency.go`）、`TeacherAccountOptions`（`teacher.go`）
 - `internal/teacher_management`の各エラー変数（`errors.go`）
 
-**②からの補足**: `GradeStore`（学年の存在確認・所属校取得）は②「9. Repository設計」に「School/Grade Context提供・参照専用」と明記されており、管理者教員管理機能_Go実装仕様書が`GradeReferenceChecker`として消費者側interfaceを定義済みである。`TeacherNotificationStatusStore`（招待通知状況の参照）は②「3. Bounded Context」「10. UseCase設計」に teacher-notification Context提供・参照専用と明記されている。いずれも別Bounded Contextが公開する参照専用の手段を、アーキテクチャ規約「5. Context間連携ルール」に従って呼び出す想定とする。School/Grade側Contextの②/③文書は本タスクでは提供されておらず、正確なpackage pathは「推測」であり、実装時に確認が必要。teacher-notification Context側は本タスクの担当範囲内であり、「教員招待通知機能_Go実装仕様書」を正とする。
+**②からの補足**: `GradeStore`（学年の存在確認・所属校取得）は②「9. Repository設計」に「`master-data` Context提供・参照専用」と明記されており、管理者教員管理機能_Go実装仕様書が`GradeReferenceChecker`として消費者側interfaceを定義済みである。`TeacherNotificationStatusStore`（招待通知状況の参照）は②「3. Bounded Context」「10. UseCase設計」に teacher-notification Context提供・参照専用と明記されている。いずれも別Bounded Contextが公開する参照専用の手段を、アーキテクチャ規約「5. Context間連携ルール」に従って呼び出す想定とする。School/Grade側Contextの②/③文書は本タスクでは提供されておらず、正確なpackage pathは「推測」であり、実装時に確認が必要。teacher-notification Context側は本タスクの担当範囲内であり、「教員招待通知機能_Go実装仕様書」を正とする。
 
 ---
 
@@ -243,7 +243,7 @@ classDiagram
 sequenceDiagram
     participant H as TeacherHandler
     participant PS as TeacherPermissionStore
-    participant GC as GradeReferenceChecker(School/Grade Context)
+    participant GC as GradeReferenceChecker(`master-data` Context)
     participant M as Teacher/TeacherPermission/GradeAssignmentSet
     participant TS as TeacherStore
     participant UC as TeacherAccountCreator(user Context)
@@ -616,7 +616,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 |`TeacherNotificationStatusProvider`を`teacher_management`パッケージ側で定義する消費者側interfaceとし、招待通知状況の付与を`TeacherStore`ではなく`TeacherHandler`で行う構成とした|②「3. Bounded Context」「10. UseCase設計」は`TeacherNotificationStatusStore`を参照専用で利用するとのみ記載し、具体的な呼び出し方式（DIの形）までは明記がない。`TeacherStore`は管理者視点と共有するため、教師視点のみが必要とする`teacher-notification` Contextへの依存を持たせない|推測|
 |教師視点の新規作成における氏名カナ・メール形式の検証を、`teacher_onboarding.go`の`NewTeacherForOnboarding` / `Teacher.ValidateOnboarding`として本書が定義した|②「7. Value Object設計」のNameKana・Emailの検証は教師教員管理機能側の設計であり、管理者視点の招待（氏名カナに氏名と同じ値を設定し、カタカナ形式を検証しない）には適用されないため、共有するModelのうち教師視点でのみ呼び出すメソッドとして分離した|推測|
 |新規作成時の同校学年判定を、管理者教員管理機能_Go実装仕様書の`GradeReferenceChecker`と`ValidateGradeAssignment`（要素1つの`GradeAssignmentSet`）で行い、`ErrGradeNotInHighSchool`（422）とした|②「8. Domain Service」のTeacherGradeAssignmentPolicyは両機能で共通の概念であり、判定ロジックを二重に持たない。②は「指定学年が同校でない」のみを挙げており、「学年が存在しない」場合の扱いは明記がないため、存在しない場合も同校制約違反と同様に422とした|推測|
-|`GradeReferenceChecker`の実装側（School/Gradeコンテキスト）の正確なpackage path|②「School/Grade Context提供・参照専用」とのみ記載。当該コンテキストの②/③文書は本タスクで提供されていない|推測|
+|`GradeReferenceChecker`の実装側（School/Gradeコンテキスト）の正確なpackage path|②「`master-data` Context提供・参照専用」とのみ記載。当該コンテキストの②/③文書は本タスクで提供されていない|推測|
 |`TeacherPermissionStore.FindByUserID`が対象レコードを取得できない場合、`Create`では操作者の権限確認を500とし、`Show`では権限情報を`null`として返す|②「10. UseCase設計」「13. Authorization設計」「14. Error設計」の記載（Rails現行が権限レコードが存在しない操作者に特別な扱いをせず例外・500になること、詳細では権限を`null`で返すこと）に従う。`ErrTeacherPermissionNotFound`を、管理者教員管理機能_Go実装仕様書「3. Domain層設計」の`errors.go`に定義している|Rails現行の挙動の反映（推測ではない）|
 |`Show`における権限情報の取得を、共有する`TeacherPermissionStore.FindByUserID`で行う構成とした|②の出力仕様は「権限・担当学年を含む」だが、「呼び出すStore」に権限を扱うStoreが含まれない|推測|
 |`users`・`teacher_permissions`・`teacher_grades`テーブルの詳細カラム名|Rails `db/schema.rb`で確認済み（`users`: `name_kana`〔100文字以内〕・`deleted_at`・`high_school_id`・`user_role_id`等、`teacher_permissions`: `user_id`・`grade_scope`・`manage_other_teachers`、`teacher_grades`: `user_id`・`grade_id`）。教員であることの判定は`users.user_role_id`から`user_roles.name`を参照する形であり、`users`にロール名の列はない（管理者教員管理機能_Go実装仕様書「14. ②からの補足事項」参照）|確認済み（Rails `db/schema.rb`）|

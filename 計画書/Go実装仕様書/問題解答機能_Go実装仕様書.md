@@ -531,9 +531,9 @@ flowchart TD
 
 ### QuestionRepositoryImpl / QuestionChoiceRepositoryImpl / TaskRepositoryImpl
 
-②3章「Task Context / Unit Context / Question Contextへの依存」、アーキテクチャ規約6章「他Contextのデータを利用する場合は、相手Contextが公開する参照手段を呼び出す」に基づき、これら3つのRepository実装は**question-answering Context自身のテーブルを直接操作するのではなく、依存先Contextが公開する参照手段（Repository/Storeの参照系メソッド、または参照用の関数）を呼び出す**構成とする。
+②3章「`task-management` Context / `curriculum` Context / Question Contextへの依存」、アーキテクチャ規約6章「他Contextのデータを利用する場合は、相手Contextが公開する参照手段を呼び出す」に基づき、これら3つのRepository実装は**question-answering Context自身のテーブルを直接操作するのではなく、依存先Contextが公開する参照手段（Repository/Storeの参照系メソッド、または参照用の関数）を呼び出す**構成とする。
 
-- `TaskRepositoryImpl`: Task Context（アーキテクチャ規約5章の一覧より `task-management` Contextに対応すると推測。**推測**、17章参照）が公開する参照・更新手段を呼び出す
+- `TaskRepositoryImpl`: `task-management` Context（アーキテクチャ規約5章の一覧より `task-management` Contextに対応すると推測。**推測**、17章参照）が公開する参照・更新手段を呼び出す
 - `QuestionRepositoryImpl` / `QuestionChoiceRepositoryImpl`: ②内で「Question Context」と呼ばれる依存先の実装上の対応Contextが②・アーキテクチャ規約のいずれにも明記されていない。本書では対応関係を確定できないため、**②からの補足**として「依存先Contextが公開する参照手段を呼び出す」という方針のみを示し、具体的なパッケージ・関数名の設計は対象外とする（17章参照）
 
 これらの実装がGORMモデルを直接扱うか、依存先Contextのpackage関数を経由するかは、依存先Context側の②③文書と合わせて確定する必要がある。本書のスコープでは、Repository Interfaceのシグネチャ（3章）までを規定する。
@@ -840,7 +840,7 @@ Presentationは「入力が適切か」、Domain（Entity/VO）とApplication（
 |`QuestionHistory`/`AnswerResult`の具体的なフィールド構成・型|②はEntityの役割・責務を概念的に記述するのみで、フィールド一覧は明記がない。②15章Validation設計に列挙された`task_id/unit_id/question_id/question_choice_id/answer_text/time_spent_sec/explanation_viewed`を手がかりに具体化した|補足（②記載事項からの具体化）|
 |`AnswerResult`を`AnswerStatus`（VO）を内包するEntityとして整理|②6章（AnswerResultをEntityとする）と②7章（AnswerStatusを正誤のVOとする）が共存しており、そのままでは正誤情報の持ち方が重複する。両者を矛盾なく統合するため、AnswerResult EntityがAnswerStatus VOを内包する構造とした|補足（②内の記述整合のための構造化）|
 |`Question`/`QuestionChoice`/`Task`を本Context内では「他Context所有の参照用データ型（Ref型）」として扱い、Entityとして本Contextのドメインに含めない|アーキテクチャ規約6章「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」に基づく。②6章はTaskをEntityとして挙げているが、これは概念説明であり実装構造への変換は③（本書）の役割（アーキテクチャ規約11章）|補足|
-|Task Contextを`task-management`、Unit Contextを`curriculum`と推測し、Question Contextの実装上の対応Contextは確定できないとした|アーキテクチャ規約5章のBounded Context一覧を根拠とするが、②内の「Question Context」に一致するContext名が一覧に見当たらないため|推測（Task/Unitのみ）・確認不可（Question）|
+|`task-management` Contextを`task-management`、`curriculum` Contextを`curriculum`と推測し、Question Contextの実装上の対応Contextは確定できないとした|アーキテクチャ規約5章のBounded Context一覧を根拠とするが、②内の「Question Context」に一致するContext名が一覧に見当たらないため|推測（Task/Unitのみ）・確認不可（Question）|
 |`TaskRepositoryImpl`/`QuestionRepositoryImpl`/`QuestionChoiceRepositoryImpl`は依存先Contextの公開参照手段を経由し、本Context内でGORMモデルを直接定義しない|アーキテクチャ規約6章のContext間連携ルールに基づく。②のRepository設計は責務を概念的に記述するのみで、実装連携方式は明記がない|補足|
 |`ListQuestionsUseCase`/`ShowConfirmationUseCase`/`CreateAnswerUseCase`にTaskRepositoryを追加で依存させ、タスク所有権を確認する|②11章の「呼び出すRepository」一覧にはTaskRepositoryが明記されていないが、②16章Authorization設計「UseCaseは所有権を前提に処理を実行する」を満たすために必要と判断した。既存のRepository Interface自体を変更するものではない|補足（①未提供のため実装時要確認）|
 |`UpdateAnswerUseCase`の再判定はQuestionChoiceRepositoryの情報のみで完結する前提とした（QuestionRepositoryは追加しない）|②11章の呼び出すRepository一覧にQuestionRepositoryが明記されていないため、②の記載どおりに留めた。ただし再判定に問題本体の情報が必要な場合は不足する可能性がある|推測（①未提供のため確認不可）|

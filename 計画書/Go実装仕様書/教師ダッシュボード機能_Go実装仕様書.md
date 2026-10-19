@@ -13,7 +13,7 @@
 - 採用パターン: **Transaction Script**（②「4. 設計パターン」）
 - 理由:
   - 本機能は書き込みを一切伴わない「同校生徒数の学年別集計」と「公開中お知らせの上位5件取得」という2つの読み取り処理を1レスポンスに合成するだけであり、自ら保持・管理する状態（Entity）を持たない
-  - 生徒数集計対象・お知らせ閲覧条件は、いずれも参照先Context（`user` Context、Announcement Context）が持つ既存ルールを利用する。生徒数集計に固有の条件（1〜3年のみ・無効化済みの生徒を含む）は、②「12. Validation設計」の業務ルールとして持つが、状態や複雑な判断は伴わない
+  - 生徒数集計対象・お知らせ閲覧条件は、いずれも参照先Context（`user` Context、`announcement` Context）が持つ既存ルールを利用する。生徒数集計に固有の条件（1〜3年のみ・無効化済みの生徒を含む）は、②「12. Validation設計」の業務ルールとして持つが、状態や複雑な判断は伴わない
   - 将来の表示項目追加も、application層の関数内に参照処理を追加するだけで対応できる
   - 単一の関数に対する入出力テストで十分に検証できる
 
@@ -22,7 +22,7 @@
 ## 本書が対象とする実装範囲
 
 - `internal/teacher_dashboard` 配下の application 関数・infrastructure 関数・presentation層（Handler・Response DTO・Routing）の実装単位
-- `user` Context、Announcement Context側の実装（ユーザーデータ・お知らせデータの真正な管理）は本書の対象外。本書ではteacher_dashboard側から見た呼び出し方針のみを記載する
+- `user` Context、`announcement` Context側の実装（ユーザーデータ・お知らせデータの真正な管理）は本書の対象外。本書ではteacher_dashboard側から見た呼び出し方針のみを記載する
 - ①Rails実装の詳細は本セッションでは提供されていないため、「①未提供のため参照不可」として扱い、Railsの実際のコードやAPIレスポンスのJSONキー名等は本書では推測に留める
 
 ---
@@ -93,7 +93,7 @@ Entity・Repository Interface・Domain Service・Domain Event・Domain Errorの�
 | `GradeStudentCounts` | `Grade1 int`, `Grade2 int`, `Grade3 int` | Query（出力）。②「7. Value Object設計」のGradeStudentCountsを、Transaction Script実装ではdomain層のVOではなくapplication層のDTOとして配置する（②からの補足）。各フィールドは0以上の整数（②の独自ルールを維持） |
 | `ShowTeacherDashboardInput` | `SchoolID uint`（current userの所属校ID） | Query（入力）。current userそのものをapplication層まで引き回さず、Handlerで所属校IDを取り出して渡す方針とする（②に明記がないため実装判断。②からの補足・推測） |
 | `ShowTeacherDashboardOutput` | `Stats GradeStudentCounts`, `Announcements []AnnouncementSummary` | Query（出力） |
-| `AnnouncementSummary` | Announcement Context側の一覧表示用の型をそのまま利用する（②「7. Value Object設計」：お知らせ一覧は独自VOとして再定義しない） | Query（出力）。具体的なフィールド構成はAnnouncement Context側の②③文書の定義に従う。本書では対象外とし、フィールド詳細を規定しない（②からの補足） |
+| `AnnouncementSummary` | `announcement` Context側の一覧表示用の型をそのまま利用する（②「7. Value Object設計」：お知らせ一覧は独自VOとして再定義しない） | Query（出力）。具体的なフィールド構成は`announcement` Context側の②③文書の定義に従う。本書では対象外とし、フィールド詳細を規定しない（②からの補足） |
 
 ## UseCase（application関数として実装）
 
@@ -130,7 +130,7 @@ Entity・Repository Interface・Domain Service・Domain Event・Domain Errorの�
 
 - 関数シグネチャ: `func ListVisibleAnnouncementsForTeacher(ctx context.Context, schoolID uint, limit int) ([]application.AnnouncementSummary, error)`
 - 発行するクエリ内容: 教師が閲覧可能な公開中お知らせを、対象条件（②「9. Repository設計」AnnouncementRepositoryの「閲覧可能条件（対象条件）」）で絞り込み、公開日時降順で`limit`件（本機能では5件固定）取得する
-- 実装方針: ②「9. Repository設計」に「AnnouncementRepository（Announcement Contextの提供機能を利用）」と明記されているため、本関数はAnnouncement Context側が公開する参照用関数（アーキテクチャ規約「5. Context間連携ルール」：Transaction Script採用時は参照用の関数を呼び出す）を呼び出すラッパーとして実装する。Announcement Context側の具体的な関数名・シグネチャは②に記載がなく、実装時にAnnouncement Context側の②③文書に合わせて確定する（14章参照。②からの補足・推測）
+- 実装方針: ②「9. Repository設計」に「AnnouncementRepository（`announcement` Contextの提供機能を利用）」と明記されているため、本関数は`announcement` Context側が公開する参照用関数（アーキテクチャ規約「5. Context間連携ルール」：Transaction Script採用時は参照用の関数を呼び出す）を呼び出すラッパーとして実装する。`announcement` Context側の具体的な関数名・シグネチャは②に記載がなく、実装時に`announcement` Context側の②③文書に合わせて確定する（14章参照。②からの補足・推測）
 
 いずれの関数も、GORM経由でのSELECTのみを行い、書き込みは行わない。SQL文そのものはここでは記載しない（12章「GORM / DBクエリ設計」参照）。
 
@@ -187,7 +187,7 @@ JSONキー名（`grade1`等）は②に明記がなく、①未提供のため�
 
 ### AnnouncementSummaryResponse
 
-Announcement Context側が提供するお知らせ一覧表示用のResponse構造をそのまま利用、または最小限のフィールドに変換する。②「7. Value Object設計」の方針（お知らせ一覧を独自に再定義しない）に従い、本書ではフィールド詳細を規定しない。
+`announcement` Context側が提供するお知らせ一覧表示用のResponse構造をそのまま利用、または最小限のフィールドに変換する。②「7. Value Object設計」の方針（お知らせ一覧を独自に再定義しない）に従い、本書ではフィールド詳細を規定しない。
 
 バリデーションタグ: 該当なし（Requestを持たないAPIのため）。
 
@@ -270,7 +270,7 @@ application関数内のガード節で検証する（Transaction Script採用時
 
 該当なし。本機能は独自のEntityを持たないため、Domain層での認可判定は発生しない（②「13. Authorization設計」）。
 
-認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（`user` Context、Announcement Context）の検索条件に委ね、teacher_dashboard側は所属校IDを検索条件として引き渡す役割にとどめる（②の判断理由をそのまま維持）。
+認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（`user` Context、`announcement` Context）の検索条件に委ね、teacher_dashboard側は所属校IDを検索条件として引き渡す役割にとどめる（②の判断理由をそのまま維持）。
 
 ---
 
@@ -311,7 +311,7 @@ Domain Errorは定義しない（②「14. Error設計」）。前提条件の�
 
 - teacher_dashboard自体は永続化対象のEntity・GORMモデルを持たない（②「6. Entity設計」「9. Repository設計」）
 - 生徒数集計: `users`・`user_roles`（`user` Contextが所有）と`grades`に対応するGORMモデルを参照する。`user`の③が未作成のため、暫定で本機能が対象テーブルへ直接クエリする（5章）。当該GORMモデルの具体的なstruct定義は、`user`・master-dataの③が整備された時点でその定義に従う（本書の対象外）
-- お知らせ取得: Announcement Context側が既に保有するお知らせテーブルに対応するGORMモデルを参照する。当該GORMモデルの具体的なstruct定義はAnnouncement Context側の②③文書に従う（本書の対象外）
+- お知らせ取得: `announcement` Context側が既に保有するお知らせテーブルに対応するGORMモデルを参照する。当該GORMモデルの具体的なstruct定義は`announcement` Context側の②③文書に従う（本書の対象外）
 - Gorm規約に従い、テーブル名・カラム名は各所有Context側のGORMモデル定義（構造体名の複数形snake_case、フィールド名のsnake_case）に準拠する。本機能は新規GORMモデルを定義しない
 
 ## 主要クエリの条件・ソート・ページネーション方針
@@ -388,7 +388,7 @@ SQL文そのものはここでは記載しない。
 | `application.ShowTeacherDashboard`、`infrastructure.CountStudentsByGrade`、`infrastructure.ListVisibleAnnouncementsForTeacher`という具体的な関数名・シグネチャ | ②「10. UseCase設計」「9. Repository設計」は業務操作の設計意図のみを記載しており、実装レベルの関数名・引数構成までは規定していない。アーキテクチャ規約「8. 命名規約」（Transaction Scriptの関数は「動詞+対象」）に基づき本書で命名した | 推測 |
 | 生徒数集計の参照先を、`user` Contextの人数集計（`CountUsers`）とし、③が未作成のため暫定で`users`・`user_roles`・`grades`へ直接クエリする | ②「3. Bounded Context」で、生徒数集計の依存先を`user` Contextに統一している。`user`②は`CountUsers`を公開するが、その③が未作成のため、公開関数の呼び出しへ置き換えられない | 推測ではない（②・`user`②の記載に基づく暫定構成） |
 | `CountUsers`（学年別）の集計結果のキーが学年IDであるとし、application関数がmaster-dataの学年参照で`year`（1〜3年）へ変換する（`CountUsers`へ置き換えた後の構成） | `user`②は、学年別集計の年次への変換は呼び出し側としているが、集計結果のキーが学年IDか年次かを明記していない | 推測 |
-| お知らせ取得の呼び出し方式（同一プロセス内のGo関数呼び出しを前提とする） | ②「9. Repository設計」に「AnnouncementRepository（Announcement Contextの提供機能を利用）」とあるが、呼び出し方式（同一プロセス内関数呼び出しか、別プロセス経由か）は明記がない。モノリシックなGo実装を前提とし、同一プロセス内の関数呼び出しと仮定した | 推測 |
+| お知らせ取得の呼び出し方式（同一プロセス内のGo関数呼び出しを前提とする） | ②「9. Repository設計」に「AnnouncementRepository（`announcement` Contextの提供機能を利用）」とあるが、呼び出し方式（同一プロセス内関数呼び出しか、別プロセス経由か）は明記がない。モノリシックなGo実装を前提とし、同一プロセス内の関数呼び出しと仮定した | 推測 |
 | `TeacherDashboardResponse`のJSONフィールド名（`stats`、`announcements`、`grade1`〜`grade3`等） | ②「16. API互換方針」は`stats`・`announcements`という構造をRails現行仕様に近い意味で維持するとのみ記載し、学年別内訳のキー名までは規定していない。①Rails実装（実際のJSONキー）は本セッションでは未提供のため参照不可であり、実装時に既存フロントエンドとの整合を別途確認する必要がある | 推測 |
 | 未認証時401、ロール不一致時403というHTTP Status | ②「16. API互換方針」の「Error Response」は業務エラー・技術的失敗（500系）についてのみ記載しており、認証・認可Middlewareレベルのエラーコードには言及していない。一般的なAPI設計慣行から補った | 推測 |
 | Repository Testを「対象外」としつつ、別区分「Infrastructure関数 Test」を追加した | ③自動生成プロンプトの読み替えルールでは「Repository Test」は対象外となるが、②「18. テスト戦略」のRepository Testに記載された検証観点（集計・取得の正確性）を本書から失わせないため、区分を追加した | 推測ではない（②の検証意図を保持するための補足） |

@@ -51,7 +51,7 @@
 
 - authentication Context: ユーザーの認証情報（メールアドレス・パスワードハッシュ・ロール・`jti`・所属高校・学年）自体の真正な情報源はauthentication Contextである。本Contextはそのうち氏名・住所という一部のカラムを更新するにとどまり、認証・セッション・所属高校・学年の更新には関与しない。また、ログイン中ユーザー自身の情報参照（`GET /api/v1/me`）はauthentication Contextが所有するエンドポイントであり、本Contextはこれを実装しない
 - master-data Context: 住所ID（`address_id`）の指定時、指定された住所が実在するかどうかの確認に依存する
-- Notification Context: 依存なし（本機能に関連する非同期メール送信は現行仕様に存在しない）
+- `teacher-notification` Context: 依存なし（本機能に関連する非同期メール送信は現行仕様に存在しない）
 
 ## 依存する理由
 

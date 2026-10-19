@@ -135,7 +135,7 @@ internal/student_import/presentation/response/student_import_response.go
 internal/student_import/presentation/routes.go
 ```
 
-**②からの補足**: `GradeClassResolutionRepository`はSchool/Grade Context提供・参照専用（②「11. Repository設計」）であり、当該Contextの②/③文書は本タスクでは提供されていないため、実装の正確な参照先は「推測」である。`StudentAccountRepository`は本Context自身が提供し、既存生徒の更新と同校内のメールアドレス一致確認を担う。新規行の生徒アカウント作成は、`user` Contextの公開操作`CreateStudentAccount`を`StudentAccountCreationRepository`経由で呼ぶ（②「3. Bounded Context」「11. Repository設計」）。教師生徒参照機能（`student-directory` Context）も同じ`user`の操作を直接呼ぶが、本Contextとの間に依存関係はない。`user`との接続方法は「9. Presentation層設計」直後の「Context間連携」節を参照。
+**②からの補足**: `GradeClassResolutionRepository`は`master-data` Context提供・参照専用（②「11. Repository設計」）であり、当該Contextの②/③文書は本タスクでは提供されていないため、実装の正確な参照先は「推測」である。`StudentAccountRepository`は本Context自身が提供し、既存生徒の更新と同校内のメールアドレス一致確認を担う。新規行の生徒アカウント作成は、`user` Contextの公開操作`CreateStudentAccount`を`StudentAccountCreationRepository`経由で呼ぶ（②「3. Bounded Context」「11. Repository設計」）。教師生徒参照機能（`student-directory` Context）も同じ`user`の操作を直接呼ぶが、本Contextとの間に依存関係はない。`user`との接続方法は「9. Presentation層設計」直後の「Context間連携」節を参照。
 
 ---
 
@@ -262,7 +262,7 @@ internal/student_import/presentation/routes.go
 
 - 保持しない責務: 新規作成か更新かの判定（`StudentAccountUpsertPolicy`の責務）、生徒アカウントの作成・更新、CSV出力形式への変換（②「11. Repository設計」）
 
-### GradeClassResolutionRepository（`domain/repository/grade_class_resolution_repository.go`、School/Grade Context提供・参照専用）
+### GradeClassResolutionRepository（`domain/repository/grade_class_resolution_repository.go`、`master-data` Context提供・参照専用）
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
@@ -652,7 +652,7 @@ flowchart TD
 ### GradeClassResolutionRepository実装（`infrastructure/repository/grade_class_resolution_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewGradeClassResolutionRepository`
-- 対応するGORMモデル: School/Grade Context側の既存`grades`/`school_classes`テーブルを参照専用で読み取る（本Contextでは新規に所有モデルとして定義しない）
+- 対応するGORMモデル: `master-data` Context側の既存`grades`/`school_classes`テーブルを参照専用で読み取る（本Contextでは新規に所有モデルとして定義しない）
 - クエリ内容:
   - `ResolveGrade`: `high_school_id = ? AND (学年名に相当するカラム) = ?`によるSELECT（1件）
   - `ResolveClass`: `grade_id = ? AND name = ?`によるSELECT（1件）
@@ -660,7 +660,7 @@ flowchart TD
 ### StudentAccountRepository実装（`infrastructure/repository/student_account_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewStudentAccountRepository`
-- 対応するGORMモデル: User Context所有の既存`users`テーブルを参照・更新する（本Contextでは新規に所有モデルとして定義しない）
+- 対応するGORMモデル: `user` Context所有の既存`users`テーブルを参照・更新する（本Contextでは新規に所有モデルとして定義しない）
 - 各メソッドで発行するクエリ内容:
   - `FindByEmailInSchool`: `high_school_id = ? AND email = ? AND role = 生徒ロール`によるSELECT（1件）
   - `Update`: `id = ?`条件で氏名・氏名カナ・メールアドレス・学年・学級のみを更新する（招待メールは送らず、`password_reset_required`・パスワード・認証状態の列には触れない。Rails現行は、更新時に生徒番号が空であれば発行する。発行規則の共有方式は`user`②の未解決の論点6のため、本書では確定しない）
@@ -939,7 +939,7 @@ SQL文そのものは記載しない。
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
 |ディレクトリ名を`internal/student_import`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
-|`GradeClassResolutionRepository`・`StudentAccountRepository`実装が参照する他ContextのGORMモデルを本Contextで新規定義せず、既存テーブルを直接参照する構成とした|School/Grade Context自体の②文書が未整備であり、User Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が定める公開操作の③Go実装仕様書も未作成であるため|推測|
+|`GradeClassResolutionRepository`・`StudentAccountRepository`実装が参照する他ContextのGORMモデルを本Contextで新規定義せず、既存テーブルを直接参照する構成とした|`master-data` Context自体の②文書が未整備であり、`user` Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が定める公開操作の③Go実装仕様書も未作成であるため|推測|
 |`ImportHistory`に`FileName`・`CreatedAt`フィールドを追加した|②「6. Entity設計」はImportHistoryが「file情報」を保持すると定めており、その一部である元のファイル名を`FileName`とした。`CreatedAt`は、教師インポート履歴管理機能②の一覧・詳細レスポンス（`created_at`）と、並び替え・期間絞り込みの基準として必要と判断した|推測（②の業務ルール自体は変更していない）|
 |`ImportHistory`に`HighSchoolID`フィールドを追加した|②の`entity.ImportHistory`クラス図には`highSchoolId`相当のフィールド記載がないが、②「16. Authorization設計」の「インポート対象・作成対象の生徒アカウントは、常に実行した教師の所属高校に限定される」という業務要件を実装するために必要と判断した|推測（②の業務ルール自体は変更していない）|
 |新規行の作成を、本Context側で定義する`StudentAccountCreationRepository`を介して`user`の`CreateStudentAccount`へ委譲する構成とした|②11章は、新規行の作成を`user`の`CreateStudentAccount`へ依頼すると定めているが、Domain Model採用機能からの呼び出し方式は②に明記がない。他Contextの公開手段のみを呼ぶ（規約5）・利用側でinterfaceを定義する（コーディング規約7）に従った|推測|

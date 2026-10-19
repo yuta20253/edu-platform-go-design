@@ -150,7 +150,7 @@ internal/admin_account_management/presentation/routes.go
 |`Email`|`string`|ログインに用いるメールアドレス（②「7. Value Object設計」の方針により形式検証はPresentation層が担うため、Value Object化しない）|
 |`Name`|`string`|氏名（作成時に氏名が未入力だった場合の補完は`user` Contextが行うため、本Contextは補完後の値をそのまま保持する）|
 |`NameKana`|`string`|フリガナ|
-|`AddressID`|`*uint`|住所（Address Context）への外部参照。②「5. Aggregate設計」によりAggregate外部参照として識別子のみを保持する|
+|`AddressID`|`*uint`|住所（`master-data` Context）への外部参照。②「5. Aggregate設計」によりAggregate外部参照として識別子のみを保持する|
 |`UserRoleID`|`uint`|ロール識別子（本Contextが扱う対象は常に"admin"ロールのIDのみ）|
 |`CreatedAt`|`time.Time`|作成日時（参照専用。管理者詳細のレスポンスで返す）|
 |`UpdatedAt`|`time.Time`|更新日時（参照専用。管理者詳細のレスポンスで返す）|

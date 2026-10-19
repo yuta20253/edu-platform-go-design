@@ -55,12 +55,12 @@
 
 ## 他Contextとの依存関係
 
-- User Context（`user`。②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 新規行の生徒アカウント作成を、公開操作`CreateStudentAccount`の呼び出しで依頼する。この操作が、仮パスワードの発行・生徒番号の発行・招待メール送信の依頼を行い、生徒は常に招待待ち・作成時に招待メールを送る（入力で指定しない）。所属校・学年・クラスの実在と整合は、本Contextが検証済みの内容を渡す（`user`②「15. Validation設計」）。`user`は既存アカウントの更新を持たないため、既存生徒の更新は本Contextが自身で行う（`user`②「3. Bounded Context」の「アカウントの更新・論理削除の扱い」）
-- School/Grade Context: CSV上の学年名・学級名から、実在する学年・クラスを解決する（表示名からIDへの解決）ことに依存する
+- `user` Context（`user`。②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 新規行の生徒アカウント作成を、公開操作`CreateStudentAccount`の呼び出しで依頼する。この操作が、仮パスワードの発行・生徒番号の発行・招待メール送信の依頼を行い、生徒は常に招待待ち・作成時に招待メールを送る（入力で指定しない）。所属校・学年・クラスの実在と整合は、本Contextが検証済みの内容を渡す（`user`②「15. Validation設計」）。`user`は既存アカウントの更新を持たないため、既存生徒の更新は本Contextが自身で行う（`user`②「3. Bounded Context」の「アカウントの更新・論理削除の扱い」）
+- `master-data` Context: CSV上の学年名・学級名から、実在する学年・クラスを解決する（表示名からIDへの解決）ことに依存する
 
 ## 依存する理由
 
-本Contextの中心はCSVの検証・インポート進行管理であり、新規の生徒アカウントの本体情報（仮パスワードの発行・生徒番号の発行・招待メール送信の依頼）はUser Contextの責務に委ねる。これにより、student-import Contextがアカウント生成の詳細（パスワードハッシュ化方式やメール送信基盤等）の知識を過度に持たずに済む。一方、既存生徒の氏名・氏名カナ・メールアドレス・学年・クラスの上書きは、CSVインポート固有の処理であり、`user`が更新を持たないため、本Contextが担う。学年・クラスの名称解決はSchool/Grade Contextが真正なデータを持つため、そちらに問い合わせる。
+本Contextの中心はCSVの検証・インポート進行管理であり、新規の生徒アカウントの本体情報（仮パスワードの発行・生徒番号の発行・招待メール送信の依頼）は`user` Contextの責務に委ねる。これにより、student-import Contextがアカウント生成の詳細（パスワードハッシュ化方式やメール送信基盤等）の知識を過度に持たずに済む。一方、既存生徒の氏名・氏名カナ・メールアドレス・学年・クラスの上書きは、CSVインポート固有の処理であり、`user`が更新を持たないため、本Contextが担う。学年・クラスの名称解決は`master-data` Contextが真正なデータを持つため、そちらに問い合わせる。
 
 Rails現行実装では、生徒アカウントの新規作成（`Student::CreateStudentService`。`Common::CreateUserService`を継承）を、CSV一括登録（`Teacher::StudentCsvImportService`）と教師生徒参照機能の単体登録（`Teacher::CreateStudentForm`）の双方が呼んでいる。Goでは、この共通のアカウント作成処理を`user` Contextの`CreateStudentAccount`が担い、本Contextと`student-directory`は、それぞれ`user`を直接呼ぶ（本Contextは作成処理の提供元ではない）。既存生徒の更新（Rails現行の`Teacher::StudentCsvImportService#update_existing_user`）は、新規作成と異なり招待メールを送らず、`password_reset_required`にも触れない。この処理は`user`の範囲に含まれないため、本Contextが持つ。
 
@@ -116,14 +116,14 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 
 - ImportHistoryが「1回のインポート処理の進行状態・結果集計」を一貫して管理する単位とする
 - ImportErrorとImportedStudentはImportHistoryに従属し、単独では存在しない
-- 生徒アカウント（User）はAggregateに含めない。生徒アカウントの真正な管理はUser Contextの責務であり、student-import Contextからは、新規行については「作成を依頼する対象」（`user`の`CreateStudentAccount`）、既存生徒については「更新する対象」（本Contextが`users`の限定した列を書き換える）として外部参照する
+- 生徒アカウント（User）はAggregateに含めない。生徒アカウントの真正な管理は`user` Contextの責務であり、student-import Contextからは、新規行については「作成を依頼する対象」（`user`の`CreateStudentAccount`）、既存生徒については「更新する対象」（本Contextが`users`の限定した列を書き換える）として外部参照する
 
 ## 整合性を保証する単位
 
 - 1回のインポート処理におけるImportHistoryの状態（status / success_count / error_count / total_count）とImportErrorの一覧、およびImportedStudentの一覧が常に整合していること（`completed`の履歴にのみImportedStudentが存在し、`failed`の履歴には存在しない）
 - 全行の検証結果が確定するまで生徒データへの反映を一切行わないという、全件成功・全件失敗の整合性
 
-理由: ImportHistoryの状態は全行の検証結果に依存して決定され、1行でも失敗があれば生徒データに一切反映しないという強い整合性要件があるため、ImportHistoryとImportError・ImportedStudentを1つのAggregateとして扱い、集計結果と状態の不整合を防ぐ。ImportedStudentは、生徒データへの反映と同じ全件成功・全件失敗の単位で確定する必要があるため、生徒アカウントの反映と同一トランザクションで記録する。生徒データ自体の整合性はUser Context側の責務であるため、Aggregateを分離する。
+理由: ImportHistoryの状態は全行の検証結果に依存して決定され、1行でも失敗があれば生徒データに一切反映しないという強い整合性要件があるため、ImportHistoryとImportError・ImportedStudentを1つのAggregateとして扱い、集計結果と状態の不整合を防ぐ。ImportedStudentは、生徒データへの反映と同じ全件成功・全件失敗の単位で確定する必要があるため、生徒アカウントの反映と同一トランザクションで記録する。生徒データ自体の整合性は`user` Context側の責務であるため、Aggregateを分離する。
 
 ---
 
@@ -154,7 +154,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 - ライフサイクル: 全行が有効でインポートが成功した場合に、生徒データへの反映と同時に、行ごとに1件作成される。更新・削除は行わない（履歴の一部として保持される）
 - 状態変化: なし（作成のみ）
 - 保持する責務: 対象の生徒（生徒IDのみ。氏名・学年等の生徒情報は保持しない）と、新規作成か更新かの区別（`ImportedStudentAction`）を保持する。同じ履歴に同じ生徒を重複して記録しない
-- 判断根拠: 教師が、インポート結果として「誰が新規作成・更新されたか」を確認し、生徒コードを配布できるようにするための業務データであり、ImportHistoryに従属する意味のある記録であるため。生徒の氏名等はUser Contextが真正な情報源であるため、参照時に解決し、ImportedStudent自体には複製しない（参照時点の生徒情報を表示する。教師インポート履歴管理機能を参照）
+- 判断根拠: 教師が、インポート結果として「誰が新規作成・更新されたか」を確認し、生徒コードを配布できるようにするための業務データであり、ImportHistoryに従属する意味のある記録であるため。生徒の氏名等は`user` Contextが真正な情報源であるため、参照時に解決し、ImportedStudent自体には複製しない（参照時点の生徒情報を表示する。教師インポート履歴管理機能を参照）
 
 ## StudentImportRow（インポート処理中の一時的な行表現）
 
@@ -165,7 +165,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 ## 生徒アカウント（User、外部参照）
 
 - 役割: インポートによって作成・更新される対象
-- 判断根拠: 本Contextの中心はImportHistoryであり、生徒アカウントそのものの構造・整合性管理はUser Contextの責務であるため、本機能では、新規行は`user`へ「作成を依頼する対象」、既存生徒は「更新する対象」として扱う
+- 判断根拠: 本Contextの中心はImportHistoryであり、生徒アカウントそのものの構造・整合性管理は`user` Contextの責務であるため、本機能では、新規行は`user`へ「作成を依頼する対象」、既存生徒は「更新する対象」として扱う
 
 ---
 
@@ -212,7 +212,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 ## StudentRowValidationPolicy
 
 - 責務: CSV1行のデータについて、氏名・氏名カナ・メールアドレスの形式、学年名・学級名の自校内存在確認、メールアドレスの他校/他ロールでの使用有無、CSV内でのメールアドレス重複の有無を判定する
-- Entityへ持たせない理由: この判定はStudentImportRow単体の情報に加え、School/Grade Context・User Contextの参照情報を必要とするため
+- Entityへ持たせない理由: この判定はStudentImportRow単体の情報に加え、`master-data` Context・`user` Contextの参照情報を必要とするため
 - 判断根拠: 行単位の検証ロジックはdry run・インポート実行の双方で完全に同一である必要があり、UseCaseに直接書くと重複・乖離のリスクが高いため、独立したポリシーとして切り出す
 
 ## AllOrNothingImportAggregationPolicy
@@ -224,7 +224,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 ## StudentAccountUpsertPolicy
 
 - 責務: 検証済みの行データについて、メールアドレスが同校の既存生徒と一致するかどうかから、新規作成すべきか既存生徒情報を更新すべきかを判定し、反映した結果（対象の生徒と、新規作成か更新かの区別）を呼び出し元へ返す。返却された結果は、UseCaseがImportedStudentとして記録する
-- Entityへ持たせない理由: この判定はStudentImportRow（行データ）とUser Context側の既存生徒データの両方を横断して必要とするため
+- Entityへ持たせない理由: この判定はStudentImportRow（行データ）と`user` Context側の既存生徒データの両方を横断して必要とするため
 - 判断根拠: 新規作成/更新の判定は業務上重要なルールであり、UseCaseに直接書くと再利用性・テスト容易性が下がるため独立したポリシーとして切り出す。判定結果に応じて、新規作成は`user`の`CreateStudentAccount`、既存生徒の更新は本Contextの`StudentAccountRepository`を呼び分ける
 
 ---
@@ -302,7 +302,7 @@ classDiagram
       <<DomainService>>
     }
     class Student {
-      <<外部参照 User Context>>
+      <<外部参照 `user` Context>>
     }
     class StudentAccountCreationRepository {
       <<user Context提供・作成依頼専用>>
@@ -371,7 +371,7 @@ stateDiagram-v2
 - 保持しない責務: 新規作成か更新かの判定（`StudentAccountUpsertPolicy`の責務）、生徒アカウント自体の作成・更新、CSV出力形式への変換
 - 判断根拠: ImportHistory・ImportErrorと同じく、永続化と検索に特化させる。書き込み（本機能）と読み取り（教師インポート履歴管理機能）が同じAggregateへのアクセスであるため、同じRepositoryにまとめる
 
-## GradeClassResolutionRepository（School/Grade Context提供・参照専用）
+## GradeClassResolutionRepository（`master-data` Context提供・参照専用）
 
 - 管理対象: Grade, SchoolClass（参照専用）
 - 責務: CSV上の学年名・学級名から、実在するgrade_id/school_class_idを解決する

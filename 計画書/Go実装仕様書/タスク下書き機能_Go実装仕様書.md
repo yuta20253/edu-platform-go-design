@@ -25,7 +25,7 @@ Transaction Script（単元関連付けの同期処理をEntity/Storeに寄せ�
 - Bounded Context: `draft-task`（②「3. Bounded Context」）
 - 対象エンドポイント: 下書きタスク詳細取得・新規作成の2API（②「19. API仕様」）
 - 対象外: Goal・Unit・Courseそのものの管理機能（他Contextの責務。②「3. Bounded Context」他Contextとの依存関係を参照）、下書きタスクの一覧取得・更新・削除（Rails現行実装で未提供のため、②「19. API仕様」Railsとの差分のとおり設計対象外とする）
-- ②「3. Bounded Context」に、目標管理機能（goal-management Context）側の②文書が本Contextとの参照関係（`has_many :draft_tasks`）を記載しており、両者は整合した形で依存関係を記載している旨の言及がある。本Context側から見た依存方向は「作成時にGoal Contextへ所有権確認のため依存する」のみであり、目標管理機能側からの参照（目標詳細画面での下書きタスク一覧表示等）は本書の実装対象に含めない（目標管理機能③「1. 機能概要」「5. Infrastructure層設計」の対応する記載を参照）
+- ②「3. Bounded Context」に、目標管理機能（goal-management Context）側の②文書が本Contextとの参照関係（`has_many :draft_tasks`）を記載しており、両者は整合した形で依存関係を記載している旨の言及がある。本Context側から見た依存方向は「作成時に`goal-management` Contextへ所有権確認のため依存する」のみであり、目標管理機能側からの参照（目標詳細画面での下書きタスク一覧表示等）は本書の実装対象に含めない（目標管理機能③「1. 機能概要」「5. Infrastructure層設計」の対応する記載を参照）
 - ①Rails実装の詳細は本タスクでは提供されていないため、参照が必要な箇所は「①未提供のため参照不可」として扱う
 
 ---

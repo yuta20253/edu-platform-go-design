@@ -249,7 +249,7 @@ sequenceDiagram
 |`FilterEligibleTeacherIDs`|`ctx context.Context, highSchoolID uint, teacherIDs []uint`|`[]TeacherIdentity, error`|`ListUnsentTeachers`と同条件に加え、`id IN (teacherIDs)`で絞り込む。同校でない教員・招待完了済みの教員が指定されてもエラーとせず単に結果から除外する（②8章`InvitationEligibilityFilter`のルール）|
 |`Create`|`ctx context.Context, n *TeacherNotification`|`error`|`teacher_notifications`へ1件挿入する。`SentAt`が未設定（`failed`）の場合は、`sent_at`列をNULLで挿入する。トランザクションは使わない単発のINSERTである（11章）|
 |`ListNotificationResults`|`ctx context.Context, highSchoolID uint, sentAtDate *time.Time`|`[]TeacherNotificationResult, error`|`teacher_notifications`と`users`（送信者・送信先教員の氏名取得のため）を結合し、送信者が同校であることで絞り込む。`sentAtDate`が指定されている場合、その日付の0時〜24時で`sent_at`を絞り込む（`sent_at`がNULLの`failed`は、指定時の結果に含まれない）。送信日時降順でソートする（②16章・21章。`sent_at`がNULLの行は、MySQLの降順では末尾になる。Rails現行の同じ並び順と同じ動作。推測）|
-|`HasManageOtherTeachersPermission`|`ctx context.Context, teacherID uint`|`(bool, error)`|`teacher_permissions`テーブルを`teacher_id = teacherID`で1件取得し、`manage_other_teachers`列を返す（Teacher Permission Contextが所有するテーブルの参照専用読み取り。クラス編成機能の`TeacherPermissionRepository`と同様の役割だが、Active Record採用のためStoreメソッドとして直接実装する）|
+|`HasManageOtherTeachersPermission`|`ctx context.Context, teacherID uint`|`(bool, error)`|`teacher_permissions`テーブルを`teacher_id = teacherID`で1件取得し、`manage_other_teachers`列を返す（`teacher-permission` Contextが所有するテーブルの参照専用読み取り。クラス編成機能の`TeacherPermissionRepository`と同様の役割だが、Active Record採用のためStoreメソッドとして直接実装する）|
 |`LatestStatuses`（新規、teacher-management Context提供用）|`ctx context.Context, highSchoolID uint, teacherIDs []uint`|`(map[uint]string, error)`|`teacher_notifications`を`receiver_user_id IN (teacherIDs)`かつ送信者が`highSchoolID`に属することで絞り込み、各`receiver_user_id`ごとに最新（`sent_at`降順で1件）の`status`を取得する。通知が存在しない教員IDについては戻り値のmapに含めない（呼び出し元で「未送信」を補う）|
 
 `TeacherIdentity`のフィールド: `ID uint` / `Name string` / `NameKana string` / `Email string`
@@ -458,7 +458,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 |-|-|
 |`TeacherNotification`|`teacher_notifications`（既存）|
 
-参照専用で利用する他Contextのテーブル: `users`（教員アカウント・招待未完了判定、User Context所有）、`teacher_permissions`（他職員操作権限、Teacher Permission Context所有）。いずれも本Contextでは新規に所有モデルとして定義せず、参照専用の最小フィールド定義でアクセスする。
+参照専用で利用する他Contextのテーブル: `users`（教員アカウント・招待未完了判定、`user` Context所有）、`teacher_permissions`（他職員操作権限、`teacher-permission` Context所有）。いずれも本Contextでは新規に所有モデルとして定義せず、参照専用の最小フィールド定義でアクセスする。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 

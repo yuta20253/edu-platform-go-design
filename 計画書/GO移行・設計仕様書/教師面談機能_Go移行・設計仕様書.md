@@ -48,15 +48,15 @@
 
 ## 他Contextとの依存関係
 
-- User Context: 生徒・教師の識別情報、教師の所属校情報、面談の一覧・詳細に含める生徒名・教師名とメッセージ投稿者名の表示の参照に依存する（Rails現行の`InterviewRequestSerializer`は`student_name` / `teacher_name`、`InterviewRequestMessageSerializer`は`sender_name`を返す。氏名は面談側に複製せず、表示時にUser Contextから解決する）
-- Teacher Permission Context: 教師が新規申請可能な生徒の範囲（担当学年制限の有無）判定に依存する
-- Announcement Context（`announcement`）: 面談の申請・確定・キャンセル・メッセージ投稿の都度、相手方へのお知らせ送信に依存する
+- `user` Context: 生徒・教師の識別情報、教師の所属校情報、面談の一覧・詳細に含める生徒名・教師名とメッセージ投稿者名の表示の参照に依存する（Rails現行の`InterviewRequestSerializer`は`student_name` / `teacher_name`、`InterviewRequestMessageSerializer`は`sender_name`を返す。氏名は面談側に複製せず、表示時に`user` Contextから解決する）
+- `teacher-permission` Context: 教師が新規申請可能な生徒の範囲（担当学年制限の有無）判定に依存する
+- `announcement` Context（`announcement`）: 面談の申請・確定・キャンセル・メッセージ投稿の都度、相手方へのお知らせ送信に依存する
 
 ## 依存する理由
 
-面談の当事者・閲覧範囲の判定は、教師・生徒の所属情報（User Context）と教師の権限情報（Teacher Permission Context）を前提として成立する。これらの情報は本Contextの外側が真正な情報源であるため、本Contextはそれらを参照のみ行う。
+面談の当事者・閲覧範囲の判定は、教師・生徒の所属情報（`user` Context）と教師の権限情報（`teacher-permission` Context）を前提として成立する。これらの情報は本Contextの外側が真正な情報源であるため、本Contextはそれらを参照のみ行う。
 
-また、Rails現行仕様書に「いずれも、お知らせの実体作成はお知らせ機能と共通の仕組み（システムお知らせ作成処理）を利用する」と明記されているとおり、面談状態の変化に伴う通知はAnnouncement Contextが提供する仕組みへ委譲する。これにより、お知らせの実体作成ロジックを本Context内に重複実装することを避ける。
+また、Rails現行仕様書に「いずれも、お知らせの実体作成はお知らせ機能と共通の仕組み（システムお知らせ作成処理）を利用する」と明記されているとおり、面談状態の変化に伴う通知は`announcement` Contextが提供する仕組みへ委譲する。これにより、お知らせの実体作成ロジックを本Context内に重複実装することを避ける。
 
 ---
 
@@ -150,7 +150,7 @@ Domain Model
 ## 参照専用の外部概念（Student / Teacher / TeacherPermission）
 
 - 役割: 申請対象の妥当性判定・当事者判定の材料として参照する
-- 判断根拠: これらは他Context（User Context, Teacher Permission Context）が真正な管理主体であり、本Contextでは書き込みを行わない参照専用の情報として扱う
+- 判断根拠: これらは他Context（`user` Context, `teacher-permission` Context）が真正な管理主体であり、本Contextでは書き込みを行わない参照専用の情報として扱う
 
 ---
 
@@ -185,7 +185,7 @@ Domain Model
 ## InterviewEligibilityPolicy
 
 - 責務: 教師が新規申請できる相手の生徒かどうか（教師の閲覧権限範囲内の生徒か）を判定する
-- Entityへ持たせない理由: 判定には教師の権限情報（Teacher Permission Context）という、InterviewRequest単体では保持しない外部情報が必要なため
+- Entityへ持たせない理由: 判定には教師の権限情報（`teacher-permission` Context）という、InterviewRequest単体では保持しない外部情報が必要なため
 - 判断根拠: 教師生徒参照機能におけるGradeScopeと同様、「担当学年制限」を参照する業務ルールであり、UseCaseに直接書くと再利用性・テスト容易性が下がるため独立したポリシーとして切り出す
 
 ## DuplicateActiveInterviewPolicy
@@ -252,10 +252,10 @@ classDiagram
       <<DomainService>>
     }
     class Student {
-      <<外部参照 User Context>>
+      <<外部参照 `user` Context>>
     }
     class Teacher {
-      <<外部参照 User Context>>
+      <<外部参照 `user` Context>>
     }
 
     InterviewRequest "1" *-- "many" InterviewRequestMessage : 保有
@@ -327,7 +327,7 @@ stateDiagram-v2
 - 入力: current teacher, status（任意）, page, per_page
 - 出力: 面談一覧（生徒名・教師名を含む）、ページ情報
 - トランザクション範囲: 読み取りのみ、トランザクション不要
-- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照（一覧内の生徒・教師の氏名を一括で解決する）
+- 呼び出すRepository: InterviewRequestRepository、`user` Contextの氏名参照（一覧内の生徒・教師の氏名を一括で解決する）
 - 判断根拠: 単一条件での検索・ページネーションのみであり、書き込みを伴わないため。氏名は面談側に持たないため、表示時に参照して付与する
 
 ## ShowInterviewRequestUseCase
@@ -336,7 +336,7 @@ stateDiagram-v2
 - 入力: current teacher, interview request id
 - 出力: 面談詳細（生徒名・教師名を含む）
 - トランザクション範囲: 読み取りのみ
-- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照
+- 呼び出すRepository: InterviewRequestRepository、`user` Contextの氏名参照
 - 判断根拠: 自身が担当教師である面談のみを対象とする単純な参照処理であるため。氏名は表示時に参照して付与する
 
 ## CreateInterviewRequestUseCase
@@ -372,7 +372,7 @@ stateDiagram-v2
 - 入力: current teacher, interview request id, page, per_page
 - 出力: メッセージ一覧（投稿者名を含む）、ページ情報
 - トランザクション範囲: 読み取りのみ
-- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照
+- 呼び出すRepository: InterviewRequestRepository、`user` Contextの氏名参照
 - 判断根拠: 単純な参照処理であるため。投稿者名は表示時に参照して付与する
 
 ## PostInterviewRequestMessageUseCase
@@ -381,7 +381,7 @@ stateDiagram-v2
 - 入力: current teacher, interview request id, body
 - 出力: 作成したメッセージ（投稿者名を含む）
 - トランザクション範囲: メッセージの作成と（該当する場合の）状態遷移を1トランザクションで扱う。状態遷移は、メッセージ作成後に最新の面談を取得し直して判定し、他の操作との競合（楽観ロックの不一致）により更新できなかった場合は、遷移を行わず（他の操作で既に状態が進んだものとみなす）、エラーにせず、作成したメッセージは維持する（競合を理由にメッセージ作成をロールバックしない）
-- 呼び出すRepository: InterviewRequestRepository、User Contextの氏名参照（投稿者名）
+- 呼び出すRepository: InterviewRequestRepository、`user` Contextの氏名参照（投稿者名）
 - 判断根拠: 当事者判定・進行中判定・状態遷移はInterviewRequest Aggregateが一貫して担う必要があるため。ただし、保存済みのメッセージを状態遷移の競合で巻き戻さないよう、競合は遷移のスキップとして扱う（面談機能_Go移行・設計仕様書「12. UseCase設計」CreateInterviewRequestMessageと同じ）
 
 ---
@@ -400,7 +400,7 @@ sequenceDiagram
     participant DP as DuplicateActiveInterviewPolicy
     participant R as InterviewRequestRepository
     participant SR as 生徒参照Repository
-    participant AC as Announcement Context
+    participant AC as `announcement` Context
 
     H->>U: Execute(current teacher, student_id, reason_detail)
     U->>SR: 対象生徒の所属学年を取得
@@ -422,7 +422,7 @@ sequenceDiagram
     participant H as Handler
     participant U as PostInterviewRequestMessageUseCase
     participant R as InterviewRequestRepository
-    participant AC as Announcement Context
+    participant AC as `announcement` Context
 
     H->>U: Execute(current teacher, interview_request_id, body)
     U->>R: 対象面談を取得（担当教師確認）
@@ -475,7 +475,7 @@ flowchart TD
 
 ## 理由
 
-1回の業務操作（申請・確定・完了・キャンセル・メッセージ投稿）に対して、状態・楽観ロック・メッセージの整合性を保つため、UseCase単位で境界を統一する。通知（Announcement Contextへの依頼）は業務データの確定後に行うベストエフォート処理であるため、トランザクション範囲には含めない（詳細は「18. Domain Event」を参照）。
+1回の業務操作（申請・確定・完了・キャンセル・メッセージ投稿）に対して、状態・楽観ロック・メッセージの整合性を保つため、UseCase単位で境界を統一する。通知（`announcement` Contextへの依頼）は業務データの確定後に行うベストエフォート処理であるため、トランザクション範囲には含めない（詳細は「18. Domain Event」を参照）。
 
 ---
 
@@ -561,7 +561,7 @@ flowchart TD
 
 ## Infrastructure Error
 
-責務: DB接続・永続化・外部Context（Announcement Context）連携時の技術的失敗を表現する
+責務: DB接続・永続化・外部Context（`announcement` Context）連携時の技術的失敗を表現する
 
 ## 判断理由
 
@@ -600,7 +600,7 @@ flowchart TD
 
 ## 利用目的
 
-- Announcement Context（お知らせ機能と共通の仕組み）への通知依頼を、同期的な業務処理から切り離すため
+- `announcement` Context（お知らせ機能と共通の仕組み）への通知依頼を、同期的な業務処理から切り離すため
 
 ## 採用理由
 
@@ -753,7 +753,7 @@ Rails現行仕様書は、申請・確定・キャンセル・メッセージ投
 | Service（Teacher::CreateInterviewRequestService, Teacher::ProcessInterviewRequestService, Teacher::CancelInterviewRequestService, Teacher::CreateInterviewRequestMessageService） | UseCase | 業務処理の起点として扱う |
 | Model（InterviewRequest）の状態遷移バリデーション | InterviewRequest Entity | 状態遷移ルールをEntityの責務として明確化する |
 | Model（InterviewRequestMessage） | InterviewRequestMessage Entity | メッセージの保持責務として整理する |
-| Common::CreateInterview*NotificationService / Job | Domain Event（InterviewRequested等）購読による非同期実行 | 通知の実体作成をAnnouncement Contextへ委譲し、発火のみを本Contextの責務とする |
+| Common::CreateInterview*NotificationService / Job | Domain Event（InterviewRequested等）購読による非同期実行 | 通知の実体作成を`announcement` Contextへ委譲し、発火のみを本Contextの責務とする |
 | Serializer | Presenter / Response DTO | レスポンス整形を分離する |
 
 ---
@@ -805,7 +805,7 @@ Rails現行仕様書は、申請・確定・キャンセル・メッセージ投
 - 入力形式検証をPresentation層に寄せる
 - 状態遷移ルール・楽観ロック検証をInterviewRequest Entityの責務として明確化する
 - 申請可否判定（閲覧権限範囲・重複申請）をInterviewEligibilityPolicy / DuplicateActiveInterviewPolicy（Domain Service）に集約する
-- 通知トリガーをDomain Event（InterviewRequested等）として明示的にモデル化し、実体作成はAnnouncement Contextへ委譲する
+- 通知トリガーをDomain Event（InterviewRequested等）として明示的にモデル化し、実体作成は`announcement` Contextへ委譲する
 
 ## 変更理由
 
@@ -815,4 +815,4 @@ Rails実装ではService/Job/Common配下に状態遷移・通知トリガーの
 
 - フロントエンドから見たAPI外部仕様は維持する
 - 既存DBスキーマは維持するため、データ移行は不要
-- 通知の実体作成ロジックの変更は、本機能・面談機能・お知らせ機能（Announcement Context）の3機能に影響しうる
+- 通知の実体作成ロジックの変更は、本機能・面談機能・お知らせ機能（`announcement` Context）の3機能に影響しうる

@@ -202,17 +202,17 @@ internal/teacher_management/presentation/admin/routes.go
 
 規約4章「Active Record」節により、domain層にRepository Interfaceを定義しない（原則「対象外」）。②「9. Repository設計」のTeacherStore・TeacherPermissionStore・TeacherGradeStoreの責務は「5. Infrastructure層設計」節のStoreとして実装する。
 
-なお、②「9. Repository設計」のHighSchoolStore・GradeStoreは、高校・学年の実在確認や所属確認という、HighSchool Context・Grade Context（②「3. Bounded Context」他Contextとの依存関係）が公開する参照手段であり、teacher-managementがこれらのデータを所有・実装するものではない（`規約/アーキテクチャ規約.md`「5. Context間連携ルール」）。teacher-management側では、コーディング規約「5. インターフェース」（利用側でインターフェースを定義する）に従い、`internal/teacher_management/dependency.go`に以下の参照用interfaceを定義する。
+なお、②「9. Repository設計」のHighSchoolStore・GradeStoreは、高校・学年の実在確認や所属確認という、`master-data` Context・`master-data` Context（②「3. Bounded Context」他Contextとの依存関係）が公開する参照手段であり、teacher-managementがこれらのデータを所有・実装するものではない（`規約/アーキテクチャ規約.md`「5. Context間連携ルール」）。teacher-management側では、コーディング規約「5. インターフェース」（利用側でインターフェースを定義する）に従い、`internal/teacher_management/dependency.go`に以下の参照用interfaceを定義する。
 
 ```go
-// HighSchoolExistenceChecker は HighSchool Context が公開する
+// HighSchoolExistenceChecker は `master-data` Context が公開する
 // 「指定 high_school_id が存在するか」の参照手段を表す。
 // （②「9. Repository設計」HighSchoolStoreの責務に対応）
 type HighSchoolExistenceChecker interface {
     Exists(ctx context.Context, highSchoolID uint) (bool, error)
 }
 
-// GradeReferenceChecker は Grade Context が公開する
+// GradeReferenceChecker は `master-data` Context が公開する
 // 「指定 grade_ids のうち、対象高校に属するものはどれか」の参照手段を表す。
 // （②「9. Repository設計」GradeStoreの責務に対応）
 type GradeReferenceChecker interface {
@@ -223,7 +223,7 @@ type GradeReferenceChecker interface {
 }
 ```
 
-これらのinterfaceの実装（HighSchool Context・Grade Context側のStore）は本書の対象外である（**②からの補足**。詳細は「14. ②からの補足事項」参照）。
+これらのinterfaceの実装（`master-data` Context・`master-data` Context側のStore）は本書の対象外である（**②からの補足**。詳細は「14. ②からの補足事項」参照）。
 
 教員アカウント本体の作成は、`user` Contextが公開する`CreateTeacherAccount`（`user`②「12. UseCase設計」）を、同じく利用側で定義するinterface`TeacherAccountCreator`を介して呼び出す。`TeacherAccountCreator`の実装は`user` Context側の公開関数であり、本書の対象外である。
 
@@ -688,7 +688,7 @@ SQL文そのものは本書に記載しない。
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
 |Bounded Context `teacher-management`（教師教員管理機能と共通）の内部ディレクトリ名を`internal/teacher_management`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
-|②「9. Repository設計」HighSchoolStore・GradeStoreをteacher-management内で実装せず、teacher_management package側に参照用interface（`HighSchoolExistenceChecker`／`GradeReferenceChecker`）を定義し、実装はHighSchool Context・Grade Context側に委ねる構成とした|②「9. Repository設計」はHighSchoolStore・GradeStoreをteacher-managementの節内で記載しているが、`規約/アーキテクチャ規約.md`「5. Context間連携ルール」により他Contextの内部実装に直接依存できないため、コーディング規約「5. インターフェース」（利用側での定義）に従って整理した。②の「責務」「保持しない責務」の記載内容自体は変更していない|補足（規約の適用による構造上の具体化であり、推測ではなく規約遵守のための判断）|
+|②「9. Repository設計」HighSchoolStore・GradeStoreをteacher-management内で実装せず、teacher_management package側に参照用interface（`HighSchoolExistenceChecker`／`GradeReferenceChecker`）を定義し、実装は`master-data` Context・`master-data` Context側に委ねる構成とした|②「9. Repository設計」はHighSchoolStore・GradeStoreをteacher-managementの節内で記載しているが、`規約/アーキテクチャ規約.md`「5. Context間連携ルール」により他Contextの内部実装に直接依存できないため、コーディング規約「5. インターフェース」（利用側での定義）に従って整理した。②の「責務」「保持しない責務」の記載内容自体は変更していない|補足（規約の適用による構造上の具体化であり、推測ではなく規約遵守のための判断）|
 |②「8. Domain Service」TeacherGradeAssignmentPolicyを、独立したstruct/interfaceではなく`internal/teacher_management`パッケージ内のpackageレベル関数`ValidateGradeAssignment`として実装した|`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
 |②「7. Value Object設計」TeacherPermission・GradeAssignmentSetを、独立層としてではなくstruct・メソッドとして`internal/teacher_management`パッケージ内に実装した|同上、規約4章Active Record節により、Value Objectは原則「対象外」とされているため|補足（規約適用）|
 |`Teacher`のGORMテーブル名を`users`として`TableName()`で明示的に上書きする必要がある点、および`TeacherGradeAssignment`のGORMテーブル名を`teacher_grades`として同様に上書きする必要がある点|②「17. DB設計方針」はテーブル名`users`・`teacher_grades`を利用する旨のみ記載しており、Go構造体名のデフォルト複数形との不一致には触れていない。Gorm規約「テーブル名」に基づき③側で明示した|補足（Gorm規約の適用によりテーブル不一致を検出したもの）|

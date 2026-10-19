@@ -46,13 +46,13 @@
 
 ## 他Contextとの依存関係
 
-- Goal Context: 下書きタスク作成時に、紐づける目標が生徒自身の目標であることの確認に依存する
-- Unit Context（curriculum）: 下書きタスク作成時に指定する単元の存在確認、および詳細取得時のコース情報表示に依存する
-- User Context: 認証済み生徒の識別と所有権の確認に依存する
+- `goal-management` Context: 下書きタスク作成時に、紐づける目標が生徒自身の目標であることの確認に依存する
+- `curriculum` Context（curriculum）: 下書きタスク作成時に指定する単元の存在確認、および詳細取得時のコース情報表示に依存する
+- `user` Context: 認証済み生徒の識別と所有権の確認に依存する
 
 ## 依存する理由
 
-下書きタスクは、目標に紐づく形で作成される（Rails現行仕様書6章`belongs_to :goal`）。また、下書きタスクの詳細表示では、紐づく単元とそのコース情報を含めて返却する業務要件がある（Rails現行仕様書5章のResponse定義）。そのため、作成時にはGoal Context・Unit Contextへの存在確認依存が、詳細取得時にはUnit Contextへの参照依存が発生する。ただし、下書きタスク自体の作成・参照が目標やコースの状態を変更することはなく、依存は「存在確認・参照のための依存」に限定される。
+下書きタスクは、目標に紐づく形で作成される（Rails現行仕様書6章`belongs_to :goal`）。また、下書きタスクの詳細表示では、紐づく単元とそのコース情報を含めて返却する業務要件がある（Rails現行仕様書5章のResponse定義）。そのため、作成時には`goal-management` Context・`curriculum` Contextへの存在確認依存が、詳細取得時には`curriculum` Contextへの参照依存が発生する。ただし、下書きタスク自体の作成・参照が目標やコースの状態を変更することはなく、依存は「存在確認・参照のための依存」に限定される。
 
 なお、目標管理機能（goal-management Context）の②文書では、目標に下書きタスクが紐づき得る旨（Rails現行仕様書`has_many :draft_tasks`）を参照関係として記載しており、本Contextと目標管理機能は互いに整合した形で依存関係を記載している。
 
@@ -238,7 +238,7 @@ classDiagram
     DraftTaskUnit ..> Unit : 参照（存在確認・コース情報表示）
 ```
 
-Goal・Unitは他Context（goal-management Context、Unit/curriculum Context）が所有するデータであり、参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
+Goal・Unitは他Context（goal-management Context、`curriculum` Context）が所有するデータであり、参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
 
 ---
 
@@ -291,7 +291,7 @@ Goal・Unitは他Context（goal-management Context、Unit/curriculum Context）�
 
 - 管理対象: Unit（本Contextでは読み取り専用）
 - 責務: 指定単元の存在確認、詳細取得時のコース情報取得
-- 保持しない責務: 単元の作成・更新（Unit Contextの責務）
+- 保持しない責務: 単元の作成・更新（`curriculum` Contextの責務）
 - 判断根拠: 対象確認・表示に必要な参照に限定するため
 
 ---
