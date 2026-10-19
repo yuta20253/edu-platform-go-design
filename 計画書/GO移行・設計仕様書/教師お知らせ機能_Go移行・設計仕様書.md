@@ -47,14 +47,14 @@
 
 ## 他Contextとの依存関係
 
-- User Context: 発信者（publisher）および閲覧者の識別、`high_school_id` / `user_role_id` / `grade_id` の参照に依存する
-- School Context（学年・学校情報）: 対象指定時の学年・学校の存在確認、同校判定に依存する
-- Teacher Permission Context: 対象指定時、`own_grade` 権限を持つ教師が自身の学年以外を指定できないようにする制約判定に依存する
-- Teacher Dashboard Context: ダッシュボード側から本Contextへ、公開中お知らせの参照が行われる（本Contextが提供する側）
+- `user` Context: 発信者（publisher）および閲覧者の識別、`high_school_id` / `user_role_id` / `grade_id` の参照に依存する
+- `master-data` Context（学年・学校情報）: 対象指定時の学年・学校の存在確認、同校判定に依存する
+- `teacher-permission` Context: 対象指定時、`own_grade` 権限を持つ教師が自身の学年以外を指定できないようにする制約判定に依存する
+- `teacher-dashboard` Context: ダッシュボード側から本Contextへ、公開中お知らせの参照が行われる（本Contextが提供する側）
 
 ## 依存する理由
 
-お知らせの対象指定・閲覧制御は、教師自身の所属学校・学年・権限情報を前提として成立する。これらの情報はお知らせContextの外側（User/School/Teacher Permission Context）が真正な情報源であるため、お知らせContextはそれらを参照のみ行い、自身では保持しない。
+お知らせの対象指定・閲覧制御は、教師自身の所属学校・学年・権限情報を前提として成立する。これらの情報はお知らせContextの外側（User/School/`teacher-permission` Context）が真正な情報源であるため、お知らせContextはそれらを参照のみ行い、自身では保持しない。
 
 ---
 
@@ -200,7 +200,7 @@ Domain Model
 - 責務: 対象指定（TargetCriteria群）が、発信者の権限・所属校を踏まえて妥当かどうかを判定する
   - `own_grade` 権限の教師は、自身の学年以外を `by_grade` で指定できない
   - `by_grade` で指定する学年、`by_user` で指定するユーザーは、発信者と同校でなければならない
-- Entityへ持たせない理由: 判定には発信者の権限情報（Teacher Permission Context）、参照先の学年・ユーザー情報（School/User Context）という、AnnouncementもAnnouncementTargetも単体では保持しない外部情報が必要なため
+- Entityへ持たせない理由: 判定には発信者の権限情報（`teacher-permission` Context）、参照先の学年・ユーザー情報（`master-data`・`user` Context）という、AnnouncementもAnnouncementTargetも単体では保持しない外部情報が必要なため
 - 判断根拠: 複数Context・複数Entityにまたがる業務ルールをUseCaseに直接書くと、作成処理に業務ロジックが埋没するため、独立したDomain Serviceとして切り出し、テストと再利用を容易にする
 
 ## AnnouncementVisibilityPolicy

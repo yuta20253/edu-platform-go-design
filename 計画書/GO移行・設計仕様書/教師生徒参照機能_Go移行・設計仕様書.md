@@ -50,12 +50,12 @@
 
 ## 他Contextとの依存関係
 
-- User Context（`user`。②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 生徒アカウント本体の作成を、公開操作`CreateStudentAccount`の直接の呼び出しで依頼する。入力は氏名・氏名カナ・メールアドレス・所属校ID・学年ID・クラスIDで、招待待ち・作成時の招待メール送信は固定（入力に持たない）、生徒番号は`user`が発行する。学年・クラスの実在と整合は、本Contextが検証済みの内容を渡す（`user`②「15. Validation設計」）。生徒・学年・所属校の一覧・詳細の参照は、ページネーション・結合を伴うため、本Context自身が参照モデルを持つ（`user`②「3. Bounded Context」）
-- School/Grade Context: 登録先の学年・クラスが教師の所属校に属することの確認に依存する
+- `user` Context（`user`。②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 生徒アカウント本体の作成を、公開操作`CreateStudentAccount`の直接の呼び出しで依頼する。入力は氏名・氏名カナ・メールアドレス・所属校ID・学年ID・クラスIDで、招待待ち・作成時の招待メール送信は固定（入力に持たない）、生徒番号は`user`が発行する。学年・クラスの実在と整合は、本Contextが検証済みの内容を渡す（`user`②「15. Validation設計」）。生徒・学年・所属校の一覧・詳細の参照は、ページネーション・結合を伴うため、本Context自身が参照モデルを持つ（`user`②「3. Bounded Context」）
+- `master-data` Context: 登録先の学年・クラスが教師の所属校に属することの確認に依存する
 
 ## 依存する理由
 
-生徒データそのものはUser Contextが正として管理する情報であり、本機能はその情報を教師の権限範囲に応じて参照するビューを提供するに過ぎない。新規登録についても、本Contextが担うのは「同校の教師が、同校の学年・クラスに対して登録しようとしているか」という業務権限・スコープの検証までであり、生徒アカウントそのものの作成（仮パスワード発行・生徒番号採番・招待メール送信）は`user` Contextの`CreateStudentAccount`へ委譲する。Rails現行では、`Teacher::CreateStudentForm`が入力検証・同校妥当性確認を行い、`Student::CreateStudentService`（`Common::CreateUserService`を継承）がアカウントを作成しており、この分担をそのまま維持する。これにより、アカウント作成の詳細ルールが変更された場合の影響範囲を`user`の1箇所に閉じ込め、生徒CSVインポート機能（`student-import`。同じ操作を呼ぶ）との間でロジックが重複・乖離することを防ぐ。本Contextと`student-import`の間に依存関係はない。
+生徒データそのものは`user` Contextが正として管理する情報であり、本機能はその情報を教師の権限範囲に応じて参照するビューを提供するに過ぎない。新規登録についても、本Contextが担うのは「同校の教師が、同校の学年・クラスに対して登録しようとしているか」という業務権限・スコープの検証までであり、生徒アカウントそのものの作成（仮パスワード発行・生徒番号採番・招待メール送信）は`user` Contextの`CreateStudentAccount`へ委譲する。Rails現行では、`Teacher::CreateStudentForm`が入力検証・同校妥当性確認を行い、`Student::CreateStudentService`（`Common::CreateUserService`を継承）がアカウントを作成しており、この分担をそのまま維持する。これにより、アカウント作成の詳細ルールが変更された場合の影響範囲を`user`の1箇所に閉じ込め、生徒CSVインポート機能（`student-import`。同じ操作を呼ぶ）との間でロジックが重複・乖離することを防ぐ。本Contextと`student-import`の間に依存関係はない。
 
 ---
 
@@ -107,9 +107,9 @@ Transaction Script
 
 - 役割: 教師が参照・登録する生徒情報を表す概念
 - ライフサイクル: 新規登録リクエストとして受け付けられ（本Context側では同校妥当性検証のみ行う）、実際のアカウント生成は`user` Contextの`CreateStudentAccount`に委ねられる。以降の参照は一覧・詳細取得のみで、本機能内での更新・削除は行わない
-- 状態変化: 本Context内では状態を持たない（作成後の状態管理はUser Contextの責務）
+- 状態変化: 本Context内では状態を持たない（作成後の状態管理は`user` Contextの責務）
 - 保持する責務: 生徒の基本情報（氏名・かな氏名・学年・所属校）を表現する。新規登録時は入力された氏名・氏名カナ・メールアドレス・学年・クラスを保持し、`user`の`CreateStudentAccount`へ引き渡す
-- 判断根拠: 生徒情報の永続的な管理・状態はUser Contextが管理する実体であり、本機能では読み取り専用の表現と、新規登録リクエストの受け皿として扱うため、作成処理そのものの責務は持たせない
+- 判断根拠: 生徒情報の永続的な管理・状態は`user` Contextが管理する実体であり、本機能では読み取り専用の表現と、新規登録リクエストの受け皿として扱うため、作成処理そのものの責務は持たせない
 
 ## Grade / SchoolClass / HighSchool（参照対象）
 
@@ -162,7 +162,7 @@ Transaction Script
 
 ## StudentRepository
 
-- 管理対象: Student（User Contextの生徒情報への参照）
+- 管理対象: Student（`user` Contextの生徒情報への参照）
 - 責務:
   - 同校生徒の一覧取得
   - 指定IDの生徒取得
@@ -177,7 +177,7 @@ Transaction Script
   - 生徒アカウント作成の実処理（仮パスワード発行・生徒番号採番・招待メール送信は`user`の`CreateStudentAccount`の責務）
 - 判断根拠: 検索・参照および作成依頼の受け渡しに特化させ、権限判定ロジックと作成の実処理は、それぞれ呼び出し元のapplication関数・`user`の`CreateStudentAccount`に置くことで責務を分離するため
 
-## GradeRepository / SchoolClassRepository（School/Grade Context提供・参照専用）
+## GradeRepository / SchoolClassRepository（`master-data` Context提供・参照専用）
 
 - 管理対象: Grade, SchoolClass（参照専用）
 - 責務: 新規登録時、指定された学年・クラスが教師の所属校の学年・クラスであり、クラスが指定学年に属することの存在確認

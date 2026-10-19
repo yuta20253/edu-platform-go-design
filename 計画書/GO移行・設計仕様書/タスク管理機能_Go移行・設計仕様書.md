@@ -50,9 +50,9 @@
 
 ## 他Contextとの依存関係
 
-- Goal Context: タスクが紐づく目標の存在確認と所有者確認に依存する
-- Unit Context: タスクに紐づける単元の存在確認と、学習開始済み単元に対する制約判定に依存する
-- User Context: 認証済み生徒の識別と所有権の確認に依存する
+- `goal-management` Context: タスクが紐づく目標の存在確認と所有者確認に依存する
+- `curriculum` Context: タスクに紐づける単元の存在確認と、学習開始済み単元に対する制約判定に依存する
+- `user` Context: 認証済み生徒の識別と所有権の確認に依存する
 
 ## 依存する理由
 
@@ -261,7 +261,7 @@ classDiagram
     TaskUnitRelationPolicy ..> TaskUnitLink : 削除可否を判定
 ```
 
-Goalは他Context（Goal Context）、Unitは他Context（Unit/curriculum Context）が所有するデータであり、参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
+Goalは他Context（`goal-management` Context）、Unitは他Context（`curriculum` Context）が所有するデータであり、参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
 
 ---
 

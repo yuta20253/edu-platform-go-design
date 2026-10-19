@@ -47,12 +47,12 @@
 
 - user Context: 申請者・承認者・生徒の識別情報、教師の所属校情報の参照、および削除申請の対象クラスに在籍する生徒がいないことの確認（`user`②の`CountUsers`。クラス指定・無効化の扱いは「無効化済みを含む」。Rails現行の`school_class.users.exists?`は無効化済み（`deleted_at`あり）のユーザーも数えるため）に依存する
 - `teacher_school_classes`（教員とクラスの所属関係。列は`user_id` / `school_class_id` / `role`（担任 / 副担任））: 削除申請の対象クラスに所属する教員がいないことの確認のために参照する。これは`users`の情報ではなく、`user`②の公開操作の対象外である。このテーブルを所有・管理するContextは、現行の②群のどこにも定義されていない（推測: 現行のRailsで、このテーブルを作成・更新する機能（Controller・Service・Form・seeds）が存在せず、管理する機能が現行の対象範囲にないため）。本Contextからは、書き込む機能が現行の対象範囲に存在しない参照専用の依存として扱う。ただし、クラスの削除を承認したときは、Rails現行の`SchoolClass`の`dependent: :destroy`に従い、当該クラスの`teacher_school_classes`の行も同じ処理の中で削除される（外部キー制約があるため、Goでもクラスの削除より前に、同一トランザクション内で当該クラスの行を削除する。14章）
-- Teacher Permission Context: 承認・却下操作に必要な「他職員操作権限（`manage_other_teachers`）」の参照に依存する
-- Announcement Context（`announcement`）: 申請受付時・承認/却下結果通知時のお知らせ送信に依存する
+- `teacher-permission` Context: 承認・却下操作に必要な「他職員操作権限（`manage_other_teachers`）」の参照に依存する
+- `announcement` Context（`announcement`）: 申請受付時・承認/却下結果通知時のお知らせ送信に依存する
 
 ## 依存する理由
 
-クラス編成申請の承認可否は、操作する教師が「他職員操作権限」を持つかどうかというTeacher Permission Contextの情報を前提として成立する。また、Rails現行仕様書が「いずれも、お知らせの実体作成はお知らせ機能と共通の仕組みを利用する」と明記する他機能（教師面談機能等）と同様、本機能の通知もAnnouncement Contextが提供する仕組みへ委譲することで、通知の実体作成ロジックを重複実装しない。
+クラス編成申請の承認可否は、操作する教師が「他職員操作権限」を持つかどうかという`teacher-permission` Contextの情報を前提として成立する。また、Rails現行仕様書が「いずれも、お知らせの実体作成はお知らせ機能と共通の仕組みを利用する」と明記する他機能（教師面談機能等）と同様、本機能の通知も`announcement` Contextが提供する仕組みへ委譲することで、通知の実体作成ロジックを重複実装しない。
 
 ---
 
@@ -121,10 +121,10 @@ Domain Model
 ## Grade
 
 - 役割: 学校の学年を表す参照用の概念
-- ライフサイクル: 本機能内では作成・更新・削除されない（実体はSchool Contextが管理する）
+- ライフサイクル: 本機能内では作成・更新・削除されない（実体は`master-data` Contextが管理する）
 - 状態変化: なし
 - 保持する責務: 学年の識別情報・所属校を保持する
-- 判断根拠: 学年情報の真正な管理は他Context（School/Grade Context）に属し、本機能では参照専用として扱うため
+- 判断根拠: 学年情報の真正な管理は他Context（`master-data` Context）に属し、本機能では参照専用として扱うため
 
 ## SchoolClass
 
@@ -392,7 +392,7 @@ sequenceDiagram
     participant CR as SchoolClassRequestRepository
     participant SR as SchoolClassRepository
     participant XR as 外部参照Repository
-    participant AC as Announcement Context
+    participant AC as `announcement` Context
 
     H->>U: Execute(current teacher, action, grade_id, name, school_class_id)
     U->>SR: 学年・対象クラスの同校妥当性を確認
@@ -420,7 +420,7 @@ sequenceDiagram
     participant CR as SchoolClassRequestRepository
     participant RP as SchoolClassRequestReflectionPolicy
     participant SR as SchoolClassRepository
-    participant AC as Announcement Context
+    participant AC as `announcement` Context
 
     H->>U: Execute(current teacher, request_id, status=approved, lock_version)
     U->>CR: 対象申請を取得（同校・pending確認、申請者本人でないか確認）
@@ -563,7 +563,7 @@ flowchart TD
 
 ## Infrastructure Error
 
-責務: DB接続・永続化・外部Context（Announcement Context）連携時の技術的失敗を表現する
+責務: DB接続・永続化・外部Context（`announcement` Context）連携時の技術的失敗を表現する
 
 ## 判断理由
 
@@ -601,7 +601,7 @@ flowchart TD
 
 ## 利用目的
 
-- Announcement Context（お知らせ機能と共通の仕組み）への通知依頼を、同期的な業務処理から切り離すため
+- `announcement` Context（お知らせ機能と共通の仕組み）への通知依頼を、同期的な業務処理から切り離すため
 
 ## 採用理由
 
@@ -751,7 +751,7 @@ Rails現行仕様書は、申請提出時（同校で他職員操作権限を持
 | Service（Teacher::CreateSchoolClassRequestService） | UseCase（CreateSchoolClassRequestUseCase）+ Domain Service | 申請作成の起点として扱い、業務ルール判定はDomain Serviceに集約する |
 | Service（Teacher::ProcessSchoolClassRequestService） | UseCase（ProcessSchoolClassRequestUseCase）+ Domain Service（SchoolClassRequestReflectionPolicy） | 承認時のクラスデータ反映ロジックをDomain Serviceとして明確化する |
 | Service（Teacher::CancelSchoolClassRequestService） | UseCase（CancelSchoolClassRequestUseCase） | 取消処理の起点として扱う |
-| Service/Job（Teacher::CreateSchoolClassRequestNotificationService, Teacher::CreateSchoolClassRequestResultNotificationService, Teacher::CreateSchoolClassRequestNotificationJob） | Domain Event（SchoolClassRequestSubmitted / SchoolClassRequestResolved）購読による非同期実行 | 通知の実体作成をAnnouncement Contextへ委譲し、発火のみを本Contextの責務とする |
+| Service/Job（Teacher::CreateSchoolClassRequestNotificationService, Teacher::CreateSchoolClassRequestResultNotificationService, Teacher::CreateSchoolClassRequestNotificationJob） | Domain Event（SchoolClassRequestSubmitted / SchoolClassRequestResolved）購読による非同期実行 | 通知の実体作成を`announcement` Contextへ委譲し、発火のみを本Contextの責務とする |
 | Model（SchoolClassRequest）の状態遷移バリデーション | SchoolClassRequest Entity | 状態遷移ルールをEntityの責務として明確化する |
 | Model（Grade, SchoolClass） | Grade（参照）/ SchoolClass Entity + Repository | データ表現と永続化アクセスの責務を分離する |
 | Serializer | Presenter / Response DTO | レスポンス整形を分離する |
@@ -805,7 +805,7 @@ Rails現行仕様書は、申請提出時（同校で他職員操作権限を持
 - 状態遷移ルール・楽観ロック検証をSchoolClassRequest Entityの責務として明確化する
 - 承認時のクラスデータ反映ロジックをSchoolClassRequestReflectionPolicy（Domain Service）に集約する
 - 削除可否・重複申請の判定をそれぞれ独立したDomain Serviceに集約する
-- 通知トリガーをDomain Event（SchoolClassRequestSubmitted / SchoolClassRequestResolved）として明示的にモデル化し、実体作成はAnnouncement Contextへ委譲する
+- 通知トリガーをDomain Event（SchoolClassRequestSubmitted / SchoolClassRequestResolved）として明示的にモデル化し、実体作成は`announcement` Contextへ委譲する
 
 ## 変更理由
 
@@ -815,4 +815,4 @@ Rails実装ではService層に申請の状態遷移ルールと承認時の反�
 
 - フロントエンドから見たAPI外部仕様は維持する
 - 既存DBスキーマは維持するため、データ移行は不要
-- 通知の実体作成ロジックの変更は、本機能・お知らせ機能（Announcement Context）に影響しうる
+- 通知の実体作成ロジックの変更は、本機能・お知らせ機能（`announcement` Context）に影響しうる

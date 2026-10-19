@@ -52,7 +52,7 @@
 
 ## 他Contextとの依存関係
 
-- Course/Unit Context: 対象単元の存在確認・スコープ検証に依存する
+- `curriculum` Context: 対象単元の存在確認・スコープ検証に依存する
 - Question Context: 問題・選択肢・ヒント・解説の作成/更新に依存する（推測: 現状のRails実装にはBounded Context分割が存在しないため、Questionを中心とする問題管理領域を独立したContextとして仮定する）
 - User(Admin) Context: 実行者（管理者）の識別に依存する
 

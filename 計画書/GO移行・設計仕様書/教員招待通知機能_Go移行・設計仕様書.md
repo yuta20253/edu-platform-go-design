@@ -45,18 +45,18 @@
 
 ## 他Contextとの依存関係
 
-- User Context（Context名`user`）: 次の2点に依存する
+- `user` Context: 次の2点に依存する
   - 参照: 教員アカウントの識別情報、所属校情報、招待完了状態（初回パスワード未設定かどうか）
   - 招待メールの送信依頼: `user`②「12. UseCase設計」の`RequestInvitationEmail`を、実行方式「即時」で呼ぶ。結果（送信成功／送信失敗／送信対象外）は戻り値として受け取り、本Contextが`TeacherNotification`へ記録する
 - メール送信基盤・パスワード設定用トークンの発行（`authentication`）: 本Contextは直接呼ばない。`user`の送信手順が呼ぶ（`user`②「3. Bounded Context」）
 
 ## 依存する理由
 
-招待未完了かどうかの判定は、教員アカウント本体（User）が持つパスワード状態を前提とする。この情報の真正な管理はUser Contextに属するため、本Contextは参照のみ行い、教員アカウント自体の作成・更新は行わない。
+招待未完了かどうかの判定は、教員アカウント本体（User）が持つパスワード状態を前提とする。この情報の真正な管理は`user` Contextに属するため、本Contextは参照のみ行い、教員アカウント自体の作成・更新は行わない。
 
 招待メールの送信は、アカウント作成時の送信と同じ文面・同じトークンの有効期間・同じ手順で行う必要がある。Rails現行実装では、この送信手順がアカウント作成時（`Common::CreateUserService`）と教員招待通知の再送（`Teacher::TeacherNotificationJob`）に別々に実装されているため、`user`②は招待メールの送信依頼（`RequestInvitationEmail`）を1つに集約している。本Contextは、その実行方式「即時」を呼ぶ。「即時」は、呼び出しの中で送信して結果を返す方式であり、Rails現行の再送（`deliver_now`の直後にその場で成否を判定して記録する）と同じ結果の受け渡しを保てる。`jobs`を経由する「登録」方式は、結果を非同期に確定させるため本Contextでは使わない（`user`②「24. 採用しなかった設計」）。依存の向きは`teacher-notification`→`user`の一方向であり、`user`は本Contextを参照しない（アーキテクチャ規約5章）。
 
-なお、教師教員管理機能（`teacher-management` Context）は、教員一覧表示のために本Context（`teacher-notification`）が管理する送信結果を参照する。本Contextから`teacher-management`への依存は存在しない（依存の向きは一方向であり、アーキテクチャ規約5章が禁止する循環依存を避けるため、本Contextは教員一覧の取得を`teacher-management`に依存せず、User Contextから直接行う）。
+なお、教師教員管理機能（`teacher-management` Context）は、教員一覧表示のために本Context（`teacher-notification`）が管理する送信結果を参照する。本Contextから`teacher-management`への依存は存在しない（依存の向きは一方向であり、アーキテクチャ規約5章が禁止する循環依存を避けるため、本Contextは教員一覧の取得を`teacher-management`に依存せず、`user` Contextから直接行う）。
 
 ---
 
@@ -77,7 +77,7 @@ Active Record
 このため、以下の理由からActive Recordを採用する。
 
 - 主要操作が一覧・一括送信・履歴参照というCRUD中心の操作であり、複雑な状態遷移が存在しない
-- 送信対象の絞り込みロジック（同校・招待未完了）は、Entity（TeacherNotification）が保持する情報だけでは完結せず、User Context側の参照情報との突き合わせによる値の妥当性検証として十分に表現できる
+- 送信対象の絞り込みロジック（同校・招待未完了）は、Entity（TeacherNotification）が保持する情報だけでは完結せず、`user` Context側の参照情報との突き合わせによる値の妥当性検証として十分に表現できる
 - 各送信結果が独立したレコードとして記録されれば足り、複雑なドメイン振る舞いを必要としない
 
 ## 採用しなかったパターン
@@ -119,7 +119,7 @@ TeacherNotification自体に状態遷移や、複数Entityにまたがる複雑�
 ## Teacher（外部参照、招待未完了教員の一覧表示対象）
 
 - 役割: 招待未完了かどうかの判定対象となる教員アカウント
-- 判断根拠: 教員アカウント自体の真正な管理はUser Contextに属し、本ContextはUser Contextの`password_reset_required`相当の状態を参照するのみであるため（推測: 教師生徒参照機能・教師教員管理機能のデータモデルに記載された`password_reset_required`フィールドと同一の仕組みを、招待完了判定に用いると仮定する）
+- 判断根拠: 教員アカウント自体の真正な管理は`user` Contextに属し、本Contextは`user` Contextの`password_reset_required`相当の状態を参照するのみであるため（推測: 教師生徒参照機能・教師教員管理機能のデータモデルに記載された`password_reset_required`フィールドと同一の仕組みを、招待完了判定に用いると仮定する）
 
 ---
 
@@ -142,7 +142,7 @@ TeacherNotification自体に状態遷移や、複数Entityにまたがる複雑�
 ## InvitationEligibilityFilter
 
 - 責務: 指定された教員ID一覧（`teacher_ids`）から、実際に送信対象とすべき教員（操作者と同校、かつ招待未完了）を絞り込む
-- Entityへ持たせない理由: 判定にはTeacherNotification単体の情報ではなく、User Context側の教員アカウント情報（所属校・パスワード状態）が必要なため
+- Entityへ持たせない理由: 判定にはTeacherNotification単体の情報ではなく、`user` Context側の教員アカウント情報（所属校・パスワード状態）が必要なため
 - 判断根拠: 同校でない教員・既に招待完了済みの教員が指定されても、エラーとはせず単に送信対象から除外するという業務ルール（Rails現行仕様「業務ルール」節参照）を1箇所に集約し、一覧取得・一括送信の双方から再利用できるようにするため
 - 無効化済み（`deleted_at`あり）の教員の扱い: 絞り込みの条件は「同校」「招待未完了」のみで、無効化済みの教員を除外しない（Rails現行の`base_teachers_scope`が有効なユーザーへの絞り込みを持たないことと同じ）。無効化済みの教員は、絞り込みの後、招待メールの送信依頼が「送信対象外」として扱う（設計差分管理の「Rails現行との差」）
 
@@ -172,10 +172,10 @@ classDiagram
       <<DomainService相当（Active Record採用のためstruct非依存の関数として実装）>>
     }
     class Teacher {
-      <<外部参照 User Context>>
+      <<外部参照 `user` Context>>
     }
     class InvitationEmailResult {
-      <<外部参照 User Context（RequestInvitationEmail・即時の結果）>>
+      <<外部参照 `user` Context（RequestInvitationEmail・即時の結果）>>
       送信成功
       送信失敗
       送信対象外
@@ -206,7 +206,7 @@ classDiagram
 - 管理対象: TeacherNotification
 - 責務:
   - 送信結果の一括作成
-  - 同校の招待未完了教員一覧の取得（User Context参照を含む）
+  - 同校の招待未完了教員一覧の取得（`user` Context参照を含む）
   - 送信結果履歴の取得（送信者が同校、日付絞り込み任意）
 - 保持する検索機能:
   - high_school_idによる絞り込み（招待未完了教員一覧・履歴の双方）
@@ -217,7 +217,7 @@ classDiagram
   - 送信対象の絞り込み判定そのもの（InvitationEligibilityFilterが担う）
   - 教員アカウント自体の作成・更新
   - 招待メールの組み立て・パスワード設定用トークンの発行・メール送信（`user` Contextの`RequestInvitationEmail`が担う）
-- 判断根拠: 送信結果の永続化・検索に責務を限定し、絞り込みロジックはInvitationEligibilityFilter、教員アカウントの真正な管理はUser Contextに委ねるため
+- 判断根拠: 送信結果の永続化・検索に責務を限定し、絞り込みロジックはInvitationEligibilityFilter、教員アカウントの真正な管理は`user` Contextに委ねるため
 
 ---
 
@@ -269,8 +269,8 @@ sequenceDiagram
     participant H as Handler
     participant S as TeacherNotificationStore
     participant F as InvitationEligibilityFilter
-    participant U as User Context（参照）
-    participant R as User Context（RequestInvitationEmail・即時）
+    participant U as `user` Context（参照）
+    participant R as `user` Context（RequestInvitationEmail・即時）
 
     H->>S: 操作者の他職員操作権限を確認
     alt 権限なし
@@ -477,7 +477,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 - 対象テーブル: `teacher_notifications`
 - 操作種別: 作成（対象教員ごとに1件。`failed`は`sent_at`をNULLで作成する）、参照（招待未完了教員一覧、送信結果履歴）
 - 主な検索条件・絞り込み条件:
-  - 招待未完了教員一覧: `high_school_id`、教員ロール、パスワード未設定（User Context参照）。無効化済み（`deleted_at`あり）は除外しない（Rails現行と同じ。8章）
+  - 招待未完了教員一覧: `high_school_id`、教員ロール、パスワード未設定（`user` Context参照）。無効化済み（`deleted_at`あり）は除外しない（Rails現行と同じ。8章）
   - 送信結果履歴: `sender_user_id`が同校、`sent_at`の日付範囲（任意）
 - 関連テーブルとの結合: `users`との結合（送信者名・送信先教員名の取得、招待未完了判定のため）
 - 招待メールの送信（トークン発行・メール送信）: 本Contextのテーブル操作ではなく、`user`の`RequestInvitationEmail`（即時）の呼び出しで行う。`jobs`は使わない

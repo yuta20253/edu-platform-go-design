@@ -141,9 +141,9 @@ internal/announcement/presentation/response/admin_announcement_response.go
 |`FindByID`|`(ctx context.Context, id uint)`|`(*HighSchool, error)`|対象高校の存在確認（②「12. UseCase設計」ListHighSchoolAnnouncementsUseCaseの「対象高校の存在確認」に対応）|
 
 - 保持しない責務: 高校データの作成・更新・削除
-- 判断根拠: ②「3. Bounded Context」の「School Context（高校情報）: 高校別お知らせ参照における対象高校の存在確認に依存する」を、本Contextが定義する参照専用Interfaceとして具体化したものである。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従う。
+- 判断根拠: ②「3. Bounded Context」の「`master-data` Context（高校情報）: 高校別お知らせ参照における対象高校の存在確認に依存する」を、本Contextが定義する参照専用Interfaceとして具体化したものである。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従う。
 
-**②からの補足**: ②「3. Bounded Context」がいう「School Context（高校情報）」の実体は、本タスクで並行して確定した共通マスタ参照機能_Go実装仕様書が所有するmaster-data Context（`high_schools`テーブルの正規の所有者。共通マスタ参照機能_Go実装仕様書「15. GORM / DBクエリ設計」参照）である。管理者高校学年参照機能（school-directory Context）は`high_schools`テーブルを参照するのみで所有はしておらず、Transaction Script採用のためRepository Interfaceも公開していない（管理者高校学年参照機能_Go実装仕様書「3. Domain層設計」）ため、参照先としては不適切である。Domain Model採用の本Contextは、master-data Contextが公開するapplication層関数（`ExistsHighSchool` / `FindHighSchoolByID`）を呼び出す実装を、自ら定義する`HighSchoolRepository` Interfaceの背後に置く（依存性逆転。アーキテクチャ規約「2. レイヤー責務と依存方向」）。これにより`high_schools`テーブルへの直接クエリは行わない。
+**②からの補足**: ②「3. Bounded Context」がいう「`master-data` Context（高校情報）」の実体は、本タスクで並行して確定した共通マスタ参照機能_Go実装仕様書が所有するmaster-data Context（`high_schools`テーブルの正規の所有者。共通マスタ参照機能_Go実装仕様書「15. GORM / DBクエリ設計」参照）である。管理者高校学年参照機能（school-directory Context）は`high_schools`テーブルを参照するのみで所有はしておらず、Transaction Script採用のためRepository Interfaceも公開していない（管理者高校学年参照機能_Go実装仕様書「3. Domain層設計」）ため、参照先としては不適切である。Domain Model採用の本Contextは、master-data Contextが公開するapplication層関数（`ExistsHighSchool` / `FindHighSchoolByID`）を呼び出す実装を、自ら定義する`HighSchoolRepository` Interfaceの背後に置く（依存性逆転。アーキテクチャ規約「2. レイヤー責務と依存方向」）。これにより`high_schools`テーブルへの直接クエリは行わない。
 
 ## Domain Service（本書では利用しない）
 
@@ -202,7 +202,7 @@ internal/announcement/presentation/response/admin_announcement_response.go
   - フィールド: `Items []HighSchoolAnnouncementListItem`, `PageInfo dto.PageInfo`
   - 区分: 出力
 
-**②からの補足**: 各DTOのフィールド構成は②「19. API仕様」のResponse定義から導出した。`PublisherName`（発信者名）の解決方法（`AnnouncementRepository`実装がJOINで取得するか、別途User Contextを参照するか）は②に明記がないため、教師お知らせ機能③文書と同様、Repository実装がJOINクエリで取得する構成とした（推測）。
+**②からの補足**: 各DTOのフィールド構成は②「19. API仕様」のResponse定義から導出した。`PublisherName`（発信者名）の解決方法（`AnnouncementRepository`実装がJOINで取得するか、別途`user` Contextを参照するか）は②に明記がないため、教師お知らせ機能③文書と同様、Repository実装がJOINクエリで取得する構成とした（推測）。
 
 ## UseCase
 
@@ -645,7 +645,7 @@ SQL文そのものは記載しない。
 |`HighSchoolRepository`を本Context（announcement）内に新規定義し、`high_schools`テーブルへ直接クエリする実装とした|school-directory Context（管理者高校学年参照機能）がTransaction Script採用でRepository Interfaceを持たない構造のため、Domain Model採用の本ContextはRepositoryのInterfaceを自ら定義し、依存性逆転の原則を維持する必要がある。管理者ダッシュボード機能③文書・管理者コース・単元参照機能③文書が採用した「参照先Contextの③実装詳細が確認できない場合、読み取り専用のクエリを本Context側で独自定義する」という暫定方針と同一の判断を踏襲した|推測。school-directory Context側の実装詳細確認後に見直しの余地あり|
 |`UpdateAdminAnnouncementUseCase`がタイトル・本文の更新を扱うため、既存のAnnouncement Entityに`UpdateContent`相当のメソッド追加が必要になる可能性がある点を明記した|教師お知らせ機能②は更新APIを状態遷移のみと定義しているのに対し、管理者お知らせ管理機能②はtitle/contentの更新も入力に含めている。この②同士の記述差を、既存Entityへの加算的なメソッド追加（教師向けの既存メソッドには影響しない）として整理した|②同士の記述差異を整合させるための判断（推測を含む）|
 |`ErrCannotDeletePublished`という新規Domain Errorを追加した|②「17. Error設計」は「配信済みのお知らせを更新・削除・再配信の試行」を1つのDomain Errorとして記載しているが、削除操作はEntityの状態遷移メソッド（Schedule/Publish）を経由しないため、削除固有のエラーとして区別する必要があった|推測|
-|更新・削除・配信の操作権限確認を、Announcement Entityへ新メソッドを追加せず、既存の`IsOwnedBy` / `PublisherID`と、`AnnouncementRepository`への`IsPublisherDeactivated`メソッド追加、および新規Application Error `ErrAnnouncementOperationForbidden`（403）で実現した|②「16. Authorization設計」は操作権限確認をUseCaseに配置すると定めているが、具体的なメソッド名・エラー名・発信者無効化状態の取得方法は②に明記がない。発信者アカウントの無効化状態はUser Context由来の情報でありAnnouncement Aggregateが保持しないため、Entity（教師お知らせ機能③が定義する「正」）の不変条件・メソッドは変更せず、Repository経由の参照で補った|推測|
+|更新・削除・配信の操作権限確認を、Announcement Entityへ新メソッドを追加せず、既存の`IsOwnedBy` / `PublisherID`と、`AnnouncementRepository`への`IsPublisherDeactivated`メソッド追加、および新規Application Error `ErrAnnouncementOperationForbidden`（403）で実現した|②「16. Authorization設計」は操作権限確認をUseCaseに配置すると定めているが、具体的なメソッド名・エラー名・発信者無効化状態の取得方法は②に明記がない。発信者アカウントの無効化状態は`user` Context由来の情報でありAnnouncement Aggregateが保持しないため、Entity（教師お知らせ機能③が定義する「正」）の不変条件・メソッドは変更せず、Repository経由の参照で補った|推測|
 |予約配信の自動切替（定期ジョブ・ワーカー・予約日時到達のDomain Event）を実装対象に含めない|②「18. Domain Event」「設計差分管理」の設計判断（管理者お知らせ管理では、予約状態のお知らせの配信を、発信者による手動のpublishのみとする。Rails現行の自動配信ジョブは再現しない）|②の設計判断に従う（推測ではない）|
 |`ErrHighSchoolNotFound`を`application/usecase/errors.go`に新規定義した|②「17. Error設計」がApplication Errorとして「高校別お知らせ参照における対象高校が存在しない」を明記している一方、具体的な変数名・配置場所までは指定していないため|推測|
 |Response DTOの発信者名（`Publisher`/`PublisherName`）の解決方法をRepository実装のJOINクエリとした|②に解決方法の明記がなく、教師お知らせ機能③文書が同様の情報（発信者情報）についてRepository実装のJOINを前提とした構成を採っていることに倣った|推測|

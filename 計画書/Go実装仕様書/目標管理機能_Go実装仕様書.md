@@ -18,7 +18,7 @@
 
 ②「9. Repository設計」〜「18. テスト戦略」で示された、goal-management Bounded ContextにおけるGoalの一覧・詳細・作成・更新のActive Record実装（`model.go`相当のstruct定義、`store.go`相当の永続化処理、Presentation層のHandler/Request/Response/Routing）。①Rails実装の詳細は未提供のため参照できず、本書では言及箇所を「①未提供のため参照不可」として明示する。
 
-②「3. Bounded Context」他Contextとの依存関係には、Task Contextに加えてdraft-task Context（下書きタスク）への参照依存が記載されている（目標に下書きタスクが紐づき得るため）。ただし②「10. UseCase設計」のShowGoal出力は「目標詳細情報とタスク一覧」のみであり、下書きタスクを含む具体的な入出力仕様までは定義されていない。本書もこの範囲に従い、DraftTaskの参照実装（Store・Response DTO）は本書の実装対象に含めない（詳細は「3. Domain層設計」「5. Infrastructure層設計」「14. ②からの補足事項」参照）。
+②「3. Bounded Context」他Contextとの依存関係には、`task-management` Contextに加えてdraft-task Context（下書きタスク）への参照依存が記載されている（目標に下書きタスクが紐づき得るため）。ただし②「10. UseCase設計」のShowGoal出力は「目標詳細情報とタスク一覧」のみであり、下書きタスクを含む具体的な入出力仕様までは定義されていない。本書もこの範囲に従い、DraftTaskの参照実装（Store・Response DTO）は本書の実装対象に含めない（詳細は「3. Domain層設計」「5. Infrastructure層設計」「14. ②からの補足事項」参照）。
 
 ---
 
@@ -203,7 +203,7 @@ internal/goal_management/presentation/routes.go
 
 ### draft-task Context（下書きタスク）参照について
 
-②「3. Bounded Context」他Contextとの依存関係には、Task Contextに加えてdraft-task Contextへの参照依存（目標に下書きタスクが紐づき得るため）が記載されている。しかし②「9. Repository設計」「10. UseCase設計」のいずれにも、DraftTaskを取得するStore・呼び出し手順の具体的な記載はない（TaskStoreに相当する`DraftTaskStore`は②に定義されていない）。そのため本書では、DraftTaskの参照実装（Store・Response DTOへの下書きタスク一覧の追加等）を本機能の実装対象に含めない。将来②側でShowGoalの出力に下書きタスク一覧が明記された場合、TaskStoreと同様の読み取り専用Store（例: `DraftTaskStore`）をdraft-task Context側の公開参照手段に基づき追加することを想定する（**②からの補足**。詳細は「14. ②からの補足事項」参照）。
+②「3. Bounded Context」他Contextとの依存関係には、`task-management` Contextに加えてdraft-task Contextへの参照依存（目標に下書きタスクが紐づき得るため）が記載されている。しかし②「9. Repository設計」「10. UseCase設計」のいずれにも、DraftTaskを取得するStore・呼び出し手順の具体的な記載はない（TaskStoreに相当する`DraftTaskStore`は②に定義されていない）。そのため本書では、DraftTaskの参照実装（Store・Response DTOへの下書きタスク一覧の追加等）を本機能の実装対象に含めない。将来②側でShowGoalの出力に下書きタスク一覧が明記された場合、TaskStoreと同様の読み取り専用Store（例: `DraftTaskStore`）をdraft-task Context側の公開参照手段に基づき追加することを想定する（**②からの補足**。詳細は「14. ②からの補足事項」参照）。
 
 ## 外部連携実装
 

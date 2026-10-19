@@ -408,7 +408,7 @@ internal/question_import/presentation/routes.go
 ### CourseRepository / UnitRepository実装
 
 - 実装struct名: `CourseRepository` / `UnitRepository`（package `gormrepo`）
-- 対応するGORMモデル: School Context側で定義済みの既存 `Course` / `Unit` モデルを参照専用で利用する（本Contextでは新規に定義しない）
+- 対応するGORMモデル: `master-data` Context側で定義済みの既存 `Course` / `Unit` モデルを参照専用で利用する（本Contextでは新規に定義しない）
 - 各メソッドで発行するクエリ内容:
   - `CourseRepository.Exists`: course_idの一致条件による存在確認（COUNT または LIMIT 1 相当）
   - `UnitRepository.FindActiveUnitInCourse`: course_id と unit_id の一致条件、かつ active フラグ条件によるSELECT（1件）
@@ -631,7 +631,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 - `gormmodel.ImportHistoryModel` ⇔ `import_histories` テーブル（Gorm規約の複数形命名規則どおり）
 - `gormmodel.ImportErrorModel` ⇔ `import_errors` テーブル
 - `Job`（アーキテクチャ規約13章の共通GORMモデル）⇔ `jobs` テーブル（本Context固有の定義ではなく共通基盤の一部として利用する）
-- Course / Unit は既存のSchool Context側モデルを参照専用で利用する（新規モデル定義は行わない）
+- Course / Unit は既存の`master-data` Context側モデルを参照専用で利用する（新規モデル定義は行わない）
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -751,7 +751,7 @@ SQL文そのものは記載しない。
 |401/403/404/500のHTTP Statusを②に明記のない箇所で補った（202/422/200(dry_run)は②に明記あり）|②「19. API仕様」には202・422・200のみ明記されており、他のエラーケースは一般的なREST API設計から補う必要があった|推測|
 |QuestionCSVRowの具体的なフィールド構成を定義しなかった|①（Rails実装詳細）未提供のため参照不可であり、かつQuestion Context自体の②文書が存在しないため、詳細フィールドを創作しない方針とした|判断（未提供情報を補わない方針）|
 |UnitRepository.FindActiveUnitInCourseの戻り値型（UnitRef）の具体的な内容を確定させなかった|②に戻り値の型の詳細記載がなく、実装時に必要最小限の情報を返す設計とした|推測|
-|Course/UnitのGORMモデルは新規定義せず、School Context側の既存モデルを参照する前提とした|②「11. Repository設計」で「Course, Unit（参照用）」と明記されており、Course/Unitのモデル自体はSchool領域（curriculum Context）の責務であるため|②の記載に基づく判断（推測ではない）|
+|Course/UnitのGORMモデルは新規定義せず、`master-data` Context側の既存モデルを参照する前提とした|②「11. Repository設計」で「Course, Unit（参照用）」と明記されており、Course/Unitのモデル自体はSchool領域（curriculum Context）の責務であるため|②の記載に基づく判断（推測ではない）|
 |`InvalidRowResponse`に`Severity`・`Data`フィールドを追加し、UseCase出力（`InvalidRowResult`）との間に構成差を許容した|②「19. API仕様」のResponse定義には`severity`・`data`が含まれるが、②「12. UseCase設計」のUseCase出力定義には含まれておらず、②内の記述粒度差をそのまま実装に反映した|推測|
 |ImportRowResultの`questionID`フィールドをポインタ型（`*string`）とした|事前検証時はQuestionが作成されないため`questionID`を持たない成功結果を表現する必要があり、②「7. Value Object設計」の記載を型として具体化する必要があったため|推測|
 

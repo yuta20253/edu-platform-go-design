@@ -50,13 +50,13 @@
 
 ## 他Contextとの依存関係
 
-- School Context（教員のクラス担当情報）: 面談申請時に、指定した教員が生徒の所属クラスの担当教員であることを確認するために依存する
-- User Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 生徒・教員の識別、面談の一覧・詳細に含める生徒名・教員名、メッセージ送信者名の表示に依存する（Rails現行の`InterviewRequestSerializer`は`student_name` / `teacher_name`、`InterviewRequestMessageSerializer`は`sender_name`を返す。氏名は面談側に複製せず、表示時にUser Contextから解決する）
-- Notification Context: 面談の新規申請・取り消し・新着メッセージの発生を契機に、相手方（教員）へ通知を行うために依存する
+- `master-data` Context（教員のクラス担当情報）: 面談申請時に、指定した教員が生徒の所属クラスの担当教員であることを確認するために依存する
+- `user` Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 生徒・教員の識別、面談の一覧・詳細に含める生徒名・教員名、メッセージ送信者名の表示に依存する（Rails現行の`InterviewRequestSerializer`は`student_name` / `teacher_name`、`InterviewRequestMessageSerializer`は`sender_name`を返す。氏名は面談側に複製せず、表示時に`user` Contextから解決する）
+- `teacher-notification` Context: 面談の新規申請・取り消し・新着メッセージの発生を契機に、相手方（教員）へ通知を行うために依存する
 
 ## 依存する理由
 
-面談申請先の教員が正当な担当教員であることの確認は、クラス担当情報を管理するSchool Context側のデータに依存する。また、申請・取消・メッセージ投稿のいずれも相手方への非同期通知を伴うため、Notification Contextへの通知依頼が発生する。これらはいずれも面談そのものの状態遷移ルールとは独立した「参照・通知のための依存」であり、面談の状態管理自体を他Contextに委ねるものではない。
+面談申請先の教員が正当な担当教員であることの確認は、クラス担当情報を管理する`master-data` Context側のデータに依存する。また、申請・取消・メッセージ投稿のいずれも相手方への非同期通知を伴うため、`teacher-notification` Contextへの通知依頼が発生する。これらはいずれも面談そのものの状態遷移ルールとは独立した「参照・通知のための依存」であり、面談の状態管理自体を他Contextに委ねるものではない。
 
 ---
 
@@ -254,7 +254,7 @@ classDiagram
     DuplicateActiveInterviewPolicy ..> InterviewRequest : 進行中面談の有無を判定
 ```
 
-Teacherは他Context（School Context／User Context）が所有するデータであり、本機能からは参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
+Teacherは他Context（`master-data` Context／`user` Context）が所有するデータであり、本機能からは参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
 
 ---
 
@@ -326,7 +326,7 @@ stateDiagram-v2
 
 ## TeacherAssignmentRepository（参照用）
 
-- 管理対象: 教員のクラス担当情報（School Context所有データ）
+- 管理対象: 教員のクラス担当情報（`master-data` Context所有データ）
 - 責務: 指定教員が指定生徒の所属クラスを担当しているかどうかの確認
 - 保持しない責務: 教員情報自体の作成・更新
 - 判断根拠: 面談申請の宛先妥当性確認に必要な最小限の参照に限定するため
@@ -361,7 +361,7 @@ stateDiagram-v2
 - トランザクション範囲: 担当教員確認・重複申請確認・InterviewRequest作成を1トランザクションで扱う
 - 呼び出すRepository: TeacherAssignmentRepository、InterviewRequestRepository
 - 呼び出すDomain Service: DuplicateActiveInterviewPolicy
-- 判断根拠: 担当教員であることの確認と重複申請の防止を、作成処理と一貫して行う必要があるため。作成完了後、相手方教員への通知はNotification Context（規約13章のJobPublisher）へ依頼する
+- 判断根拠: 担当教員であることの確認と重複申請の防止を、作成処理と一貫して行う必要があるため。作成完了後、相手方教員への通知は`teacher-notification` Context（規約13章のJobPublisher）へ依頼する
 
 ## CancelInterviewRequest
 
@@ -371,7 +371,7 @@ stateDiagram-v2
 - トランザクション範囲: 状態確認・版数確認・状態更新を1トランザクションで扱う
 - 呼び出すRepository: InterviewRequestRepository
 - 呼び出すDomain Service: InterviewRequestStateTransitionPolicy
-- 判断根拠: 進行中であることの確認・楽観的排他制御・状態更新を一貫して行う必要があるため。取り消し完了後、相手方教員への通知はNotification Contextへ依頼する
+- 判断根拠: 進行中であることの確認・楽観的排他制御・状態更新を一貫して行う必要があるため。取り消し完了後、相手方教員への通知は`teacher-notification` Contextへ依頼する
 
 ## ListInterviewRequestMessages
 
@@ -390,7 +390,7 @@ stateDiagram-v2
 - トランザクション範囲: 当事者確認・面談終了状態でないことの確認・メッセージ作成・（`requested`状態であれば）`scheduling`への状態遷移を1トランザクションで扱う。状態遷移は、メッセージ作成後に最新の面談を取得し直して判定し、他の操作との競合（楽観的排他制御の不一致）により更新できなかった場合は、他の操作で既に状態が進んだものとみなして遷移を行わない。この場合もエラーにせず、作成したメッセージは維持する（競合を理由にメッセージ作成をロールバックしない。Rails現行の`Common::PostInterviewRequestMessageService`と同じ）
 - 呼び出すRepository: InterviewRequestRepository、InterviewRequestMessageRepository
 - 呼び出すDomain Service: InterviewRequestStateTransitionPolicy
-- 判断根拠: メッセージ投稿が面談の状態遷移を引き起こすという業務ルールを、1つの処理単位として一貫して扱う必要があるため。ただし、双方が同時にメッセージを送った場合などに、状態遷移の競合が保存済みのメッセージまで巻き戻すことを避けるため、競合は遷移のスキップとして扱う（保存されたメッセージの巻き戻しより、遷移が他の操作で済んでいることの方が業務上妥当）。投稿完了後、相手方教員への通知はNotification Contextへ依頼する
+- 判断根拠: メッセージ投稿が面談の状態遷移を引き起こすという業務ルールを、1つの処理単位として一貫して扱う必要があるため。ただし、双方が同時にメッセージを送った場合などに、状態遷移の競合が保存済みのメッセージまで巻き戻すことを避けるため、競合は遷移のスキップとして扱う（保存されたメッセージの巻き戻しより、遷移が他の操作で済んでいることの方が業務上妥当）。投稿完了後、相手方教員への通知は`teacher-notification` Contextへ依頼する
 
 ---
 
@@ -405,7 +405,7 @@ sequenceDiagram
     participant IRR as InterviewRequestRepository
     participant TP as InterviewRequestStateTransitionPolicy
     participant IRMR as InterviewRequestMessageRepository
-    participant NC as Notification Context
+    participant NC as `teacher-notification` Context
 
     H->>UC: Execute(currentUser, interviewRequestID, body)
     UC->>IRR: 当事者である面談申請を取得
@@ -453,7 +453,7 @@ flowchart TD
 
 - CreateInterviewRequest / CancelInterviewRequest / CreateInterviewRequestMessageは、InterviewRequest（および必要な場合はInterviewRequestMessage）の作成・更新が完了した時点でコミットする
 - ListInterviewRequests / ShowInterviewRequest / ListInterviewRequestMessagesは読み取りのみのため、トランザクションを使用しない
-- 相手方への通知（Notification Contextへの依頼）は、規約「13. 非同期ジョブ実行パターン」に従い、業務データの書き込みと同一トランザクション内でジョブとして登録する（Transactional Outboxパターン）
+- 相手方への通知（`teacher-notification` Contextへの依頼）は、規約「13. 非同期ジョブ実行パターン」に従い、業務データの書き込みと同一トランザクション内でジョブとして登録する（Transactional Outboxパターン）
 
 ## 理由
 
@@ -636,7 +636,7 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 |-|-|-|-|-|-|
 |InterviewRequestRepository|interview_requests|参照・作成・更新|student_id、status、id|なし|作成日時降順、ページネーションあり|
 |InterviewRequestMessageRepository|interview_request_messages|参照・作成|interview_request_id|なし|投稿日時昇順、ページネーションあり|
-|TeacherAssignmentRepository|（School Context所有テーブル）|参照|teacher_id、生徒の所属クラスID|クラス担当情報との結合が必要|不要|
+|TeacherAssignmentRepository|（`master-data` Context所有テーブル）|参照|teacher_id、生徒の所属クラスID|クラス担当情報との結合が必要|不要|
 
 具体的なSQL・GORMのクエリコードは③Go実装仕様書（`規約/Gorm規約.md`）で扱う。
 

@@ -125,7 +125,7 @@ internal/school_class/presentation/response/school_class_response.go
 internal/school_class/presentation/routes.go
 ```
 
-**②からの補足**: `ClassOccupancyRepository`（在籍生徒・所属教員の存在確認）・`TeacherPermissionRepository`（他職員操作権限の確認）は、②「11. Repository設計」の「外部参照Repository（在籍する生徒・所属する教員）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「5. Context間連携ルール」に従い具体的なRepository Interfaceとして具体化したものである。`TeacherPermissionRepository`は、Teacher Permission Contextの②③文書が本タスクでは提供されていないため、実装（Infrastructure層）の正確な参照先は「推測」である。`ClassOccupancyRepository`のうち、在籍生徒の確認は`user` Contextが所有する`users`が対象であり、`user`②が`CountUsers`を公開しているが、その③が未作成のため、対象テーブルへの直接クエリで暫定対応する。所属教員の確認は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは、現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
+**②からの補足**: `ClassOccupancyRepository`（在籍生徒・所属教員の存在確認）・`TeacherPermissionRepository`（他職員操作権限の確認）は、②「11. Repository設計」の「外部参照Repository（在籍する生徒・所属する教員）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「5. Context間連携ルール」に従い具体的なRepository Interfaceとして具体化したものである。`TeacherPermissionRepository`は、`teacher-permission` Contextの②③文書が本タスクでは提供されていないため、実装（Infrastructure層）の正確な参照先は「推測」である。`ClassOccupancyRepository`のうち、在籍生徒の確認は`user` Contextが所有する`users`が対象であり、`user`②が`CountUsers`を公開しているが、その③が未作成のため、対象テーブルへの直接クエリで暫定対応する。所属教員の確認は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは、現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
 
 ---
 
@@ -145,7 +145,7 @@ internal/school_class/presentation/routes.go
 |`Year`|`int`|学年度・学年区分を表す値（②9章クラス図の`year`）|
 
 - 公開メソッド一覧: なし（参照専用。②「6. Entity設計」：本機能内では作成・更新・削除されない）
-- 不変条件: なし（他Context（School/Grade Context）が真正なデータを管理するため、本Contextでは取得結果をそのまま保持する）
+- 不変条件: なし（他Context（`master-data` Context）が真正なデータを管理するため、本Contextでは取得結果をそのまま保持する）
 
 ### SchoolClass（`domain/entity/school_class.go`）
 
@@ -265,7 +265,7 @@ internal/school_class/presentation/routes.go
 |`HasEnrolledStudents`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに在籍する生徒が1人以上いるかを確認する。無効化済み（`deleted_at`あり）のユーザーも含めて確認する（②「3. Bounded Context」。`user`②の`CountUsers`をクラス指定・無効化済みを含む指定で呼び出す場合に相当する）|
 |`HasAssignedTeachers`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに所属する教員が1人以上いるかを、`teacher_school_classes`に対象クラスの行があるかで確認する。担任・副担任（`role`）の別は問わず、教員の`users`が無効化済みであっても、行があれば所属するとみなす|
 
-### TeacherPermissionRepository（`domain/repository/teacher_permission_repository.go`、Teacher Permission Context参照専用）
+### TeacherPermissionRepository（`domain/repository/teacher_permission_repository.go`、`teacher-permission` Context参照専用）
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
@@ -682,7 +682,7 @@ flowchart TD
 
 |実装対象|呼び出し元|実装方針|
 |-|-|-|
-|`SchoolClassRequestEventPublisher`実装（`infrastructure/queue/announcement_event_publisher.go`）|`CreateSchoolClassRequestUseCase.PublishSubmitted`, `ProcessSchoolClassRequestUseCase.PublishResolved`|アーキテクチャ規約「13. 非同期ジョブ実行パターン」の「ベストエフォートで良い処理」として実装する（②18章「採用理由」）。`jobs`テーブルを経由せず、UseCaseのコミット確定後に`go func() { ctx := context.Background(); ... }()`でgoroutineを起動し、Announcement Contextが公開する通知作成手段（お知らせ機能と共通の仕組み。正確なpackage pathは②に明記がなく「推測」）を呼び出す|
+|`SchoolClassRequestEventPublisher`実装（`infrastructure/queue/announcement_event_publisher.go`）|`CreateSchoolClassRequestUseCase.PublishSubmitted`, `ProcessSchoolClassRequestUseCase.PublishResolved`|アーキテクチャ規約「13. 非同期ジョブ実行パターン」の「ベストエフォートで良い処理」として実装する（②18章「採用理由」）。`jobs`テーブルを経由せず、UseCaseのコミット確定後に`go func() { ctx := context.Background(); ... }()`でgoroutineを起動し、`announcement` Contextが公開する通知作成手段（お知らせ機能と共通の仕組み。正確なpackage pathは②に明記がなく「推測」）を呼び出す|
 
 Mail・Cacheは対象外。
 
@@ -899,7 +899,7 @@ Domain Model採用のため、Entity／Value Object生成時・UseCase内で以�
 
 ## Infrastructure Errorのハンドリング方針
 
-Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf`でラップしてApplication層へ伝播させ、Handler層で未分類のエラーとして500に変換する。Announcement Contextへの通知失敗（ベストエフォート）はエラーとして伝播させず、Infrastructure層でログ出力のみ行う（②18章「ベストエフォートで良い処理」。アーキテクチャ規約13章）。
+Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf`でラップしてApplication層へ伝播させ、Handler層で未分類のエラーとして500に変換する。`announcement` Contextへの通知失敗（ベストエフォート）はエラーとして伝播させず、Infrastructure層でログ出力のみ行う（②18章「ベストエフォートで良い処理」。アーキテクチャ規約13章）。
 
 ---
 
@@ -1020,7 +1020,7 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 |申請〜承認の一連フロー|申請作成 → 承認 → クラスデータへの反映までがエンドポイント経由で正しく完了すること（新設・改名・削除の3パターン）|
 |申請〜却下・取消の一連フロー|却下・取消がエンドポイント経由で正しく完了し、クラスデータへの反映が行われないこと|
 |楽観ロック競合|同一申請に対する同時承認操作の一方が409で拒否されること|
-|通知連携|申請提出・承認・却下時にAnnouncement Contextへの通知依頼が行われること（②18章の重点検証項目）|
+|通知連携|申請提出・承認・却下時に`announcement` Contextへの通知依頼が行われること（②18章の重点検証項目）|
 
 ---
 
@@ -1031,9 +1031,9 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
 |ディレクトリ名を`internal/school_class`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
-|`ClassOccupancyRepository`・`TeacherPermissionRepository`を新設した。`ClassOccupancyRepository`の在籍生徒の確認は`user` Contextが所有する`users`（③が未作成のため暫定で直接クエリ）、所属教員の確認は`teacher_school_classes`（所有するContextが現行の②群に未定義の参照専用の依存）を対象とし、`TeacherPermissionRepository`はTeacher Permission Contextが公開する参照手段として扱った|②「11. Repository設計」「16. Authorization設計」が依存関係を明記しているが、具体的なInterface名・配置場所までは規定していない。`teacher_school_classes`を所有するContextは、現行の②群のいずれにも定義されていない|推測|
+|`ClassOccupancyRepository`・`TeacherPermissionRepository`を新設した。`ClassOccupancyRepository`の在籍生徒の確認は`user` Contextが所有する`users`（③が未作成のため暫定で直接クエリ）、所属教員の確認は`teacher_school_classes`（所有するContextが現行の②群に未定義の参照専用の依存）を対象とし、`TeacherPermissionRepository`は`teacher-permission` Contextが公開する参照手段として扱った|②「11. Repository設計」「16. Authorization設計」が依存関係を明記しているが、具体的なInterface名・配置場所までは規定していない。`teacher_school_classes`を所有するContextは、現行の②群のいずれにも定義されていない|推測|
 |クラスの削除の承認時に、対象クラスの`teacher_school_classes`の行を、クラスの削除より前に同一トランザクションで削除する|Rails現行の`SchoolClass`が`has_many :teacher_school_classes, dependent: :destroy`でクラスの削除時に行を連動削除しており、DBの外部キー制約（`teacher_school_classes.school_class_id`→`school_classes`）もあるため。②「3. Bounded Context」に記載した|推測ではない（Rails現行の挙動に基づく）|
-|`SchoolClassRequestEventPublisher`のAnnouncement Context呼び出し先の正確なpackage path|②「3. Bounded Context」「18. Domain Event」はAnnouncement Contextへの依存を明記するが、当該Contextの②/③文書（お知らせ機能）との具体的な接続方法は本タスクの対象外文書に依存する|推測|
+|`SchoolClassRequestEventPublisher`の`announcement` Context呼び出し先の正確なpackage path|②「3. Bounded Context」「18. Domain Event」は`announcement` Contextへの依存を明記するが、当該Contextの②/③文書（お知らせ機能）との具体的な接続方法は本タスクの対象外文書に依存する|推測|
 |`SchoolClass.Delete`（Repository）を物理削除とするか論理削除とするかを確定していない|②20章はスキーマ変更なしとするのみで、削除方式（`deleted_at`利用の有無）を明記していない。Gorm規約「0. 採用方針」は原則論理削除だが、クラス自体に削除申請というワークフローが既にあるため、物理削除の可能性も残る|推測（実装時に①または業務要件を確認する必要がある）|
 |`CancelSchoolClassRequest`で申請者本人でない場合のHTTP Statusを403とした|②「17. Error設計」のエラー仕様表に本ケースの明示的なStatus Code記載がない（承認・却下の自己承認禁止と同様に扱った）|推測|
 |`teacher_permissions`テーブルを本Context用に独立してモデル定義する構成とした（教師教員管理機能側と物理テーブルは共有するが、GORMモデル定義は別途持つ）|アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部実装に直接依存しない」方針、および認証機能等の先例に倣った|推測|
