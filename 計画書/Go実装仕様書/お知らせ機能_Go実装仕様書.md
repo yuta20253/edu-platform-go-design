@@ -30,7 +30,7 @@ Transaction Script（②「4. 設計パターン」）。
 
 # 2. ディレクトリ構成
 
-- 対象Bounded Context名: `announcement`（②「3. Bounded Context」、ディレクトリ名は規約「5. Bounded Context構成」の命名規則に従い`internal/announcement`）
+- 対象Bounded Context名: `announcement`（②「3. Bounded Context」、ディレクトリ名は規約「4. Bounded Context構成」の命名規則に従い`internal/announcement`）
 - ②で採用した設計パターン: Transaction Script（②「4. 設計パターン」）
 - 採用パターンに対応する構造: 規約「アーキテクチャ規約.md」4章「Transaction Script」の構造をそのまま適用する。domain層・usecase層・Repository Interfaceは作成しない
 
@@ -130,7 +130,7 @@ internal/announcement/presentation/routes.go
   4. 取得したレコードを`AnnouncementDetailResult`へ変換して返す
 - 呼び出すinfrastructure関数: `FindPublishedAnnouncementByID`
 - トランザクション境界: なし（②「11. Transaction設計」）
-- 発生しうるApplication Error: `ErrAnnouncementNotFound`（②「14. Error設計」Domain Error「対象範囲外のお知らせへのアクセス」およびApplication Error「指定お知らせが存在しない場合」に対応。規約「8. 横断的関心事の置き場所」のとおり、Transaction Script採用時はDomain Error層がないため、関数側で発生させるエラーをApplication Error相当として扱う）
+- 発生しうるApplication Error: `ErrAnnouncementNotFound`（②「14. Error設計」Domain Error「対象範囲外のお知らせへのアクセス」およびApplication Error「指定お知らせが存在しない場合」に対応。規約「7. 横断的関心事の置き場所」のとおり、Transaction Script採用時はDomain Error層がないため、関数側で発生させるエラーをApplication Error相当として扱う）
 
 ---
 

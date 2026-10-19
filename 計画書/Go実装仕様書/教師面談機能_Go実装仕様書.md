@@ -397,7 +397,7 @@ flowchart TD
 
 - 実装対象: `internal/interview/infrastructure/notification/interview_event_notifier.go`（本書固有の追加ディレクトリ。教師面談機能側のみが利用するため面談機能_Go実装仕様書には含まれない）
 - 呼び出し元: `CreateInterviewRequestUseCase` / `UpdateInterviewRequestStatusUseCase` / `CancelInterviewRequestUseCase` / `PostInterviewRequestMessageUseCase`（いずれも教員視点。「6. Application層設計」参照）
-- 実装方針: 規約「13. 非同期ジョブ実行パターン（JobQueue）」の「ベストエフォートで良い処理」に分類し、`jobs`テーブルを経由せずUseCaseから直接goroutineを起動する（規約13章の例：`go func() { ctx := context.Background(); ... }()`）。`InterviewEventNotifier`の実装は、Announcement Context（お知らせ機能と共通の仕組み。②「3. Bounded Context」「9. 非同期処理」参照）が公開するお知らせ実体作成処理を呼び出すアダプタとする。アーキテクチャ規約「6. Context間連携ルール」に従い、Announcement Contextの内部Entity・Infrastructure実装には直接依存しない
+- 実装方針: 規約「13. 非同期ジョブ実行パターン（JobQueue）」の「ベストエフォートで良い処理」に分類し、`jobs`テーブルを経由せずUseCaseから直接goroutineを起動する（規約13章の例：`go func() { ctx := context.Background(); ... }()`）。`InterviewEventNotifier`の実装は、Announcement Context（お知らせ機能と共通の仕組み。②「3. Bounded Context」「9. 非同期処理」参照）が公開するお知らせ実体作成処理を呼び出すアダプタとする。アーキテクチャ規約「5. Context間連携ルール」に従い、Announcement Contextの内部Entity・Infrastructure実装には直接依存しない
 - 失敗時の扱い: 通知の送達に失敗しても面談自体の状態（申請・確定・キャンセル・メッセージ）は正しく確定しているため、確実な再送（`jobs`テーブルによるリトライ）までは行わない。失敗はログ出力のみとする（②「18. Domain Event」採用理由の推測どおり）
 
 **②からの補足**: 呼び出し先となるAnnouncement Contextの具体的なRepository・関数名は、Announcement Context自身の②/③Go移行・設計仕様書に依存するため、本書では確定できない。①も未提供のため参照不可（推測を含む）。

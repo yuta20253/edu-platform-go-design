@@ -35,7 +35,7 @@
 
 ## Context名
 
-- announcement（お知らせ管理コンテキスト）
+- announcement
 
 ## Contextの責務
 

@@ -18,7 +18,7 @@
 
 Active Record・Domain Model・Event Sourcingは、②「4. 設計パターン 採用しなかったパターン」「20. 採用しなかった設計」のとおり不採用である。
 
-なお②は、Transaction Script採用を前提としつつも、`AnalyticsType`・`CompletionRate`・`UnderstandingScore`という3つのValue Objectと、`RankCalculationService`という1つのDomain Serviceを明示的な設計判断として採用している（②「7. Value Object設計」「8. Domain Service」）。本書はこれらの概念を変更せず維持するが、規約`アーキテクチャ規約.md`「11. ①②③文書との関係」の「②文書内のRepository/UseCase等の記載は概念的な設計意図であり、実装構造への変換（層をどこまで分離するか）は③で行う」という方針に基づき、Transaction Script構造（domain/ディレクトリを作らない）の範囲内でこれらを実装する位置づけを本書で確定する。詳細は「3. Domain層設計」「4. Application層設計」に記載する。
+なお②は、Transaction Script採用を前提としつつも、`AnalyticsType`・`CompletionRate`・`UnderstandingScore`という3つのValue Objectと、`RankCalculationService`という1つのDomain Serviceを明示的な設計判断として採用している（②「7. Value Object設計」「8. Domain Service」）。本書はこれらの概念を変更せず維持するが、規約`アーキテクチャ規約.md`「10. ①②③文書との関係」の「②文書内のRepository/UseCase等の記載は概念的な設計意図であり、実装構造への変換（層をどこまで分離するか）は③で行う」という方針に基づき、Transaction Script構造（domain/ディレクトリを作らない）の範囲内でこれらを実装する位置づけを本書で確定する。詳細は「3. Domain層設計」「4. Application層設計」に記載する。
 
 ## 本書が対象とする実装範囲
 
@@ -37,7 +37,7 @@ Active Record・Domain Model・Event Sourcingは、②「4. 設計パターン �
 - Context名（②）: `learning-analytics`
 - ディレクトリ名: `internal/analytics`
 
-  > **②からの補足**: ②にはディレクトリ名の明記がない。アーキテクチャ規約「5. Bounded Context構成 命名規則」の「Context名とディレクトリ名が一致しない場合は②文書内で対応関係を明記する」「英単語1語または短いスネークケースにする」に従い、`learning-analytics`を1語に短縮した（認証機能の②③文書における`authentication`→`internal/auth`の前例に倣う判断。推測）。
+  > **②からの補足**: ②にはディレクトリ名の明記がない。アーキテクチャ規約「4. Bounded Context構成」の命名規則の「Context名とディレクトリ名が一致しない場合は②文書内で対応関係を明記する」「英単語1語または短いスネークケースにする」に従い、`learning-analytics`を1語に短縮した（認証機能の②③文書における`authentication`→`internal/auth`の前例に倣う判断。推測）。
 
 ## ②で採用した設計パターン
 
@@ -120,7 +120,7 @@ internal/analytics/presentation/routes.go
 
 ## Domain Error
 
-対象外（Transaction Script採用のためDomain Errorに相当する層を設けない。規約「8. 横断的関心事の置き場所」の「Transaction Script/Active Record採用時はDomain Errorに相当する層がないため、関数・struct側で発生したエラーをApplication Error相当として扱う」に従う）。②「14. Error設計」のDomain Errorに相当する内容（順位算出時の範囲指定不整合等の業務ルール違反）は、`application/errors.go`のセンチネルエラーとして「11. Error実装方針」に記載する。
+対象外（Transaction Script採用のためDomain Errorに相当する層を設けない。規約「7. 横断的関心事の置き場所」の「Transaction Script/Active Record採用時はDomain Errorに相当する層がないため、関数・struct側で発生したエラーをApplication Error相当として扱う」に従う）。②「14. Error設計」のDomain Errorに相当する内容（順位算出時の範囲指定不整合等の業務ルール違反）は、`application/errors.go`のセンチネルエラーとして「11. Error実装方針」に記載する。
 
 ---
 
@@ -262,7 +262,7 @@ internal/analytics/presentation/routes.go
   - `CourseExists`/`UnitExists`: curriculum Contextが所有するコース／単元テーブルに対する存在確認（②「12. Validation設計」Domainの整合性チェックに対応）
   - `FetchCourseRankCohort`/`FetchUnitRankCohort`: 指定コース／単元に属する生徒群の比較対象スコアを、`user_id`とスコアの組として取得する（②「9. Repository設計」RankRepositoryの「対象生徒とその他生徒群の比較対象データ取得」に対応、および「保持しない責務: 他生徒の個人情報の外部公開」を踏まえ、氏名等は取得しない）
 
-  > **②からの補足**: `CourseExists`/`UnitExists`はcurriculum Context、比較対象データの取得はGrade/Assessment Contextの参照手段を呼び出す想定である。規約「6. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従うが、各Context側の公開関数の具体的なシグネチャは②未記載（かつcurriculum・Grade/Assessment Context側の③文書が本タスクでは未確認）のため、本書では呼び出し方針のみを記載し、確定的な関数シグネチャの整合は各Context側の③文書確定後に確認する必要がある（推測）。
+  > **②からの補足**: `CourseExists`/`UnitExists`はcurriculum Context、比較対象データの取得はGrade/Assessment Contextの参照手段を呼び出す想定である。規約「5. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従うが、各Context側の公開関数の具体的なシグネチャは②未記載（かつcurriculum・Grade/Assessment Context側の③文書が本タスクでは未確認）のため、本書では呼び出し方針のみを記載し、確定的な関数シグネチャの整合は各Context側の③文書確定後に確認する必要がある（推測）。
 
 ## 外部連携実装
 
@@ -415,7 +415,7 @@ internal/analytics/presentation/routes.go
 
 ## Domain Error → Application Errorへの変換方針
 
-対象外（Transaction Script採用のためDomain Errorに相当する層はない）。②「14. Error設計」のDomain Errorに相当する業務ルール違反（順位算出時の範囲指定不整合）は、`application/errors.go`にセンチネルエラーとして定義し、Application Error相当として直接扱う（規約「8. 横断的関心事の置き場所」に従う）。
+対象外（Transaction Script採用のためDomain Errorに相当する層はない）。②「14. Error設計」のDomain Errorに相当する業務ルール違反（順位算出時の範囲指定不整合）は、`application/errors.go`にセンチネルエラーとして定義し、Application Error相当として直接扱う（規約「7. 横断的関心事の置き場所」に従う）。
 
 ## Application Error → HTTPレスポンスへの変換方針
 
@@ -449,7 +449,7 @@ infrastructure層で発生したエラーは`fmt.Errorf`でラップしてapplic
 |参照先|モデル（想定）|所有Context|備考|
 |-|-|-|-|
 |タスク完了状況|既存タスクモデル|task-management|詳細フィールドは②未記載のため、task-management Context側の③文書確定後に確認する（推測）|
-|理解度スコア|既存理解度スコアモデル|Grade/Assessment Context|Grade/Assessment Contextは規約「5. Bounded Context構成」の正式なContext一覧に未掲載であり、②自身が「推測」と明記している（②「3. Bounded Context」）。本書もこの推測を維持する|
+|理解度スコア|既存理解度スコアモデル|Grade/Assessment Context|Grade/Assessment Contextは規約「4. Bounded Context構成」の正式なContext一覧に未掲載であり、②自身が「推測」と明記している（②「3. Bounded Context」）。本書もこの推測を維持する|
 |成績|既存成績モデル|Grade/Assessment Context|同上|
 |コース／単元|既存コース・単元モデル|curriculum|存在確認（`CourseExists`/`UnitExists`）に利用|
 
@@ -519,7 +519,7 @@ infrastructure層で発生したエラーは`fmt.Errorf`でラップしてapplic
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
 |ディレクトリ名を`internal/analytics`とした|②のContext名は`learning-analytics`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「5. 命名規則」に従い短縮した（認証機能の前例に倣う）|推測|
-|`AnalyticsType`・`CompletionRate`・`UnderstandingScore`・`RankCalculationService`（②のVO/Domain Service）の実装位置を、domain層ではなく`presentation/request`・`application`直下の単純な型・関数として確定した|規約「11. ①②③文書との関係」の「②文書内のRepository/UseCase等の記載は概念的な設計意図であり、実装構造への変換は③で行う」方針、および禁止事項「TS/AR採用機能へのDomain Model相当の過剰な構造追加の禁止」に基づく判断|規約に基づく判断（推測ではない）|
+|`AnalyticsType`・`CompletionRate`・`UnderstandingScore`・`RankCalculationService`（②のVO/Domain Service）の実装位置を、domain層ではなく`presentation/request`・`application`直下の単純な型・関数として確定した|規約「10. ①②③文書との関係」の「②文書内のRepository/UseCase等の記載は概念的な設計意図であり、実装構造への変換は③で行う」方針、および禁止事項「TS/AR採用機能へのDomain Model相当の過剰な構造追加の禁止」に基づく判断|規約に基づく判断（推測ではない）|
 |`AnalyticsType`を`presentation/request`層に配置した|②「12. Validation設計」がAnalyticsTypeの許容値チェックをPresentation層の責務として明記しているため|②内の記載を整合させた判断（推測ではない）|
 |`RankCalculationService`をstruct＋interfaceではなく、`application/rank_calculation.go`内の非公開共有関数として実装した|禁止事項「TS/AR採用機能へのDomain Model相当のusecase層・Repository Interface・依存性逆転の不要な追加」を避けるための判断|規約に基づく判断（推測ではない）|
 |course_rank/unit_rankの順位算出で比較する指標を、対象コース・単元に対する解答の正答率（正答数÷解答数）と確定した|①「分析機能 Rails現行仕様書」「5. API / 処理詳細」業務ルールにより、順位算出は理解度スコア・成績平均とは独立した正答率の算出処理であることが確認できたため|①の記載に基づく確定（推測ではない）|
@@ -527,6 +527,6 @@ infrastructure層で発生したエラーは`fmt.Errorf`でラップしてapplic
 |`analytics[type]`のブラケット記法クエリパラメータを、Ginの構造体タグ自動バインドではなく`c.Query("analytics[type]")`による明示的な取得で実装する方針とした|Ginの標準的なタグベースバインドがブラケット記法キーを確実に処理できるかについて②・規約いずれにも記載がない技術的判断であるため|推測|
 |Response DTOのフィールド名（`CompletionRate`, `Score`, `Average`, `Rank`, `TotalCount`等）を②「6. Entity設計」「7. Value Object設計」の概念名からそのまま決定した|②「16. API互換方針」は「既存仕様に近い構造を維持する」とのみ記載し、フィールド名までは規定していない。①未提供のため既存Railsレスポンスのフィールド名を根拠にできない|推測|
 |`GradeAverageResult`にVOを設けずplain `float64`のまま扱った|②「7. Value Object設計」がVO対象をCompletionRate/UnderstandingScoreに限定しており、成績平均をVO化する記載がないため、②に根拠のない業務ルールを追加しない方針を優先した|②の記載範囲を維持した判断（推測ではない）|
-|`FetchCourseRankCohort`/`FetchUnitRankCohort`が返すスコアの算出元（Grade/Assessment Context側の具体的なモデル・カラム）を確定しなかった|Grade/Assessment Context自体が規約「5. Bounded Context構成」の正式なContext一覧に未掲載であり、②自身が「推測」と明記している事項を引き継いでいる|①未提供のため参照不可（②の推測を維持）|
+|`FetchCourseRankCohort`/`FetchUnitRankCohort`が返すスコアの算出元（Grade/Assessment Context側の具体的なモデル・カラム）を確定しなかった|Grade/Assessment Context自体が規約「4. Bounded Context構成」の正式なContext一覧に未掲載であり、②自身が「推測」と明記している事項を引き継いでいる|①未提供のため参照不可（②の推測を維持）|
 
 上記以外の設計判断（Bounded Context・設計パターン・Aggregate・Repository・UseCase・Transaction境界・Authorization方針・Error設計の基本方針・API互換方針・DB方針・テスト戦略の基本方針）はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。

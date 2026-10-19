@@ -37,7 +37,7 @@
 
 ## Context名
 
-- school-directory（学校ディレクトリ参照コンテキスト）
+- school-directory
 
 ## Contextの責務
 

@@ -141,7 +141,7 @@ internal/announcement/presentation/response/admin_announcement_response.go
 |`FindByID`|`(ctx context.Context, id uint)`|`(*HighSchool, error)`|対象高校の存在確認（②「12. UseCase設計」ListHighSchoolAnnouncementsUseCaseの「対象高校の存在確認」に対応）|
 
 - 保持しない責務: 高校データの作成・更新・削除
-- 判断根拠: ②「3. Bounded Context」の「School Context（高校情報）: 高校別お知らせ参照における対象高校の存在確認に依存する」を、本Contextが定義する参照専用Interfaceとして具体化したものである。アーキテクチャ規約「6. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従う。
+- 判断根拠: ②「3. Bounded Context」の「School Context（高校情報）: 高校別お知らせ参照における対象高校の存在確認に依存する」を、本Contextが定義する参照専用Interfaceとして具体化したものである。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従う。
 
 **②からの補足**: ②「3. Bounded Context」がいう「School Context（高校情報）」の実体は、本タスクで並行して確定した共通マスタ参照機能_Go実装仕様書が所有するmaster-data Context（`high_schools`テーブルの正規の所有者。共通マスタ参照機能_Go実装仕様書「15. GORM / DBクエリ設計」参照）である。管理者高校学年参照機能（school-directory Context）は`high_schools`テーブルを参照するのみで所有はしておらず、Transaction Script採用のためRepository Interfaceも公開していない（管理者高校学年参照機能_Go実装仕様書「3. Domain層設計」）ため、参照先としては不適切である。Domain Model採用の本Contextは、master-data Contextが公開するapplication層関数（`ExistsHighSchool` / `FindHighSchoolByID`）を呼び出す実装を、自ら定義する`HighSchoolRepository` Interfaceの背後に置く（依存性逆転。アーキテクチャ規約「2. レイヤー責務と依存方向」）。これにより`high_schools`テーブルへの直接クエリは行わない。
 

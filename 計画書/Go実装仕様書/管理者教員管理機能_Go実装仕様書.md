@@ -67,7 +67,7 @@ internal/teacher_management/
 
 `presentation/teacher/`は教師教員管理機能_Go実装仕様書が作成する（本書では作成しない）。教師視点固有のファイルも、教師教員管理機能_Go実装仕様書が同一package（`internal/teacher_management`）へ追加する。
 
-**②からの補足**: アーキテクチャ規約「9. 命名規約」により、`internal/`配下のディレクトリ名は英単語1語または短いスネークケースとする。②のContext名`teacher-management`と`internal/`配下のディレクトリ名の対応関係は②に明記がないため、本書では`internal/teacher_management`と判断した（推測。詳細は「14. ②からの補足事項」参照）。
+**②からの補足**: アーキテクチャ規約「8. 命名規約」により、`internal/`配下のディレクトリ名は英単語1語または短いスネークケースとする。②のContext名`teacher-management`と`internal/`配下のディレクトリ名の対応関係は②に明記がないため、本書では`internal/teacher_management`と判断した（推測。詳細は「14. ②からの補足事項」参照）。
 
 ## 作成するファイル一覧
 
@@ -202,7 +202,7 @@ internal/teacher_management/presentation/admin/routes.go
 
 規約4章「Active Record」節により、domain層にRepository Interfaceを定義しない（原則「対象外」）。②「9. Repository設計」のTeacherStore・TeacherPermissionStore・TeacherGradeStoreの責務は「5. Infrastructure層設計」節のStoreとして実装する。
 
-なお、②「9. Repository設計」のHighSchoolStore・GradeStoreは、高校・学年の実在確認や所属確認という、HighSchool Context・Grade Context（②「3. Bounded Context」他Contextとの依存関係）が公開する参照手段であり、teacher-managementがこれらのデータを所有・実装するものではない（`規約/アーキテクチャ規約.md`「6. Context間連携ルール」）。teacher-management側では、コーディング規約「5. インターフェース」（利用側でインターフェースを定義する）に従い、`internal/teacher_management/dependency.go`に以下の参照用interfaceを定義する。
+なお、②「9. Repository設計」のHighSchoolStore・GradeStoreは、高校・学年の実在確認や所属確認という、HighSchool Context・Grade Context（②「3. Bounded Context」他Contextとの依存関係）が公開する参照手段であり、teacher-managementがこれらのデータを所有・実装するものではない（`規約/アーキテクチャ規約.md`「5. Context間連携ルール」）。teacher-management側では、コーディング規約「5. インターフェース」（利用側でインターフェースを定義する）に従い、`internal/teacher_management/dependency.go`に以下の参照用interfaceを定義する。
 
 ```go
 // HighSchoolExistenceChecker は HighSchool Context が公開する
@@ -444,7 +444,7 @@ Active Record採用のためUseCase層を経由しない。以下、②「10. Us
 |`TeacherResponse`|`ID uint`、`HighSchoolID uint`、`Name string`、`Email string`、`GradeScope *string`、`ManageOtherTeachers *bool`（権限レコードが存在しない教員では`nil`＝JSONの`null`）、`GradeIDs []uint`、`CreatedAt string`、`UpdatedAt string`|
 |`TeacherListResponse`|`Teachers []TeacherResponse`|
 
-EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのまま返さず、必ずResponse DTOへ変換する（規約「7. データフロー」）。
+EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのまま返さず、必ずResponse DTOへ変換する（規約「6. データフロー」）。
 
 ## Routing
 
@@ -542,7 +542,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 ## Middleware
 
-- JWT等の検証を行い、current userをcontextに格納する（規約「8. 横断的関心事の置き場所」認証）
+- JWT等の検証を行い、current userをcontextに格納する（規約「7. 横断的関心事の置き場所」認証）
 - ロールがadminであることを確認する（②「13. Authorization設計」Middleware）
 
 ## Handler
@@ -687,8 +687,8 @@ SQL文そのものは本書に記載しない。
 
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
-|Bounded Context `teacher-management`（教師教員管理機能と共通）の内部ディレクトリ名を`internal/teacher_management`とした|②はContext名（teacher-management）のみを記載し、内部ディレクトリ名を明記していない。`規約/アーキテクチャ規約.md`「9. 命名規約」の「Context名とディレクトリ名が一致しない場合は②文書内で対応関係を明記する」に該当する明記がないため、既存の他機能（student-directory→internal/student_directory）の対応方針にならい、Context名のハイフンをアンダースコアに置き換えたディレクトリ名を採用した|推測（既存の他②③文書での対応付けからの類推であり、②文書内に明示的な対応付けの記載はない）|
-|②「9. Repository設計」HighSchoolStore・GradeStoreをteacher-management内で実装せず、teacher_management package側に参照用interface（`HighSchoolExistenceChecker`／`GradeReferenceChecker`）を定義し、実装はHighSchool Context・Grade Context側に委ねる構成とした|②「9. Repository設計」はHighSchoolStore・GradeStoreをteacher-managementの節内で記載しているが、`規約/アーキテクチャ規約.md`「6. Context間連携ルール」により他Contextの内部実装に直接依存できないため、コーディング規約「5. インターフェース」（利用側での定義）に従って整理した。②の「責務」「保持しない責務」の記載内容自体は変更していない|補足（規約の適用による構造上の具体化であり、推測ではなく規約遵守のための判断）|
+|Bounded Context `teacher-management`（教師教員管理機能と共通）の内部ディレクトリ名を`internal/teacher_management`とした|②はContext名（teacher-management）のみを記載し、内部ディレクトリ名を明記していない。`規約/アーキテクチャ規約.md`「8. 命名規約」の「Context名とディレクトリ名が一致しない場合は②文書内で対応関係を明記する」に該当する明記がないため、既存の他機能（student-directory→internal/student_directory）の対応方針にならい、Context名のハイフンをアンダースコアに置き換えたディレクトリ名を採用した|推測（既存の他②③文書での対応付けからの類推であり、②文書内に明示的な対応付けの記載はない）|
+|②「9. Repository設計」HighSchoolStore・GradeStoreをteacher-management内で実装せず、teacher_management package側に参照用interface（`HighSchoolExistenceChecker`／`GradeReferenceChecker`）を定義し、実装はHighSchool Context・Grade Context側に委ねる構成とした|②「9. Repository設計」はHighSchoolStore・GradeStoreをteacher-managementの節内で記載しているが、`規約/アーキテクチャ規約.md`「5. Context間連携ルール」により他Contextの内部実装に直接依存できないため、コーディング規約「5. インターフェース」（利用側での定義）に従って整理した。②の「責務」「保持しない責務」の記載内容自体は変更していない|補足（規約の適用による構造上の具体化であり、推測ではなく規約遵守のための判断）|
 |②「8. Domain Service」TeacherGradeAssignmentPolicyを、独立したstruct/interfaceではなく`internal/teacher_management`パッケージ内のpackageレベル関数`ValidateGradeAssignment`として実装した|`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
 |②「7. Value Object設計」TeacherPermission・GradeAssignmentSetを、独立層としてではなくstruct・メソッドとして`internal/teacher_management`パッケージ内に実装した|同上、規約4章Active Record節により、Value Objectは原則「対象外」とされているため|補足（規約適用）|
 |`Teacher`のGORMテーブル名を`users`として`TableName()`で明示的に上書きする必要がある点、および`TeacherGradeAssignment`のGORMテーブル名を`teacher_grades`として同様に上書きする必要がある点|②「17. DB設計方針」はテーブル名`users`・`teacher_grades`を利用する旨のみ記載しており、Go構造体名のデフォルト複数形との不一致には触れていない。Gorm規約「テーブル名」に基づき③側で明示した|補足（Gorm規約の適用によりテーブル不一致を検出したもの）|

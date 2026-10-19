@@ -36,7 +36,7 @@
 
 ## Context名
 
-- curriculum（コース・単元カリキュラム）
+- curriculum
 
 コース参照機能（`コース参照機能_Go移行・設計仕様書`）と同一のContextとして扱う。両機能はいずれもCourse・Unitというマスタデータを参照する機能であり、Context責務を分割する理由がないためである。
 

@@ -46,7 +46,7 @@
 
 ## Context名
 
-- authentication（認証コンテキスト）
+- authentication
 
 ## Contextの責務
 

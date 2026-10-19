@@ -36,7 +36,7 @@
 
 ## Context名
 
-- curriculum（コース・単元カリキュラム）
+- curriculum
 
 ## Contextの責務
 

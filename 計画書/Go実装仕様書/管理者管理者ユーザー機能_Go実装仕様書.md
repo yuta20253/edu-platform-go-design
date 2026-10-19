@@ -438,7 +438,7 @@ internal/admin_account/presentation/routes.go
 
 ### AdminAccountRepository実装（`infrastructure/repository/admin_account_repository.go`）
 
-- 実装struct名: 非公開struct（例: `adminAccountRepository`）+ コンストラクタ`NewAdminAccountRepository`で公開する構成（規約「9. 命名規約」の「`Impl`接尾辞を付けない」方針に従う。認証機能の実装仕様と同一の方式）
+- 実装struct名: 非公開struct（例: `adminAccountRepository`）+ コンストラクタ`NewAdminAccountRepository`で公開する構成（規約「8. 命名規約」の「`Impl`接尾辞を付けない」方針に従う。認証機能の実装仕様と同一の方式）
 - 対応するGORMモデル: `gormmodel.UserModel`（`infrastructure/persistence/gorm/user_model.go`）
 - 各メソッドで発行するクエリ内容:
 

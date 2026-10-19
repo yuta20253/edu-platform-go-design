@@ -84,7 +84,7 @@ internal/student_directory/presentation/routes.go
 - StudentEnrollmentTarget Value Object（②7章）: 独立したValue Object型は作らない。「登録先の学年ID・クラスID」の組は`application/create_student.go`の関数引数として表現し、整合性検証は関数内のガード節で行う
 - StudentEnrollmentPolicy（②8章 Domain Service）: 独立したstruct/interfaceとしては設けない。「指定学年・クラスが同校に属し、クラスが指定学年に属すること」の判定を`application/create_student.go`内の非公開関数として実装する（規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造：業務ルールは関数内のガード節で表現する）
 - StudentRepository / GradeRepository / SchoolClassRepository（②9章）: interfaceとしては定義しない。責務は「5. Infrastructure層設計」のinfrastructure関数、および`user` Contextが公開する作成操作（`CreateStudentAccount`）の呼び出しとして実装する（詳細は「6. Application層設計」の「Context間連携」節・8章参照）
-- Domain Error（②14章）: 独立したDomain Error型は設けない。「11. Error実装方針」に示すとおり、application関数が返すエラーをApplication Error相当として扱う（規約「8. 横断的関心事の置き場所」）
+- Domain Error（②14章）: 独立したDomain Error型は設けない。「11. Error実装方針」に示すとおり、application関数が返すエラーをApplication Error相当として扱う（規約「7. 横断的関心事の置き場所」）
 
 ---
 
@@ -479,7 +479,7 @@ Transaction Script採用のため、application関数内のガード節で以下
 
 # 14. Error実装方針
 
-- Domain Error → Application Error変換方針: 対象外（Domain層を設けないため）。application関数が返すエラーをApplication Error相当として扱う（規約「8. 横断的関心事の置き場所」）
+- Domain Error → Application Error変換方針: 対象外（Domain層を設けないため）。application関数が返すエラーをApplication Error相当として扱う（規約「7. 横断的関心事の置き場所」）
 - Application Error → HTTPレスポンス変換方針: `ErrStudentNotFound`を`404`へ、`ErrEnrollmentTargetMismatch`・`ErrEmailAlreadyRegistered`を`422`へ変換する（②14章・16章）
 - Infrastructure Errorのハンドリング方針: DB接続失敗等のInfrastructure Errorは、Handlerでラップし`500`として扱う（②に個別の記載はなく、一般的なエラーハンドリング方針として補った）
 

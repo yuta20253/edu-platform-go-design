@@ -32,7 +32,7 @@
 ## 対象Bounded Context名
 
 - `teacher-dashboard`（②「3. Bounded Context」）
-- `internal/`配下のディレクトリ名: `teacher_dashboard`（アーキテクチャ規約「5. Bounded Context構成」命名規則に基づき、kebab-caseのContext名をスネークケースのディレクトリ名に変換）
+- `internal/`配下のディレクトリ名: `teacher_dashboard`（アーキテクチャ規約「4. Bounded Context構成」命名規則に基づき、kebab-caseのContext名をスネークケースのディレクトリ名に変換）
 
 ## ②で採用した設計パターン
 
@@ -130,7 +130,7 @@ Entity・Repository Interface・Domain Service・Domain Event・Domain Errorの�
 
 - 関数シグネチャ: `func ListVisibleAnnouncementsForTeacher(ctx context.Context, schoolID uint, limit int) ([]application.AnnouncementSummary, error)`
 - 発行するクエリ内容: 教師が閲覧可能な公開中お知らせを、対象条件（②「9. Repository設計」AnnouncementRepositoryの「閲覧可能条件（対象条件）」）で絞り込み、公開日時降順で`limit`件（本機能では5件固定）取得する
-- 実装方針: ②「9. Repository設計」に「AnnouncementRepository（Announcement Contextの提供機能を利用）」と明記されているため、本関数はAnnouncement Context側が公開する参照用関数（アーキテクチャ規約「6. Context間連携ルール」：Transaction Script採用時は参照用の関数を呼び出す）を呼び出すラッパーとして実装する。Announcement Context側の具体的な関数名・シグネチャは②に記載がなく、実装時にAnnouncement Context側の②③文書に合わせて確定する（14章参照。②からの補足・推測）
+- 実装方針: ②「9. Repository設計」に「AnnouncementRepository（Announcement Contextの提供機能を利用）」と明記されているため、本関数はAnnouncement Context側が公開する参照用関数（アーキテクチャ規約「5. Context間連携ルール」：Transaction Script採用時は参照用の関数を呼び出す）を呼び出すラッパーとして実装する。Announcement Context側の具体的な関数名・シグネチャは②に記載がなく、実装時にAnnouncement Context側の②③文書に合わせて確定する（14章参照。②からの補足・推測）
 
 いずれの関数も、GORM経由でのSELECTのみを行い、書き込みは行わない。SQL文そのものはここでは記載しない（12章「GORM / DBクエリ設計」参照）。
 
@@ -385,7 +385,7 @@ SQL文そのものはここでは記載しない。
 | 判断した内容 | 判断理由 | 推測かどうか |
 |-|-|-|
 | `GradeStudentCounts`をdomain層のValue Objectではなく、application層のDTO（struct）として実装する | ②はValue Objectとして設計しているが、Transaction Script採用時はアーキテクチャ規約「3. 設計パターンごとの構造適用方針」によりdomain層を設けないため、同等の構造をapplication層のDTOとして実装する必要がある | 推測ではない（規約の機械的な読み替え） |
-| `application.ShowTeacherDashboard`、`infrastructure.CountStudentsByGrade`、`infrastructure.ListVisibleAnnouncementsForTeacher`という具体的な関数名・シグネチャ | ②「10. UseCase設計」「9. Repository設計」は業務操作の設計意図のみを記載しており、実装レベルの関数名・引数構成までは規定していない。アーキテクチャ規約「9. 命名規約」（Transaction Scriptの関数は「動詞+対象」）に基づき本書で命名した | 推測 |
+| `application.ShowTeacherDashboard`、`infrastructure.CountStudentsByGrade`、`infrastructure.ListVisibleAnnouncementsForTeacher`という具体的な関数名・シグネチャ | ②「10. UseCase設計」「9. Repository設計」は業務操作の設計意図のみを記載しており、実装レベルの関数名・引数構成までは規定していない。アーキテクチャ規約「8. 命名規約」（Transaction Scriptの関数は「動詞+対象」）に基づき本書で命名した | 推測 |
 | 生徒数集計の参照先を、`user` Contextの人数集計（`CountUsers`）とし、③が未作成のため暫定で`users`・`user_roles`・`grades`へ直接クエリする | ②「3. Bounded Context」で、生徒数集計の依存先を`user` Contextに統一している。`user`②は`CountUsers`を公開するが、その③が未作成のため、公開関数の呼び出しへ置き換えられない | 推測ではない（②・`user`②の記載に基づく暫定構成） |
 | `CountUsers`（学年別）の集計結果のキーが学年IDであるとし、application関数がmaster-dataの学年参照で`year`（1〜3年）へ変換する（`CountUsers`へ置き換えた後の構成） | `user`②は、学年別集計の年次への変換は呼び出し側としているが、集計結果のキーが学年IDか年次かを明記していない | 推測 |
 | お知らせ取得の呼び出し方式（同一プロセス内のGo関数呼び出しを前提とする） | ②「9. Repository設計」に「AnnouncementRepository（Announcement Contextの提供機能を利用）」とあるが、呼び出し方式（同一プロセス内関数呼び出しか、別プロセス経由か）は明記がない。モノリシックなGo実装を前提とし、同一プロセス内の関数呼び出しと仮定した | 推測 |

@@ -55,7 +55,7 @@ internal/dashboard/presentation/response/dashboard_response.go
 internal/dashboard/presentation/routes.go
 ```
 
-**②からの補足**: `domain/`・`presentation/request/`は本機能では作成しない。リクエストパラメータが存在しない（②「12. Validation設計」）ため、Request DTOも設けない。ファイル名・package構成は②に明記がないため、コーディング規約「4. パッケージ設計」およびアーキテクチャ規約「9. 命名規約」（Transaction Scriptの関数は`動詞+対象`）に従って補った（推測ではなく規約適用による決定）。
+**②からの補足**: `domain/`・`presentation/request/`は本機能では作成しない。リクエストパラメータが存在しない（②「12. Validation設計」）ため、Request DTOも設けない。ファイル名・package構成は②に明記がないため、コーディング規約「4. パッケージ設計」およびアーキテクチャ規約「8. 命名規約」（Transaction Scriptの関数は`動詞+対象`）に従って補った（推測ではなく規約適用による決定）。
 
 ---
 
@@ -71,7 +71,7 @@ internal/dashboard/presentation/routes.go
 
 **実装単位の読み替え**: 本機能はTransaction Script採用のため、UseCase（struct）は設けない。②「10. UseCase設計」の`GetDashboard`（業務操作としての設計意図）は、`application/`直下に置く関数`ListRecentGoals`として実装する。
 
-**②からの補足**: 関数名`ListRecentGoals`は、②本文の「GetDashboard」という業務操作名から、アーキテクチャ規約「9. 命名規約」の「Transaction Scriptの関数は`動詞+対象`の形式にする（例：`ListRecentGoals`）」に従って命名した。この命名例はアーキテクチャ規約およびGo実装仕様書自動生成プロンプトの出力フォーマット例そのものであり、②の業務内容（生徒の目標一覧を取得する）と矛盾しない。
+**②からの補足**: 関数名`ListRecentGoals`は、②本文の「GetDashboard」という業務操作名から、アーキテクチャ規約「8. 命名規約」の「Transaction Scriptの関数は`動詞+対象`の形式にする（例：`ListRecentGoals`）」に従って命名した。この命名例はアーキテクチャ規約およびGo実装仕様書自動生成プロンプトの出力フォーマット例そのものであり、②の業務内容（生徒の目標一覧を取得する）と矛盾しない。
 
 ## DTO（Command / Query）
 
@@ -121,7 +121,7 @@ internal/dashboard/presentation/routes.go
 - 対応テーブル: `goals`（既存Rails DBのテーブルをそのまま利用。②「17. DB設計方針」よりSchema変更なし）
 - 保持フィールド: `ID`, `UserID`, `Title`, `Description`, `Status`, `DueDate`（表示に必要な属性のみ。②「6. Entity設計」の「表示に必要な属性（id, title, description, due_date, status）」に対応）
 
-**②からの補足**: `GoalRecord`をdashboard機能側で独自に定義する方針は、②およびアーキテクチャ規約「6. Context間連携ルール」（「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）に基づく判断である。goal-management側が公開する参照専用の関数・モデルが存在する場合はそれを利用すべきだが、goal-management機能の②/③文書は本タスクで参照しておらず、公開インターフェースの詳細が不明であるため、dashboard機能のinfrastructure層に読み取り専用のGORMモデルを独自定義し、`goals`テーブルへ直接クエリする構成とした。これは推測であり、goal-management側の実装仕様書を確認したうえで、公開関数呼び出しへの置き換えを検討する余地がある。
+**②からの補足**: `GoalRecord`をdashboard機能側で独自に定義する方針は、②およびアーキテクチャ規約「5. Context間連携ルール」（「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）に基づく判断である。goal-management側が公開する参照専用の関数・モデルが存在する場合はそれを利用すべきだが、goal-management機能の②/③文書は本タスクで参照しておらず、公開インターフェースの詳細が不明であるため、dashboard機能のinfrastructure層に読み取り専用のGORMモデルを独自定義し、`goals`テーブルへ直接クエリする構成とした。これは推測であり、goal-management側の実装仕様書を確認したうえで、公開関数呼び出しへの置き換えを検討する余地がある。
 
 ## 外部連携実装
 
@@ -267,7 +267,7 @@ Transaction Script採用時のため、`application/list_recent_goals.go`内の�
 |Application Error（`ErrFetchRecentGoalsFailed`）|Application（`ListRecentGoals`）|500|
 |Infrastructure Error（DB接続失敗等）|Infrastructure（`FindRecentGoalsByUserID`）|500（Application Errorにラップされた上で変換）|
 
-**②からの補足**: sentinel errorの具体的な変数名・エラーメッセージ文言は②に記載がないため実装のために補った。Domain Errorに相当する層はTransaction Script構造のため設けない（アーキテクチャ規約「8. 横断的関心事の置き場所」のError変換方針に基づく）。
+**②からの補足**: sentinel errorの具体的な変数名・エラーメッセージ文言は②に記載がないため実装のために補った。Domain Errorに相当する層はTransaction Script構造のため設けない（アーキテクチャ規約「7. 横断的関心事の置き場所」のError変換方針に基づく）。
 
 ---
 
@@ -339,9 +339,9 @@ SQL文そのものはここに記載しない。GORMのメソッドチェーン�
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|application関数名を`ListRecentGoals`とした|②の業務操作名「GetDashboard」から、アーキテクチャ規約「9. 命名規約」（Transaction Scriptの関数は動詞+対象）に従って命名した。同規約・自動生成プロンプトの構成例と一致する命名である|規約適用による決定（推測ではない）|
+|application関数名を`ListRecentGoals`とした|②の業務操作名「GetDashboard」から、アーキテクチャ規約「8. 命名規約」（Transaction Scriptの関数は動詞+対象）に従って命名した。同規約・自動生成プロンプトの構成例と一致する命名である|規約適用による決定（推測ではない）|
 |`GoalSummary`（application DTO）・`GoalRecord`（infrastructure GORMモデル）のフィールド構成|②「16. API互換方針」のResponse項目（id, title, description, status, due_date）および②「6. Entity設計」の記載から導出した|規約・②記載事項からの導出（推測ではない）|
-|`GoalRecord`をdashboard機能側に独自定義し、`goals`テーブルへ直接クエリする構成とした|goal-management側が公開する参照専用インターフェースの詳細（②/③）を本タスクでは参照しておらず、アーキテクチャ規約「6. Context間連携ルール」を踏まえた暫定的な実装方針として補った|推測。goal-management側の実装仕様確認後に見直しの余地あり|
+|`GoalRecord`をdashboard機能側に独自定義し、`goals`テーブルへ直接クエリする構成とした|goal-management側が公開する参照専用インターフェースの詳細（②/③）を本タスクでは参照しておらず、アーキテクチャ規約「5. Context間連携ルール」を踏まえた暫定的な実装方針として補った|推測。goal-management側の実装仕様確認後に見直しの余地あり|
 |上限件数5件を`application`パッケージ内の定数（例：`MaxDashboardGoals`）として定義する方針|②に定数化の指示はないが、業務ルール変更時の影響範囲を限定する（②「2. 設計方針」の保守性方針）ために補った|推測|
 |Application Errorのsentinel error名（`ErrFetchRecentGoalsFailed`）・エラーメッセージ文言|②「14. Error設計」はApplication Errorの責務のみを定義しており、具体的な変数名・文言は記載がないため、コーディング規約「6. エラーハンドリング」に沿って補った|推測|
 |Response DTOのJSONタグ表記（snake_case）|②はレスポンス項目名（id, title, description, status, due_date）のみを定義しており、JSONタグの具体的な表記規則は明記がないため、既存API互換方針に合わせて補った|推測|

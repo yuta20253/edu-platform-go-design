@@ -33,7 +33,7 @@
 
 ## Context名
 
-- teacher-management（教員管理コンテキスト）
+- teacher-management
 
 本機能（教師教員管理機能）と管理者教員管理機能は、同じ3テーブル（`users`の教員レコード / `teacher_permissions` / `teacher_grades`）に対する同一のBounded Contextであり、Aggregate（Teacher）・Entity・Repository（Store）を共有する。両機能の違いは、教員管理という同じ業務領域を「誰の視点で」扱うかのみであり、教師自身が同校の同僚教員を扱う視点を本機能が、管理者が自校の教員を管理する視点を管理者教員管理機能が担う（アーキテクチャ規約4章「Context分割基準」：Railsの`Teacher::`/`Admin::`の名前空間をそのままContext境界にしない）。
 

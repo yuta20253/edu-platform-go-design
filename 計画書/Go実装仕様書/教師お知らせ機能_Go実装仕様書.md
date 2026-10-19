@@ -31,7 +31,7 @@ Transaction Script／Active Record／Event Sourcingは②「4. 設計パター�
 
 ## 対象Bounded Context名
 
-`announcement`（②「3. Bounded Context」のContext名をそのまま採用。アーキテクチャ規約「5. Bounded Context構成」の上位ドメイン `Announcement` に対応し、既存Context一覧表の `announcement` と一致する）
+`announcement`（②「3. Bounded Context」のContext名をそのまま採用。アーキテクチャ規約「4. Bounded Context構成」の上位ドメイン `Announcement` に対応し、既存Context一覧表の `announcement` と一致する）
 
 ## ②で採用した設計パターン
 
@@ -39,7 +39,7 @@ Domain Model
 
 ## 採用パターンに対応する構造
 
-アーキテクチャ規約「2. レイヤー責務と依存方向」「3. 設計パターンごとの構造適用方針（Domain Model）」に従い、標準のフルレイヤー構成を適用する。ただし本機能で不要なディレクトリは作成しない（具体的なディレクトリ構成は未定。アーキテクチャ規約「1. 全体方針」の注記を参照）。
+アーキテクチャ規約「2. レイヤー責務と依存方向」「3. 設計パターンごとの構造適用方針」の「Domain Model」に従い、標準のフルレイヤー構成を適用する。ただし本機能で不要なディレクトリは作成しない（具体的なディレクトリ構成は未定。アーキテクチャ規約「1. 全体方針」の注記を参照）。
 
 - `domain/event/`: 対象外（②「15. Domain Event」でDomain Event不採用のため作成しない）
 - `infrastructure/mail/`, `infrastructure/cache/`, `infrastructure/queue/`: 対象外（②のスコープに通知連携・キャッシュ・非同期処理の記載がないため作成しない）
@@ -120,7 +120,7 @@ internal/announcement/presentation/response/announcement_create_response.go
 internal/announcement/presentation/routes.go
 ```
 
-**②からの補足**: `domain/repository/`配下の`grade_reference_repository.go` `user_reference_repository.go` `teacher_permission_reference_repository.go`は、②「9. Repository設計」の「外部参照Repository（Grade / User / UserRole / TeacherPermission）」を、コーディング規約「5. インターフェース」（インターフェースは利用側で定義する）に従い、announcementコンテキスト側の利用インターフェースとして具体化したものである。実際の実装（infrastructure側）は、School/User/Teacher Permission各Contextが公開する参照手段を呼び出すアダプタとする（アーキテクチャ規約「6. Context間連携ルール」）。具体的なメソッド名・戻り値は②に記載がないため推測で補った。
+**②からの補足**: `domain/repository/`配下の`grade_reference_repository.go` `user_reference_repository.go` `teacher_permission_reference_repository.go`は、②「9. Repository設計」の「外部参照Repository（Grade / User / UserRole / TeacherPermission）」を、コーディング規約「5. インターフェース」（インターフェースは利用側で定義する）に従い、announcementコンテキスト側の利用インターフェースとして具体化したものである。実際の実装（infrastructure側）は、School/User/Teacher Permission各Contextが公開する参照手段を呼び出すアダプタとする（アーキテクチャ規約「5. Context間連携ルール」）。具体的なメソッド名・戻り値は②に記載がないため推測で補った。
 
 ---
 
@@ -452,7 +452,7 @@ func (p *AnnouncementVisibilityPolicy) BuildVisibilityCondition(
 
 ### infrastructure/repository.AnnouncementRepository（package名: `gormrepo`）
 
-- 実装struct名: `AnnouncementRepositoryImpl`とせず、package名`gormrepo`内の`AnnouncementRepository`とする（アーキテクチャ規約「9. 命名規約」: 実装側は接尾辞を付けずpackage名で区別する）
+- 実装struct名: `AnnouncementRepositoryImpl`とせず、package名`gormrepo`内の`AnnouncementRepository`とする（アーキテクチャ規約「8. 命名規約」: 実装側は接尾辞を付けずpackage名で区別する）
 - 対応するGORMモデル: `persistence/gorm.AnnouncementModel`（テーブル`announcements`） / `persistence/gorm.AnnouncementTargetModel`（テーブル`announcement_targets`）
 - 各メソッドで発行するクエリ内容:
 
@@ -470,7 +470,7 @@ func (p *AnnouncementVisibilityPolicy) BuildVisibilityCondition(
 
 ### infrastructure/repository.GradeReferenceRepository / UserReferenceRepository / TeacherPermissionReferenceRepository
 
-- 実装方針: 各Contextが公開するRepository（例: School Contextの学年Repository、User Contextのユーザーaccount Repository、Teacher Permission Contextの権限Repository）を呼び出すアダプタとして実装する。アーキテクチャ規約「6. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない。
+- 実装方針: 各Contextが公開するRepository（例: School Contextの学年Repository、User Contextのユーザーaccount Repository、Teacher Permission Contextの権限Repository）を呼び出すアダプタとして実装する。アーキテクチャ規約「5. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない。
 - **②からの補足**: 呼び出し先となる各Contextの具体的なRepository・メソッド名は、各Context自身の②Go移行・設計仕様書（announcement以外のContext）に依存するため、本書では確定できない。①も未提供のため参照不可。実装時に該当Contextの②/③文書を参照して確定する必要がある（推測を含む）。
 
 ## 外部連携実装
@@ -587,7 +587,7 @@ Mail・Cache・Queueは②の記載範囲に存在しないため対象外とす
 - `CreateAnnouncementUseCase`は`AnnouncementTargetingPolicy`の判定で外部参照Repository（Grade/User/TeacherPermission）を呼び出すが、これらは読み取り専用でありトランザクションの対象外とする（書き込みは`AnnouncementRepository`のみ）
 - 本機能内でAnnouncementRepository以外に書き込みを行うRepositoryは存在しない
 
-**②からの補足**: ②「11. Transaction設計」は「UseCaseの開始時にトランザクションを開始する」という記載にとどまり、実装上どのレイヤー（UseCase／Repository実装）でGORMトランザクションのコードを書くかまでは指定していない。本書ではアーキテクチャ規約「8. 横断的関心事の置き場所」の「Transaction管理は業務処理の単位（UseCase）で開始・終了する」という原則を保ちつつ、UseCaseからGORMへの直接依存（依存方向違反）を避けるため、実装上はRepository実装内でトランザクションを完結させる方式とした（判断・②に根拠はあるが実装位置は補足）。
+**②からの補足**: ②「11. Transaction設計」は「UseCaseの開始時にトランザクションを開始する」という記載にとどまり、実装上どのレイヤー（UseCase／Repository実装）でGORMトランザクションのコードを書くかまでは指定していない。本書ではアーキテクチャ規約「7. 横断的関心事の置き場所」の「Transaction管理は業務処理の単位（UseCase）で開始・終了する」という原則を保ちつつ、UseCaseからGORMへの直接依存（依存方向違反）を避けるため、実装上はRepository実装内でトランザクションを完結させる方式とした（判断・②に根拠はあるが実装位置は補足）。
 
 ---
 
@@ -760,7 +760,7 @@ Gorm規約に従い、構造体名の複数形がそのままテーブル名規�
 |外部参照Repository（GradeReferenceRepository / UserReferenceRepository / TeacherPermissionReferenceRepository）の具体的なメソッドシグネチャ|②「9. Repository設計」は責務のみを記載しており、メソッド名・引数構成までは記載がないため、コーディング規約「5. インターフェース」（利用側で定義する）に従い実装のために補った|推測|
 |`ViewerContext`（閲覧者属性を表す型）の新設|②「8. Domain Service」AnnouncementVisibilityPolicyが言及する「閲覧者側の属性」を型として表現する必要があるが、②に型定義はないため補った|推測|
 |`AnnouncementVisibilityPolicy.BuildVisibilityCondition`の戻り値型`VisibilityCondition`の具体的なフィールド構成|②はPolicyの役割（条件の「意味」を定義する）のみを記載し、具体的な型構造は記載がないため、`ViewerContext`と同構造として補った|推測|
-|Transactionの実装位置をUseCaseではなくRepository実装（`AnnouncementRepository.Create`/`Update`）内に置く方針|②「11. Transaction設計」は「UseCaseの開始時にトランザクションを開始する」と記載するのみで実装レイヤーまで指定していない。UseCaseからGORMへの直接依存を避けるため（アーキテクチャ規約「3. レイヤー責務と依存方向」の依存性逆転を維持するため）、Repository実装内で完結させる方式とした|判断（②の方針とは矛盾しないが、実装位置は②に明記がないため推測を含む）|
+|Transactionの実装位置をUseCaseではなくRepository実装（`AnnouncementRepository.Create`/`Update`）内に置く方針|②「11. Transaction設計」は「UseCaseの開始時にトランザクションを開始する」と記載するのみで実装レイヤーまで指定していない。UseCaseからGORMへの直接依存を避けるため（アーキテクチャ規約「2. レイヤー責務と依存方向」の依存性逆転を維持するため）、Repository実装内で完結させる方式とした|判断（②の方針とは矛盾しないが、実装位置は②に明記がないため推測を含む）|
 |ページネーション項目（Page/PerPage/TotalCount/TotalPages）のフィールド名・デフォルト値|②・①ともに具体的なページネーション仕様の記載がないため、一般的な項目名で補った。①未提供のため参照不可|推測|
 |Response DTOの具体的なフィールド構成（`AnnouncementListItemResponse`等）|②「16. API互換方針」は`AnnouncementSerializer`等への言及にとどまり、実際の出力フィールドはRails実装（①）に依存する。①が未提供のため、②本文（お知らせ本体・対象条件・状態・日時）から推測して補った|推測（①未提供のため参照不可）|
 |`ErrNotOwner`のHTTP Statusを404とする対応|②「16. API互換方針」のStatus Code定義（200/422/404）には`ErrNotOwner`個別の割り当てが明記されていないため、「対象お知らせ不存在または閲覧不可」の404区分に含める形で判断した|推測|

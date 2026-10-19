@@ -125,7 +125,7 @@ internal/school_class/presentation/response/school_class_response.go
 internal/school_class/presentation/routes.go
 ```
 
-**②からの補足**: `ClassOccupancyRepository`（在籍生徒・所属教員の存在確認）・`TeacherPermissionRepository`（他職員操作権限の確認）は、②「11. Repository設計」の「外部参照Repository（在籍する生徒・所属する教員）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「6. Context間連携ルール」に従い具体的なRepository Interfaceとして具体化したものである。`TeacherPermissionRepository`は、Teacher Permission Contextの②③文書が本タスクでは提供されていないため、実装（Infrastructure層）の正確な参照先は「推測」である。`ClassOccupancyRepository`のうち、在籍生徒の確認は`user` Contextが所有する`users`が対象であり、`user`②が`CountUsers`を公開しているが、その③が未作成のため、対象テーブルへの直接クエリで暫定対応する。所属教員の確認は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは、現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
+**②からの補足**: `ClassOccupancyRepository`（在籍生徒・所属教員の存在確認）・`TeacherPermissionRepository`（他職員操作権限の確認）は、②「11. Repository設計」の「外部参照Repository（在籍する生徒・所属する教員）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「5. Context間連携ルール」に従い具体的なRepository Interfaceとして具体化したものである。`TeacherPermissionRepository`は、Teacher Permission Contextの②③文書が本タスクでは提供されていないため、実装（Infrastructure層）の正確な参照先は「推測」である。`ClassOccupancyRepository`のうち、在籍生徒の確認は`user` Contextが所有する`users`が対象であり、`user`②が`CountUsers`を公開しているが、その③が未作成のため、対象テーブルへの直接クエリで暫定対応する。所属教員の確認は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは、現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
 
 ---
 
@@ -675,7 +675,7 @@ flowchart TD
 ### TeacherPermissionRepository実装（`infrastructure/repository/teacher_permission_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewTeacherPermissionRepository`
-- 対応するGORMモデル: `teacher_permissions`テーブル（参照専用の最小フィールド定義。教師教員管理機能側のモデルとは別に本Context用に定義する。②「9. 命名規約」に反しない独立モデル）
+- 対応するGORMモデル: `teacher_permissions`テーブル（参照専用の最小フィールド定義。教師教員管理機能側のモデルとは別に本Context用に定義する。②「8. 命名規約」に反しない独立モデル）
 - クエリ内容: `teacher_id = ?`で1件取得し、`manage_other_teachers`列を返す
 
 ## 外部連携実装
@@ -1036,7 +1036,7 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 |`SchoolClassRequestEventPublisher`のAnnouncement Context呼び出し先の正確なpackage path|②「3. Bounded Context」「18. Domain Event」はAnnouncement Contextへの依存を明記するが、当該Contextの②/③文書（お知らせ機能）との具体的な接続方法は本タスクの対象外文書に依存する|推測|
 |`SchoolClass.Delete`（Repository）を物理削除とするか論理削除とするかを確定していない|②20章はスキーマ変更なしとするのみで、削除方式（`deleted_at`利用の有無）を明記していない。Gorm規約「0. 採用方針」は原則論理削除だが、クラス自体に削除申請というワークフローが既にあるため、物理削除の可能性も残る|推測（実装時に①または業務要件を確認する必要がある）|
 |`CancelSchoolClassRequest`で申請者本人でない場合のHTTP Statusを403とした|②「17. Error設計」のエラー仕様表に本ケースの明示的なStatus Code記載がない（承認・却下の自己承認禁止と同様に扱った）|推測|
-|`teacher_permissions`テーブルを本Context用に独立してモデル定義する構成とした（教師教員管理機能側と物理テーブルは共有するが、GORMモデル定義は別途持つ）|アーキテクチャ規約「6. Context間連携ルール」の「相手Contextの内部実装に直接依存しない」方針、および認証機能等の先例に倣った|推測|
+|`teacher_permissions`テーブルを本Context用に独立してモデル定義する構成とした（教師教員管理機能側と物理テーブルは共有するが、GORMモデル定義は別途持つ）|アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部実装に直接依存しない」方針、および認証機能等の先例に倣った|推測|
 |`school_class_requests`の`lock_version`列がGorm規約の`optimisticlock.Version`型でそのまま扱える前提とした|②「4. 設計パターン」「17. Validation設計」は楽観ロックの採用のみを明記し、具体的なカラム型までは規定していない。既存Rails実装（`lock_version`という命名自体がRailsの`optimistic_locking`慣習に由来）を踏まえた判断|推測|
 
 上記以外の設計判断（Bounded Context・Aggregate・Entity・Value Object・Repository・UseCase・Transaction境界・Validation方針・Authorization方針・Error設計・Domain Event・API互換方針・DB方針・テスト戦略の基本方針）はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。

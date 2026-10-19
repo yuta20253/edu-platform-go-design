@@ -36,7 +36,7 @@
 
 ## Context名
 
-- learning-analytics（学習分析）
+- learning-analytics
 
 ## Contextの責務
 

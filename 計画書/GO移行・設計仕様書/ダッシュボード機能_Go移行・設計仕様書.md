@@ -36,7 +36,7 @@
 
 ## Context名
 
-- dashboard（生徒向けダッシュボード）
+- dashboard
 
 ## Contextの責務
 

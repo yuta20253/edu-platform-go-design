@@ -33,7 +33,7 @@
 
 ## Context名
 
-- teacher-dashboard（教師ダッシュボードコンテキスト）
+- teacher-dashboard
 
 ## Contextの責務
 

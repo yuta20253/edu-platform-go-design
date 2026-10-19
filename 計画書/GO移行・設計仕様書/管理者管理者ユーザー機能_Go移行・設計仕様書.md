@@ -39,7 +39,7 @@
 
 ## Context名
 
-- admin-account-management（管理者アカウント管理コンテキスト）
+- admin-account-management
 
 ## Contextの責務
 

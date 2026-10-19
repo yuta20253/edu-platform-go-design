@@ -386,7 +386,7 @@ type TeacherPermissionReferenceRepository interface {
 
 - 責務: 教員が担当学年制限（`own_grade`）を持つかどうか、持つ場合の担当学年IDを取得する（教師面談機能②「11. Repository設計」、教師面談機能②「8. Domain Service」InterviewEligibilityPolicy）。教員視点でのみ利用する
 
-**②からの補足（推測）**: 上記4つの参照用Repository（TeacherAssignmentRepository / StudentReferenceRepository / UserNameReferenceRepository / TeacherPermissionReferenceRepository）の具体的なメソッド名・シグネチャは、いずれの②にも責務の記載のみで明記がないため、コーディング規約「5. インターフェース」（利用側で定義する）・アーキテクチャ規約「6. Context間連携ルール」に従って実装のために補った。
+**②からの補足（推測）**: 上記4つの参照用Repository（TeacherAssignmentRepository / StudentReferenceRepository / UserNameReferenceRepository / TeacherPermissionReferenceRepository）の具体的なメソッド名・シグネチャは、いずれの②にも責務の記載のみで明記がないため、コーディング規約「5. インターフェース」（利用側で定義する）・アーキテクチャ規約「5. Context間連携ルール」に従って実装のために補った。
 
 ## Domain Service
 
@@ -768,7 +768,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 
 ### infrastructure/repository.InterviewRequestRepository（package名: `gormrepo`）
 
-- 実装struct名: `InterviewRequestRepositoryImpl`とせず、package名`gormrepo`内の`InterviewRequestRepository`とする（アーキテクチャ規約「9. 命名規約」実装側は接尾辞を付けずpackage名で区別する）
+- 実装struct名: `InterviewRequestRepositoryImpl`とせず、package名`gormrepo`内の`InterviewRequestRepository`とする（アーキテクチャ規約「8. 命名規約」実装側は接尾辞を付けずpackage名で区別する）
 - 対応するGORMモデル: `persistence/gorm.InterviewRequestModel`（テーブル`interview_requests`）
 - 各メソッドで発行するクエリ内容:
 
@@ -799,7 +799,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 
 ### infrastructure/repository.TeacherAssignmentRepository / StudentReferenceRepository / UserNameReferenceRepository / TeacherPermissionReferenceRepository
 
-- 実装方針: 各Contextが公開するRepository（School Context・User Context・Teacher Permission Context）を呼び出すアダプタとして実装する。アーキテクチャ規約「6. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない
+- 実装方針: 各Contextが公開するRepository（School Context・User Context・Teacher Permission Context）を呼び出すアダプタとして実装する。アーキテクチャ規約「5. Context間連携ルール」に従い、他Contextの内部Entity・Infrastructure実装には直接依存しない
 - **②からの補足**: 呼び出し先となる各Contextの具体的なRepository・メソッド名は、各Context自身の②/③Go移行・設計仕様書に依存するため、本書では確定できない。①も未提供のため参照不可。実装時に該当Contextの②/③文書を参照して確定する必要がある（推測を含む）
 
 ## TransactionManager実装

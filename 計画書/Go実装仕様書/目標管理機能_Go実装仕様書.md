@@ -34,7 +34,7 @@
 
 ## ディレクトリ・パッケージ名について（②からの補足）
 
-②にはGo実装上のディレクトリ名（`internal/`配下のパッケージ名）の明記がない。アーキテクチャ規約「5. Bounded Context構成 命名規則」に基づき、既存の`task-management`→`internal/task`の対応関係に倣い、`goal-management`→`internal/goal`とする。**この対応は②に明記がないため推測である。**
+②にはGo実装上のディレクトリ名（`internal/`配下のパッケージ名）の明記がない。アーキテクチャ規約「4. Bounded Context構成」の命名規則に基づき、既存の`task-management`→`internal/task`の対応関係に倣い、`goal-management`→`internal/goal`とする。**この対応は②に明記がないため推測である。**
 
 ## 作成するディレクトリ一覧
 
@@ -199,7 +199,7 @@ internal/goal/presentation/routes.go
 
 ②「9. Repository設計」のとおり、TaskStoreはタスクの作成・更新責務を持たない。
 
-**②からの補足**: アーキテクチャ規約「6. Context間連携ルール」では、他Contextのデータ利用時は相手Contextが公開する参照手段（Storeの参照系メソッド）を呼び出す方針が示されている。②「9. Repository設計」は本Context内にTaskStore（参照用）を配置する設計をすでに決定しているため、本書もその決定をそのまま踏襲する。将来的にtask-management Context側が公開APIとして参照系メソッドを整備した場合は、TaskStoreの実装をそちらの呼び出しに置き換える余地がある点を留意事項として補足する。
+**②からの補足**: アーキテクチャ規約「5. Context間連携ルール」では、他Contextのデータ利用時は相手Contextが公開する参照手段（Storeの参照系メソッド）を呼び出す方針が示されている。②「9. Repository設計」は本Context内にTaskStore（参照用）を配置する設計をすでに決定しているため、本書もその決定をそのまま踏襲する。将来的にtask-management Context側が公開APIとして参照系メソッドを整備した場合は、TaskStoreの実装をそちらの呼び出しに置き換える余地がある点を留意事項として補足する。
 
 ### draft-task Context（下書きタスク）参照について
 
@@ -525,7 +525,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、Go
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|Bounded Context名`goal-management`に対応する`internal/`配下のディレクトリ名を`internal/goal`とした|アーキテクチャ規約「5. Bounded Context構成」の命名規則、および既存の`task-management`→`internal/task`の対応関係からの類推|推測|
+|Bounded Context名`goal-management`に対応する`internal/`配下のディレクトリ名を`internal/goal`とした|アーキテクチャ規約「4. Bounded Context構成」の命名規則、および既存の`task-management`→`internal/task`の対応関係からの類推|推測|
 |Active Record構造の雛形（`model.go`/`store.go`）を、Goal用・TaskRef用に複数ファイル（`goal.go`/`goal_status.go`/`due_date.go`/`errors.go`/`goal_store.go`/`task_ref.go`/`task_store.go`）に分割した|②が扱う対象（Goal本体・参照専用のTask）が2種類あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断とは矛盾しない）|
 |作成・更新リクエストにStatusフィールドを含めず、作成時にStatusを内部で初期値（not_started）に設定する|②「4. 設計パターン」に「statusの変更ロジックはこの機能のAPI内では直接定義されていない」とあることから、Statusをユーザー入力の対象外とする方が現行仕様に忠実と判断したため|推測|
 |DueDateのリクエスト入力フォーマットをISO 8601形式（`YYYY-MM-DD`）と仮定し、表示用フォーマット（`YYYY/MM/DD`）と分離した|②はDueDateの表示用フォーマットのみを明記しており、入力フォーマットの記載がないため。①未提供のため参照不可|推測|

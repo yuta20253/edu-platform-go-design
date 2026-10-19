@@ -34,7 +34,7 @@
 
 ## Context名
 
-- teacher-permission（教師権限管理コンテキスト）
+- teacher-permission
 
 ## Contextの責務
 

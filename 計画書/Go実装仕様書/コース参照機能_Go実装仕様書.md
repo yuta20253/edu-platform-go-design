@@ -28,7 +28,7 @@
 
 ## 対象Bounded Context名
 
-- `curriculum`（②「3. Bounded Context」、アーキテクチャ規約「5. Bounded Context構成」の機能Context一覧にも`curriculum`として登録済み）
+- `curriculum`（②「3. Bounded Context」、アーキテクチャ規約「4. Bounded Context構成」の機能Context一覧にも`curriculum`として登録済み）
 
 ## ②で採用した設計パターン
 
@@ -47,7 +47,7 @@ internal/curriculum/
     └── response/
 ```
 
-**②からの補足**: ②はBounded Context名を`curriculum`と定義しているのみで、`internal/`配下のディレクトリ名までは明記していない。アーキテクチャ規約「9. 命名規約」に従い、Context名をそのまま英単語1語のディレクトリ名`internal/curriculum`として採用した。
+**②からの補足**: ②はBounded Context名を`curriculum`と定義しているのみで、`internal/`配下のディレクトリ名までは明記していない。アーキテクチャ規約「8. 命名規約」に従い、Context名をそのまま英単語1語のディレクトリ名`internal/curriculum`として採用した。
 
 ## 作成するファイル一覧
 
@@ -98,7 +98,7 @@ internal/curriculum/presentation/routes.go
   3. 変換結果を返す
 - 呼び出すinfrastructure関数: `FindCoursesWithUnits`
 - トランザクション境界: なし（②「11. Transaction設計」より、読み取りのみでトランザクション不要）
-- 発生しうるApplication Error: `infrastructure.FindCoursesWithUnits`が返すInfrastructure Error（DB接続失敗等）をラップしたApplication Error相当のエラー（②「14. Error設計」、アーキテクチャ規約「8. 横断的関心事の置き場所」の“Transaction Script/Active Record採用時はDomain Errorに相当する層がないため、関数・struct側で発生したエラーをApplication Error相当として扱う”に従う）
+- 発生しうるApplication Error: `infrastructure.FindCoursesWithUnits`が返すInfrastructure Error（DB接続失敗等）をラップしたApplication Error相当のエラー（②「14. Error設計」、アーキテクチャ規約「7. 横断的関心事の置き場所」の“Transaction Script/Active Record採用時はDomain Errorに相当する層がないため、関数・struct側で発生したエラーをApplication Error相当として扱う”に従う）
 
 ②「10. UseCase設計」で言及されている「業務ルール判定」は存在しないため、`ListCourses`内にガード節以上の業務ロジックは持たせない。
 
@@ -130,7 +130,7 @@ internal/curriculum/presentation/routes.go
 
 Gorm規約に従い、構造体名`CourseRecord`／`UnitRecord`はテーブル名`courses`／`units`と一致しないため、`TableName()`メソッドで明示的にテーブル名を指定する（Gorm規約「テーブル名」節）。カラム名は構造体フィールド名のsnake_caseとの規約準拠を基本とし、`SubjectID`→`subject_id`等、命名規則上ズレが生じないため`column`タグの追加は不要と判断する。
 
-**②からの補足**: ②「6. Entity設計」はEntityとしてCourse/Unitを定義しているが、Transaction Script採用のためDomain Entityは設けず、代わりにinfrastructure層のクエリ結果structとして同等の属性を保持させた。この対応関係自体はアーキテクチャ規約「10. Railsとの対応」には明記がないため、②からの補足として明記する。
+**②からの補足**: ②「6. Entity設計」はEntityとしてCourse/Unitを定義しているが、Transaction Script採用のためDomain Entityは設けず、代わりにinfrastructure層のクエリ結果structとして同等の属性を保持させた。この対応関係自体はアーキテクチャ規約「9. Railsとの対応」には明記がないため、②からの補足として明記する。
 
 ## 外部連携実装
 
@@ -326,13 +326,13 @@ SQL文そのものはここには記載しない。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|`internal/curriculum`というディレクトリ名を採用した|②はContext名`curriculum`のみを定義しており、`internal/`配下のパスは明記していないため、アーキテクチャ規約「9. 命名規約」に従いContext名をそのままディレクトリ名とした|推測ではなく規約適用による直接的な判断|
+|`internal/curriculum`というディレクトリ名を採用した|②はContext名`curriculum`のみを定義しており、`internal/`配下のパスは明記していないため、アーキテクチャ規約「8. 命名規約」に従いContext名をそのままディレクトリ名とした|推測ではなく規約適用による直接的な判断|
 |Request用struct（`ListCoursesRequestQuery`）を`presentation/handler`内に配置した|アーキテクチャ規約のTransaction Script構造例に`presentation/request/`ディレクトリが含まれていないため|推測ではなく規約の構造例に基づく判断|
 |`CourseResult`/`UnitResult`/`CourseRecord`/`UnitRecord`等のDTO・GORMモデルの具体的なフィールド型（`uint`/`int`/`string`）|②はEntityの属性名のみを定義しており、Go/DB上の型までは記載していないため、一般的な対応関係から補った|推測（①未提供のため実際のカラム型は参照不可。実装時にDB定義との突き合わせが必要）|
 |`subject`クエリパラメータ（文字列）と`courses.subject_id`カラム（数値属性）との対応関係・変換要否|②「3. Bounded Context」で科目情報の詳細テーブルが存在しないことが述べられているのみで、クエリパラメータとカラムの対応関係は明記がない|推測（①未提供のため参照不可。実装着手前に業務側・DB定義側の確認が必要な要検討事項）|
 |コース一覧取得時のソート順を、明示的な`ORDER BY`を指定しない（データベースの取得順のまま返却する）と確定した|①「コース参照機能 Rails現行仕様書」「5. API / 処理詳細」業務ルールにより、現行Railsの`CoursesQuery`が並び替え条件を組み立てていないことが確認できたため|①の記載に基づく確定（推測ではない）|
 |ページネーションの有無（「なし・全件取得」として扱う）|②に記載がなく、①も未提供のため確認できないため|推測|
 |`input.Subject`が空文字列の場合は「絞り込みなし」として`nil`に正規化するガード節|②「12. Validation設計」に業務ルールの記載がないため、Transaction Script構造上必要な最小限の入力正規化として補った|推測ではなく実装上必要な最小限の処理として補足|
-|Application Error・Infrastructure Errorの発生層とHTTP Statusの対応表（401/500）|②「14. Error設計」「16. API仕様」は方針レベルの記載にとどまるため、アーキテクチャ規約「8. 横断的関心事の置き場所」のError変換方針に従い具体化した|推測ではなく規約適用による具体化|
+|Application Error・Infrastructure Errorの発生層とHTTP Statusの対応表（401/500）|②「14. Error設計」「16. API仕様」は方針レベルの記載にとどまるため、アーキテクチャ規約「7. 横断的関心事の置き場所」のError変換方針に従い具体化した|推測ではなく規約適用による具体化|
 
 上記以外の設計判断（採用パターン・Bounded Context・Aggregate/Value Object/Domain Service/Domain Event不採用・権限制御方針・DB方針等）はすべて②の記載をそのまま踏襲しており、変更は行っていない。

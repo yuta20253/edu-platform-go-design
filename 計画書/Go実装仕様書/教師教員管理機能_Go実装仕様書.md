@@ -403,7 +403,7 @@ Mail・Cache・Queueは対象外（作成時にメールを送らない。招待
 |`TeacherDetailResponse`|`ID uint`／`Name string`／`NameKana string`／`Email string`／`GradeScope *string`／`ManageOtherTeachers *bool`（権限レコードが存在しない教員では`nil`＝JSONの`null`）／`Grades []TeacherGradeResponse`|
 |`CreateTeacherResponse`|`Message string`（JSON: `message`。値は`教員の新規作成に成功しました。`）のみ。作成された教員の情報は含めない（Rails現行の`Api::V1::Teacher::TeachersController#create`のレスポンスに合わせる。②「16. API互換方針」）|
 
-EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのまま返さず、必ずResponse DTOへ変換する（規約「7. データフロー」）。
+EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのまま返さず、必ずResponse DTOへ変換する（規約「6. データフロー」）。
 
 **②からの補足**: Response DTOの詳細フィールド構成は①未提供のため、②の記載範囲（氏名・氏名カナ・メール・権限・担当学年・招待状況）から推測できる最小限の構成とした。
 

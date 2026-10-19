@@ -37,7 +37,7 @@ Railsの Controller / Service / Serializer 構造をそのまま移植するの�
 
 ## Context名
 
-- teacher-management（教員管理コンテキスト）
+- teacher-management
 
 本Contextは、教師視点の機能（教師教員管理機能）と同一のContextである。同じ3テーブル（`users`の教員レコード / `teacher_permissions` / `teacher_grades`）に対するAggregate（Teacher）・Entity・Repository（Store）を共有し、両機能の違いは利用者の視点（管理者が自校の教員を管理する視点／教師が自校の同僚教員を確認し、他職員操作権限を持つ場合に新規作成する視点）のみである（アーキテクチャ規約4章「Context分割基準」：Railsの`Teacher::`/`Admin::`の名前空間をそのままContext境界にしない）。教師視点の責務は教師教員管理機能_Go移行・設計仕様書「3. Bounded Context」を参照する。
 
