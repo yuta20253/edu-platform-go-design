@@ -72,11 +72,11 @@ api := router.Group("/api")
 }
 ```
 
-Context単位でルート登録関数を分割し、各Contextのルート登録関数が自分のグループのみを構築する（配置はアーキテクチャ規約1章「ディレクトリ構成」のとおり、Contextディレクトリ配下の`presentation/routes.go`）。
+Context単位でルート登録関数を分割し、各Contextのルート登録関数が自分のグループのみを構築する（配置はアーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」のとおり、Contextディレクトリ配下の`presentation/routes.go`）。
 
 ```go
 // Good
-// internal/task/presentation/routes.go
+// internal/task_management/presentation/routes.go
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler) {
     tasks := rg.Group("/tasks")
     tasks.GET("", h.ListTasks)
@@ -135,6 +135,10 @@ func AuthMiddleware() gin.HandlerFunc {
 ```
 
 グローバルに適用するミドルウェア（エラーハンドリング・アクセスログ等）は`router.Use()`で登録し、特定のルートグループにのみ必要なミドルウェア（認証・認可）はそのグループの`Use()`で登録する。すべてのミドルウェアをグローバルに登録しない。
+
+### CORSミドルウェアは使わない
+
+CORSミドルウェア（`gin-contrib/cors`等）は登録しない。フロントエンド（Next.js）がAPIリクエストを`rewrites`で中継しており、ブラウザから見るとAPIは同一オリジンになるため、CORSヘッダーを返す必要がない。詳細な前提と、別オリジン構成に変更する場合の見直し項目はアーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「CORS」節に従う。
 
 ---
 
@@ -572,90 +576,3 @@ func TestCreateTask(t *testing.T) {
 
 `gin.SetMode(gin.TestMode)`でデバッグ出力を抑制する。ミドルウェア単体のテストは、対象のミドルウェアと簡易なハンドラのみを持つ最小構成のルーターで行い、他のミドルウェアの影響を受けないようにする。複数ケースを検証する場合は、コーディング規約「26. テスト」のテーブル駆動テストに従う。
 
----
-
-## 10. CORS
-
-フロントエンドがAPIと別オリジンで稼働する場合に必要になる。同一オリジン（リバースプロキシ配下で同じホスト・ポートから配信する構成）であれば、本節のミドルウェアは登録しない。
-
-### 方針
-
-認証機能はJWTをCookieで配布する（「5. CSRF対策」）。Cookieを伴うクロスオリジンリクエストでは、CORSの仕様上**ワイルドカードが使えない**。したがって次の2点が決定事項となる。
-
-1. `Access-Control-Allow-Credentials: true` を返す
-2. 許可オリジンは**設定値で明示列挙する**。`*`を使わず、リクエストの`Origin`をそのまま反映することもしない
-
-`*`が使えないのは仕様上の制約だが、仮に使えたとしても採用しない。Cookieが自動送信される構成で任意のオリジンからのリクエストを許可すると、CSRF対策（「5. CSRF対策」）を迂回する経路になる。
-
-許可オリジンは環境ごとに異なるため、コーディング規約「4. パッケージ設計」の設定値読み込み方針に従い`Config`経由で環境変数から読み込む。コードに直接書かない。
-
-### SameSite設定との関係（重要）
-
-「5. CSRF対策」のとおり、JWT Cookieには`SameSite=Lax`を設定する。`Lax`は**クロスサイト**のリクエストでCookieの送信を抑止するため、CORSを許可してもCookieが送られず認証が通らないケースがある。両者は別のレイヤーの制約であり、CORSを設定しただけでは解決しない。
-
-|フロントエンドの配置|Cookieの送信|必要な対応|
-|-|-|-|
-|APIと同一オリジン|送信される|CORS自体が不要|
-|同一サイトの別サブドメイン（`app.example.com`と`api.example.com`）|送信される|CORSの許可オリジン設定のみ。`SameSite=Lax`を維持できる|
-|別サイト（`example.net`と`example.com`）|**送信されない**|`SameSite=None`（`Secure`必須）への変更が必要。この場合CSRF対策はCSRFトークン検証のみに依存することになるため、「5. CSRF対策」の多層防御の前提が崩れる|
-
-**フロントエンドはAPIと同一サイト（同一オリジン、または同一サイトの別サブドメイン）に配置することを前提とする。** 別サイトへの配置が必要になった場合は、`SameSite=None`への変更とその影響を「5. CSRF対策」と併せて再検討する。この判断を各機能の②③文書で個別に行わない。
-
-### 実装
-
-`gin-contrib/cors`（`github.com/gin-contrib/cors`）を使用する。ミドルウェアはアーキテクチャ規約1章「ディレクトリ構成」のとおり`internal/middleware/`に置く。
-
-```go
-// Good
-func CORS(allowedOrigins []string) gin.HandlerFunc {
-    return cors.New(cors.Config{
-        AllowOrigins:     allowedOrigins, // Configから渡す。ワイルドカードを使わない
-        AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-        AllowHeaders:     []string{"Origin", "Content-Type", "X-CSRF-Token"},
-        AllowCredentials: true,
-        MaxAge:           12 * time.Hour, // preflightの結果をキャッシュさせる
-    })
-}
-```
-
-```go
-// Bad
-func CORS() gin.HandlerFunc {
-    return cors.New(cors.Config{
-        AllowAllOrigins:  true,
-        AllowCredentials: true,
-        // AllowAllOriginsとAllowCredentialsは併用できない（gin-contrib/corsは起動時にpanicする）。
-        // 仕様上も、Cookieを伴うリクエストでワイルドカードは許可されない
-    })
-}
-```
-
-```go
-// Bad
-func CORS() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        // リクエストのOriginをそのまま反映している。任意のオリジンを許可するのと同じで、
-        // 明示列挙の意味がなくなる
-        c.Header("Access-Control-Allow-Origin", c.GetHeader("Origin"))
-        c.Header("Access-Control-Allow-Credentials", "true")
-        c.Next()
-    }
-}
-```
-
-`AllowHeaders`に`X-CSRF-Token`を含めているのは、「5. CSRF対策」のDouble Submit Cookieパターンでフロントエンドがこのヘッダーを送るためである。CSRFトークンのヘッダー名を変更する場合は、ここも合わせて変更する。
-
-### 登録位置
-
-「3. ミドルウェア」のとおりグローバルに`router.Use()`で登録する。**認証・認可・CSRF検証のミドルウェアより前に登録する。**
-
-preflightリクエスト（`OPTIONS`）はCookieもCSRFトークンも伴わないため、認証ミドルウェアが先に動くと401で返り、本来のリクエストが送られない。`gin-contrib/cors`は`OPTIONS`を自前で終端するため、CORSを先に登録すればこの問題は起きない。
-
-```go
-// Good（アーキテクチャ規約14章のmain.goと対応）
-router.Use(
-    middleware.CORS(cfg.AllowedOrigins), // 認証より前
-    middleware.AccessLogger(logger),
-    middleware.ErrorHandler(logger),
-)
-```

@@ -42,7 +42,7 @@ Domain Model（②「4. 設計パターン」）
 
 ## 採用パターンに対応する構造
 
-アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Domain Model節の標準構成（domain/application/infrastructure/presentationのフルレイヤー構成）を適用する。具体的なディレクトリ構成は、①Rails現行仕様書の整理が完了していないため未定であり、以下は本機能における暫定的な配置である（アーキテクチャ規約「1. 全体方針」の注記を参照）。
+アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Domain Model節の標準構成（domain/application/infrastructure/presentationのフルレイヤー構成）を適用する。ルート構成とディレクトリ名の規則はアーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」のとおりで、以下は本機能における配置である。
 
 ## 作成するディレクトリ一覧
 
@@ -837,7 +837,7 @@ SQL文そのものは記載しない。
 
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
-|Bounded Context `account-linking` の内部ディレクトリ名を`internal/account_linking`とした|②はContext名（account-linking）のみを記載し、内部ディレクトリ名を明記していない。アーキテクチャ規約「8. 命名規約」、既存の`teacher-permission`→`internal/teacher_permission`の対応関係から類推した|推測|
+|Bounded Context `account-linking` の内部ディレクトリ名を`internal/account_linking`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |②6章「MergeCandidateAccountがTargetAccountとの比較により適格性を判定する振る舞いを持つ」という記載と、②8章「判定は2つのEntity間の比較であり、どちらか一方のEntityへ責務を寄せると不自然」という記載の整理として、Entityは自己完結する事実（`IsUnused()`等）のみを提供し、実際の比較はDomain Service（`AccountLinkEligibilityPolicy`）が担う構成とした|教師権限管理機能③（`TeacherPermissionUpdateGuard`）・問題解答機能③（AnswerResult/AnswerStatusの整理）と同種の②内記述の重複を、既存の前例と同じ考え方で整理したもの|補足（②内の記述整合のための構造化。推測ではない）|
 |`MergeCandidateAccount.MarkMerged`は`deletedAt`のみを設定し、`student_number`のクリアはInfrastructure層のRepository実装が担う構成とした|`valueobject.StudentNumber`はVOとして書式を検証する不変条件を持つため、Entity内で不正な空値へ書き換えることはVOの不変条件と矛盾する。DB列のクリアという永続化上の操作として、Infrastructure層に切り出した|補足（VOの不変条件を維持するための実装判断）|
 |`AccountRepository`に、②「11. Repository設計」の「保持する検索機能」に明記のない`FindTargetAccountByID`メソッドを追加した|②「11. Repository設計」AccountRepositoryの責務には「本人チェック・適格性判定に必要な属性の取得」とあるが、具体的なメソッド名の記載はない。`AccountLinkEligibilityPolicy.Judge`がTargetAccount Entityを引数に要求する設計（3章）上、これを取得する手段が必要であるため追加した|補足（①未提供のため実装時要確認）|

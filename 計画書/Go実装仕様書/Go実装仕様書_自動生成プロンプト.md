@@ -181,12 +181,12 @@ internal
 例（Domain Model採用時）:
 
 ```
-internal/task/domain/entity/task.go
-internal/task/domain/valueobject/task_status.go
-internal/task/domain/repository/task_repository.go
-internal/task/application/usecase/create_task.go
-internal/task/infrastructure/repository/task_repository.go
-internal/task/presentation/handler/task_handler.go
+internal/task_management/domain/entity/task.go
+internal/task_management/domain/valueobject/task_status.go
+internal/task_management/domain/repository/task_repository.go
+internal/task_management/application/usecase/create_task.go
+internal/task_management/infrastructure/repository/task_repository.go
+internal/task_management/presentation/handler/task_handler.go
 ```
 
 例（Active Record採用時）:

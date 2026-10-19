@@ -8,7 +8,7 @@
 
 生徒が担当教員に対して面談を申請し、教員とのメッセージのやり取りを通じて面談の実施を進める機能である。生徒視点で提供するのは、面談申請の一覧・詳細取得、新規申請、取り消し、メッセージの一覧・投稿の6操作である（②「1. 機能概要」）。
 
-**本書の特別な位置づけ**: 本機能（面談機能）と教師面談機能は、同一のBounded Context（`interview-request`）・同一のAggregate（InterviewRequest）を扱う一体の業務領域である。②面談機能・②教師面談機能のいずれも同一のEntity設計・状態遷移ルールを前提とすると明記している（②「3. Bounded Context」「23. Railsとの責務対応」）ため、実際のGoコードでは同じpackage（`internal/interview/...`）にEntity・Value Object・Repository Interface・Repository実装が1セットのみ存在し、生徒向けUseCase/Handler（本書）と教師向けUseCase/Handler（教師面談機能_Go実装仕様書）がこれを共有する。そのため本書は、Domain層（Entity・Value Object・Repository Interface・Domain Service・Domain Event・Domain Error）とInfrastructure層（Repository実装）を、生徒視点・教員視点の両方の操作を包含する形で**正の文書として完全に定義する**。教師面談機能_Go実装仕様書は、本書で定義したDomain層・Infrastructure層をそのまま再利用し、教員向けのApplication層・Presentation層のみを追加で定義する。
+**本書の特別な位置づけ**: 本機能（面談機能）と教師面談機能は、同一のBounded Context（`interview-request`）・同一のAggregate（InterviewRequest）を扱う一体の業務領域である。②面談機能・②教師面談機能のいずれも同一のEntity設計・状態遷移ルールを前提とすると明記している（②「3. Bounded Context」「23. Railsとの責務対応」）ため、実際のGoコードでは同じpackage（`internal/interview_request/...`）にEntity・Value Object・Repository Interface・Repository実装が1セットのみ存在し、生徒向けUseCase/Handler（本書）と教師向けUseCase/Handler（教師面談機能_Go実装仕様書）がこれを共有する。そのため本書は、Domain層（Entity・Value Object・Repository Interface・Domain Service・Domain Event・Domain Error）とInfrastructure層（Repository実装）を、生徒視点・教員視点の両方の操作を包含する形で**正の文書として完全に定義する**。教師面談機能_Go実装仕様書は、本書で定義したDomain層・Infrastructure層をそのまま再利用し、教員向けのApplication層・Presentation層のみを追加で定義する。
 
 ## 採用設計パターンとその理由（②からの要約）
 
@@ -44,19 +44,19 @@ Domain Model（②「4. 設計パターン」）
 
 ## 採用パターンに対応する構造
 
-`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Domain Model節、および「2. レイヤー責務と依存方向」に従い、標準のフルレイヤー構成（domain/application/infrastructure/presentation）を適用する。ただし本機能で不要なディレクトリは作成しない（具体的なディレクトリ構成は未定。アーキテクチャ規約「1. 全体方針」の注記を参照）。
+`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Domain Model節、および「2. レイヤー責務と依存方向」に従い、標準のフルレイヤー構成（domain/application/infrastructure/presentation）を適用する。ただし本機能で不要なディレクトリは作成しない（ルート構成とディレクトリ名の規則はアーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」）。
 
 - `domain/specification/`: 対象外（②に該当する記載がなく、Repository Interfaceの検索条件・Domain Serviceで業務ルールを表現できるため）
 - `infrastructure/mail/` `infrastructure/cache/` `infrastructure/queue/`: 対象外。通知連携は規約「13. 非同期ジョブ実行パターン（JobQueue）」の共通基盤（`internal/shared/jobqueue`、本Context外）を利用するため、本Context配下には作成しない（詳細は「8. Infrastructure層設計」外部連携実装を参照）
 
-**②からの補足（推測）**: Context名`interview-request`に対応する内部ディレクトリ名は②に明記がなく、アーキテクチャ規約側もディレクトリ構成が未定（アーキテクチャ規約「1. 全体方針」注記）である。既存③文書（タスク管理機能③）が`task-management`→`internal/task`のように2語目を省略した暫定名を採用した前例に倣い、本書でも`interview-request`→`internal/interview`を暫定的に採用する（詳細は「17. ②からの補足事項」参照）。
+**ディレクトリ名について**: アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）により、Context名 `interview-request` に対応するディレクトリ名は `internal/interview_request/` となる。②に明記がなくても規則から機械的に決まるため、本書で推測する余地はない。
 
 **②からの補足（本書固有の構造判断）**: 本機能は、同一Aggregate（InterviewRequest）を生徒視点（本書）・教員視点（教師面談機能）という2つの異なるUseCase/Handler群が操作するという、他の既存機能にはない構成を持つ。Application層・Presentation層をどちらか一方のpackageにまとめると、Go言語のstruct名重複（例：生徒視点・教員視点いずれも`CreateInterviewRequestUseCase`という名前が自然）が生じる。これを避けるため、Application層・Presentation層を`student`/`teacher`のサブパッケージへ分割する（詳細は「17. ②からの補足事項」参照）。Domain層・Infrastructure層は生徒視点・教員視点で共有するため分割しない。
 
 ## 作成するディレクトリ一覧
 
 ```
-internal/interview/
+internal/interview_request/
 ├── domain/
 │   ├── entity/
 │   ├── valueobject/
@@ -86,65 +86,65 @@ internal/interview/
 ## 作成するファイル一覧
 
 ```
-internal/interview/domain/entity/interview_request.go
-internal/interview/domain/entity/interview_request_message.go
+internal/interview_request/domain/entity/interview_request.go
+internal/interview_request/domain/entity/interview_request_message.go
 
-internal/interview/domain/valueobject/interview_request_status.go
-internal/interview/domain/valueobject/reason_category.go
-internal/interview/domain/valueobject/lock_version.go
+internal/interview_request/domain/valueobject/interview_request_status.go
+internal/interview_request/domain/valueobject/reason_category.go
+internal/interview_request/domain/valueobject/lock_version.go
 
-internal/interview/domain/repository/interview_request_repository.go
-internal/interview/domain/repository/interview_request_message_repository.go
-internal/interview/domain/repository/teacher_assignment_repository.go
-internal/interview/domain/repository/student_reference_repository.go
-internal/interview/domain/repository/user_name_reference_repository.go
-internal/interview/domain/repository/teacher_permission_reference_repository.go
+internal/interview_request/domain/repository/interview_request_repository.go
+internal/interview_request/domain/repository/interview_request_message_repository.go
+internal/interview_request/domain/repository/teacher_assignment_repository.go
+internal/interview_request/domain/repository/student_reference_repository.go
+internal/interview_request/domain/repository/user_name_reference_repository.go
+internal/interview_request/domain/repository/teacher_permission_reference_repository.go
 
-internal/interview/domain/service/interview_request_state_transition_policy.go
-internal/interview/domain/service/duplicate_active_interview_policy.go
-internal/interview/domain/service/interview_eligibility_policy.go
+internal/interview_request/domain/service/interview_request_state_transition_policy.go
+internal/interview_request/domain/service/duplicate_active_interview_policy.go
+internal/interview_request/domain/service/interview_eligibility_policy.go
 
-internal/interview/domain/event/interview_requested.go
-internal/interview/domain/event/interview_confirmed.go
-internal/interview/domain/event/interview_cancelled.go
-internal/interview/domain/event/interview_request_message_posted.go
+internal/interview_request/domain/event/interview_requested.go
+internal/interview_request/domain/event/interview_confirmed.go
+internal/interview_request/domain/event/interview_cancelled.go
+internal/interview_request/domain/event/interview_request_message_posted.go
 
-internal/interview/domain/errors/errors.go
+internal/interview_request/domain/errors/errors.go
 
-internal/interview/application/transaction_manager.go
+internal/interview_request/application/transaction_manager.go
 
-internal/interview/application/student/dto/list_interview_requests_dto.go
-internal/interview/application/student/dto/show_interview_request_dto.go
-internal/interview/application/student/dto/create_interview_request_dto.go
-internal/interview/application/student/dto/cancel_interview_request_dto.go
-internal/interview/application/student/dto/list_interview_request_messages_dto.go
-internal/interview/application/student/dto/create_interview_request_message_dto.go
-internal/interview/application/student/dto/pagination_dto.go
+internal/interview_request/application/student/dto/list_interview_requests_dto.go
+internal/interview_request/application/student/dto/show_interview_request_dto.go
+internal/interview_request/application/student/dto/create_interview_request_dto.go
+internal/interview_request/application/student/dto/cancel_interview_request_dto.go
+internal/interview_request/application/student/dto/list_interview_request_messages_dto.go
+internal/interview_request/application/student/dto/create_interview_request_message_dto.go
+internal/interview_request/application/student/dto/pagination_dto.go
 
-internal/interview/application/student/usecase/list_interview_requests_usecase.go
-internal/interview/application/student/usecase/show_interview_request_usecase.go
-internal/interview/application/student/usecase/create_interview_request_usecase.go
-internal/interview/application/student/usecase/cancel_interview_request_usecase.go
-internal/interview/application/student/usecase/list_interview_request_messages_usecase.go
-internal/interview/application/student/usecase/create_interview_request_message_usecase.go
-internal/interview/application/student/usecase/errors.go
+internal/interview_request/application/student/usecase/list_interview_requests_usecase.go
+internal/interview_request/application/student/usecase/show_interview_request_usecase.go
+internal/interview_request/application/student/usecase/create_interview_request_usecase.go
+internal/interview_request/application/student/usecase/cancel_interview_request_usecase.go
+internal/interview_request/application/student/usecase/list_interview_request_messages_usecase.go
+internal/interview_request/application/student/usecase/create_interview_request_message_usecase.go
+internal/interview_request/application/student/usecase/errors.go
 
-internal/interview/infrastructure/persistence/gorm/interview_request_model.go
-internal/interview/infrastructure/persistence/gorm/interview_request_message_model.go
+internal/interview_request/infrastructure/persistence/gorm/interview_request_model.go
+internal/interview_request/infrastructure/persistence/gorm/interview_request_message_model.go
 
-internal/interview/infrastructure/repository/interview_request_repository.go
-internal/interview/infrastructure/repository/interview_request_message_repository.go
-internal/interview/infrastructure/repository/teacher_assignment_repository.go
-internal/interview/infrastructure/repository/student_reference_repository.go
-internal/interview/infrastructure/repository/user_name_reference_repository.go
-internal/interview/infrastructure/repository/teacher_permission_reference_repository.go
-internal/interview/infrastructure/repository/transaction_manager.go
+internal/interview_request/infrastructure/repository/interview_request_repository.go
+internal/interview_request/infrastructure/repository/interview_request_message_repository.go
+internal/interview_request/infrastructure/repository/teacher_assignment_repository.go
+internal/interview_request/infrastructure/repository/student_reference_repository.go
+internal/interview_request/infrastructure/repository/user_name_reference_repository.go
+internal/interview_request/infrastructure/repository/teacher_permission_reference_repository.go
+internal/interview_request/infrastructure/repository/transaction_manager.go
 
-internal/interview/presentation/student/handler/interview_request_handler.go
-internal/interview/presentation/student/handler/interview_request_message_handler.go
-internal/interview/presentation/student/request/interview_request_request.go
-internal/interview/presentation/student/response/interview_request_response.go
-internal/interview/presentation/student/routes.go
+internal/interview_request/presentation/student/handler/interview_request_handler.go
+internal/interview_request/presentation/student/handler/interview_request_message_handler.go
+internal/interview_request/presentation/student/request/interview_request_request.go
+internal/interview_request/presentation/student/response/interview_request_response.go
+internal/interview_request/presentation/student/routes.go
 ```
 
 ---
@@ -594,7 +594,7 @@ stateDiagram-v2
 
 ## DTO（Command / Query）
 
-`internal/interview/application/student/dto/`に配置する。
+`internal/interview_request/application/student/dto/`に配置する。
 
 |struct名|フィールドと型|Command/Query区分|
 |-|-|-|
@@ -804,7 +804,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 
 ## TransactionManager実装
 
-`internal/interview/application/transaction_manager.go`に、規約「11. Transaction実装パターン（TransactionManager）」に定義されたインターフェースをそのまま配置する。
+`internal/interview_request/application/transaction_manager.go`に、規約「11. Transaction実装パターン（TransactionManager）」に定義されたインターフェースをそのまま配置する。
 
 ```go
 type TransactionManager interface {
@@ -812,7 +812,7 @@ type TransactionManager interface {
 }
 ```
 
-実装は`internal/interview/infrastructure/repository/transaction_manager.go`に、規約「11. Transaction実装パターン」の標準実装（GORMの`*gorm.DB.Transaction`、`context.WithValue`による`tx`の伝搬）をそのまま適用する。生徒向け・教員向けいずれのUseCase（本書・教師面談機能）もこの単一実装を共有する。
+実装は`internal/interview_request/infrastructure/repository/transaction_manager.go`に、規約「11. Transaction実装パターン」の標準実装（GORMの`*gorm.DB.Transaction`、`context.WithValue`による`tx`の伝搬）をそのまま適用する。生徒向け・教員向けいずれのUseCase（本書・教師面談機能）もこの単一実装を共有する。
 
 ## 外部連携実装
 
@@ -834,7 +834,7 @@ Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastruct
 
 ## Handler
 
-### InterviewRequestHandler（`internal/interview/presentation/student/handler/interview_request_handler.go`）
+### InterviewRequestHandler（`internal/interview_request/presentation/student/handler/interview_request_handler.go`）
 
 - struct名: `InterviewRequestHandler`
 - 対応する呼び出し先: `ListInterviewRequestsUseCase` / `ShowInterviewRequestUseCase` / `CreateInterviewRequestUseCase` / `CancelInterviewRequestUseCase`
@@ -855,7 +855,7 @@ Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastruct
   5. 戻り値のエラーは`c.Error(err)`でgin.Contextへ登録し、共通のエラーハンドリングミドルウェア（Gin規約「8. エラーハンドリングミドルウェア」）に委ねる
   6. 成功時はResult DTOをResponse DTOへ変換してJSONで返す
 
-### InterviewRequestMessageHandler（`internal/interview/presentation/student/handler/interview_request_message_handler.go`）
+### InterviewRequestMessageHandler（`internal/interview_request/presentation/student/handler/interview_request_message_handler.go`）
 
 - struct名: `InterviewRequestMessageHandler`
 - 対応する呼び出し先: `ListInterviewRequestMessagesUseCase` / `CreateInterviewRequestMessageUseCase`
@@ -870,7 +870,7 @@ Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastruct
 
 ## Request / Response DTO
 
-### Request（`internal/interview/presentation/student/request/interview_request_request.go`）
+### Request（`internal/interview_request/presentation/student/request/interview_request_request.go`）
 
 |struct名|フィールドと型|バリデーションタグ／チェック内容|
 |-|-|-|
@@ -880,7 +880,7 @@ Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastruct
 |`ListInterviewRequestMessagesRequest`|`Page int `form:"page"``|`Page`は`binding:"omitempty,min=1"`|
 |`CreateInterviewRequestMessageRequest`|`Body string `json:"body" binding:"required,max=2000"``|`body`必須・2000文字以内（面談機能②「15. Validation設計」バリデーション仕様）|
 
-### Response（`internal/interview/presentation/student/response/interview_request_response.go`）
+### Response（`internal/interview_request/presentation/student/response/interview_request_response.go`）
 
 |struct名|フィールドと型|
 |-|-|
@@ -898,7 +898,7 @@ EntityであるInterviewRequest／InterviewRequestMessageをそのまま返さ�
 
 ## Routing
 
-`internal/interview/presentation/student/routes.go`
+`internal/interview_request/presentation/student/routes.go`
 
 |Method|Path|Handler|
 |-|-|-|
@@ -1158,7 +1158,7 @@ SQL文そのものは記載しない。
 
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
-|Bounded Context `interview-request` の内部ディレクトリ名を`internal/interview`とした|②はContext名（interview-request）のみを記載し、内部ディレクトリ名を明記していない。アーキテクチャ規約のディレクトリ構成は未定（アーキテクチャ規約「1. 全体方針」注記）のため、既存③文書（タスク管理機能③）の`task-management`→`internal/task`という前例に倣い、2語目を省略した|推測（アーキテクチャ規約のディレクトリ構成確定後に見直しが必要な暫定案）|
+|Bounded Context `interview-request` の内部ディレクトリ名を`internal/interview_request`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |Application層・Presentation層を`student`/`teacher`サブパッケージへ分割した|本機能は同一Aggregateを生徒視点（本書）・教員視点（教師面談機能）という2つのUseCase/Handler群が操作するという構成を持つため、同名struct（例：両視点の`CreateInterviewRequestUseCase`）の衝突を避ける必要がある。既存の他機能③文書にはこの構成が存在しないため、本書で新たに構造を定めた|補足（規約に反しない範囲での構造上の判断であり、②の設計方針自体は変更していない）|
 |`InitiatorRole`という軽量な独自型（`string`基底、Value Objectとしては定義しない）を新設した|②はEntity設計上`initiator_role`フィールドの存在を前提とするが、Goでの具体的な型表現（`string`のまま扱うか独自型にするか）を明記していない。`status`のようにVOへ昇格するほどの業務ルール（許容値以上の遷移ルール等）を②は要求していないため、軽量な独自型で表現した|推測|
 |`ReasonCategory`VOと申請者区分（`initiator_role`）の整合性検証を、VO自体ではなく`InterviewRequest.NewInterviewRequest`（Entityファクトリ）側に置いた|両②「7. Value Object設計」はReasonCategoryのルールとして「生徒申請時は必須・教員申請時は指定不可」を明記するが、これはReasonCategory単体の妥当性ではなく他フィールド（initiator_role）との組み合わせルールである。VOは自己完結した値の妥当性検証に限定し、複数フィールドの整合性はEntityファクトリの責務とする（コーディング規約「9. 関数・メソッド設計」入力検証とドメイン検証の責務分離の考え方を参考にした）|補足（規約適用に基づく実装上の判断）|

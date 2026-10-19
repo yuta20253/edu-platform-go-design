@@ -36,7 +36,7 @@ Transaction Script（単元関連付けの同期処理をEntity/Storeに寄せ�
 
 `draft-task`
 
-②にはGo実装上のディレクトリ名の明記がない。アーキテクチャ規約「8. 命名規約」に基づき、既存の`task-management`→`internal/task`の対応関係に倣い、`draft-task`→`internal/draft_task`とする（**②からの補足・推測**。詳細は「17. ②からの補足事項」参照）。
+②にはGo実装上のディレクトリ名の明記がない。アーキテクチャ規約「8. 命名規約」に基づき、既存の`task-management`→`internal/task_management`の対応関係に倣い、`draft-task`→`internal/draft_task`とする（**②からの補足・推測**。詳細は「17. ②からの補足事項」参照）。
 
 ## ②で採用した設計パターン
 
@@ -737,7 +737,7 @@ SQL文そのものは記載しない。
 
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
-|Bounded Context `draft-task` の内部ディレクトリ名を`internal/draft_task`とした|②はContext名（draft-task）のみを記載し、内部ディレクトリ名を明記していない。アーキテクチャ規約「8. 命名規約」、既存の`task-management`→`internal/task`の対応関係から類推した|推測|
+|Bounded Context `draft-task` の内部ディレクトリ名を`internal/draft_task`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |GoalStore・UnitStoreをdraft-task Context内で参照専用のStoreとして直接実装する構成とした（Context間連携ルールの参照インターフェース化は行わない）|②「11. Repository設計」はGoalStore・UnitStoreを本Context内に配置する設計をすでに決定しており、目標管理機能③が同様の判断（TaskStoreを参照用の具象Storeとして自Context内に実装）を採用しているため、student向け機能内での一貫性を優先して同じ整理とした|補足（既存の目標管理機能③との整合を優先した判断）|
 |`CompletedAt`フィールドは②「9. クラス図」に記載があるため保持するが、常に`nil`のまま保存・返却される前提とした|①「タスク下書き機能 Rails現行仕様書」「7. 状態管理」により、現行Railsには下書きタスクを完了状態にする操作自体（更新・削除を含む）が存在せず、`completed_at`を更新する操作がこの機能のスコープ内外を問わず存在しないことが確認できたため。②「6. Entity設計」「10. 状態遷移図」の整理とも一致する|①の記載に基づく確定（推測ではない）|
 |作成時のHTTP Status Codeを201とした|②「19. API仕様」Status Codeの記載が「201/200: 作成成功の扱いは既存仕様に合わせて統一する」と曖昧であり、①未提供のため実際のRails挙動を参照できない。REST慣例に基づき作成=201と仮置きした|推測（実装着手前にRails現行仕様の確認を推奨）|

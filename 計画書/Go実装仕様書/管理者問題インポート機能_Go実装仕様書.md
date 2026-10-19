@@ -742,7 +742,7 @@ SQL文そのものは記載しない。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|Context名 `question-import` に対応する `internal/` ディレクトリ名を `question_import` とした|アーキテクチャ規約「8. 命名規約」に従うための実装上の対応|推測ではない（規約に基づく機械的な変換）|
+|Context名 `question-import` に対応する `internal/` ディレクトリ名を `question_import` とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |ImportStatusの終了状態の内部値を `StatusSuccess` / `StatusPartialFailure` / `StatusFailure` と具体的に命名した|②は「成功／一部失敗／失敗」という区分を業務要件からの推測として記載するに留まり、コード上の識別子までは定義していない|推測|
 |非同期実行の基盤として、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」が定める`JobPublisher` + `jobs`テーブル + ポーリングワーカーの標準実装を採用した|同規約が2026-08に制定され、旧版の本書が独自定義していた`event.Publisher`・専用ワーカーに代わる標準実装として明示的に定められたため。旧版の「具体的なメッセージング基盤の選定は本書のスコープ外とする」という記述はこの標準実装で置き換える|規約制定に伴う反映（推測ではない）|
 |`StartQuestionImportUseCase`のジョブ登録（`JobPublisher.Publish`）をImportHistory作成と同一トランザクション内で行う構成とした|アーキテクチャ規約13章のTransactional Outboxパターンに従うための実装上の対応。旧版が「推測」としていたコミット後発行の構成から変更した|規約準拠のための修正（推測ではない）|

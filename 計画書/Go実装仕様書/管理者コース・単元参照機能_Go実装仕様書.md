@@ -507,7 +507,7 @@ Infrastructure関数のクエリ正確性検証（`infrastructure/*_test.go`と�
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|`internal/`配下のディレクトリ名を`course_catalog`とする|②のContext名`course-catalog`はkebab-case表記のみで、ディレクトリ名の指定がないため、アーキテクチャ規約「8. 命名規約」に従い変換した（管理者高校学年参照機能③文書と同一規則）|推測|
+|`internal/`配下のディレクトリ名を`course_catalog`とする|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |`presentation/request/`ディレクトリを設けず、クエリ/パスパラメータ用structをHandlerと同一package内に定義する|指示書のTransaction Script構造例に`request/`が含まれておらず、本機能の入力構造が単純なため|推測|
 |`application/dto.go`・`application/errors.go`・`application/import_history_reader.go`・`infrastructure/model.go`という補助ファイルへの分割、および`import_history_reader.go`を他のクエリ関数と別ファイルに分けたこと|②・指示書ともにファイル粒度までは規定していないため、責務ごとに集約する分割を採用した。`import_history_reader.go`の分離は、②「11. Repository設計」がImportHistoryRepositoryを「question-import Context提供、外部依存として利用」と明示的に区別していることに対応する|推測|
 |application関数に`current admin`を引数として渡さない|②16章「Handler: パスパラメータを受け渡すのみ」「UseCase: 追加のスコープ制限は行わない（単元詳細のみroute値によるスコープ検証）」という判断に基づき、認可情報はMiddleware/Handlerで完結させ、application関数の入力から除外した|②の判断に基づく具体化（推測要素は低い）|
