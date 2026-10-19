@@ -72,11 +72,11 @@ api := router.Group("/api")
 }
 ```
 
-Context単位でルート登録関数を分割し、各Contextのルート登録関数が自分のグループのみを構築する（具体的な配置ディレクトリはアーキテクチャ規約のディレクトリ構成が確定次第定める）。
+Context単位でルート登録関数を分割し、各Contextのルート登録関数が自分のグループのみを構築する（配置はアーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」のとおり、Contextディレクトリ配下の`presentation/routes.go`）。
 
 ```go
 // Good
-// internal/task/presentation/routes.go
+// internal/task_management/presentation/routes.go
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler) {
     tasks := rg.Group("/tasks")
     tasks.GET("", h.ListTasks)
@@ -135,6 +135,10 @@ func AuthMiddleware() gin.HandlerFunc {
 ```
 
 グローバルに適用するミドルウェア（エラーハンドリング・アクセスログ等）は`router.Use()`で登録し、特定のルートグループにのみ必要なミドルウェア（認証・認可）はそのグループの`Use()`で登録する。すべてのミドルウェアをグローバルに登録しない。
+
+### CORSミドルウェアは使わない
+
+CORSミドルウェア（`gin-contrib/cors`等）は登録しない。フロントエンド（Next.js）がAPIリクエストを`rewrites`で中継しており、ブラウザから見るとAPIは同一オリジンになるため、CORSヘッダーを返す必要がない。詳細な前提と、別オリジン構成に変更する場合の見直し項目はアーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「CORS」節に従う。
 
 ---
 
@@ -571,3 +575,4 @@ func TestCreateTask(t *testing.T) {
 ```
 
 `gin.SetMode(gin.TestMode)`でデバッグ出力を抑制する。ミドルウェア単体のテストは、対象のミドルウェアと簡易なハンドラのみを持つ最小構成のルーターで行い、他のミドルウェアの影響を受けないようにする。複数ケースを検証する場合は、コーディング規約「26. テスト」のテーブル駆動テストに従う。
+
