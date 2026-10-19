@@ -533,7 +533,7 @@ master-data Contextは本4テーブルの正規の所有者であり、authentic
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/master_data`とした|②のContext名`master-data`はkebab-caseであり、Goパッケージ名としての変換方法（ハイフンをアンダースコアに置換）が②に明記されていない。アーキテクチャ規約「8. 命名規約」に従い変換した|推測|
+|ディレクトリ名を`internal/master_data`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |`ExistsAddress` / `FindHighSchoolByID` / `ExistsHighSchool` / `FindGradeByID` / `ExistsGrade`という5つのapplication関数を、②「12. UseCase設計」が定義する4操作（ListPrefectures/SearchAddresses/SearchHighSchools/ListGrades）に加えて追加した|②「3. Bounded Context」「他Contextとの依存関係」が、authentication Context・profile Contextからの参照専用依存（高校・学年の実在確認、学校コード参照、住所ID実在確認）を明記している一方、②「11. Repository設計」の各Repositoryは範囲検索機能のみを定義し、単一ID実在確認・詳細取得の関数までは規定していない。この依存を満たすための最小限の関数を、本書側の実装判断として追加した|②からの補足（依存関係自体は②が既に想定しているため、新しい業務ルールの追加ではない）|
 |`HighSchool`（検索結果用、`id`/`name`/`csv_managed`）と`HighSchoolDetail`（他Context向け、`school_code`等を含む）を別のDTO structとして分けた|②「19. API仕様」の高校検索レスポンスは`id`/`name`/`csv_managed`のみを含むと明記されている一方、authentication Contextが必要とする学校コード整合確認には`school_code`が必要であり、両者の用途が異なるため型を分離した|実装判断（②の記載同士を矛盾なく両立させるための判断）|
 |`QueryAllPrefectures` / `QueryGradesByHighSchool`のソート順を確定しなかった|②「21. DB操作仕様」自体が「現行仕様書に明記なし（推測）」としているため、本書でも確定せず、実装時に①側の挙動確認を要する旨を明記するに留めた|①未提供のため参照不可（②の推測を維持）|

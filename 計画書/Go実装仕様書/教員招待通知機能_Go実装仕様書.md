@@ -528,7 +528,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/teacher_notification`とした|②のContext名`teacher-notification`とディレクトリ名の対応関係が②に明記がない|推測|
+|ディレクトリ名を`internal/teacher_notification`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |招待未完了判定を`users`テーブルのパスワード未設定フィールド（`password_reset_required`相当）で行う構成とした|②「6. Entity設計」が「推測: 教師生徒参照機能・教師教員管理機能のデータモデルに記載された`password_reset_required`フィールドと同一の仕組みを、招待完了判定に用いると仮定する」と明記している内容をそのまま踏襲した|②に準拠（②自身が「推測」と明記）|
 |`TeacherNotificationStore.LatestStatuses`を新設し、教師教員管理機能側の`TeacherNotificationStatusProvider`インターフェースを構造的に満たす形で提供する構成とした|②「3. Bounded Context」「12. UseCase設計」（教師教員管理機能側②文書）が参照専用での利用を明記しているが、具体的なメソッドシグネチャは②のいずれにも記載がない|推測|
 |`teacher_ids`が空配列で送信された場合、送信対象が0件（実質何も送信しない）として扱う方針とした|②「15. Validation設計」は「必須チェック: なし（teacher_idsが空でもエラーとしない）」とのみ記載し、空の場合に「送信対象なし」とするか「全招待未完了教員へ送信」とするかは①未提供のため確認できない|①未提供のため参照不可（推測）|

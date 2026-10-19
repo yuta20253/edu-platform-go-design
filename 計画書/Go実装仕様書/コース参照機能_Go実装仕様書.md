@@ -326,7 +326,7 @@ SQL文そのものはここには記載しない。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|`internal/curriculum`というディレクトリ名を採用した|②はContext名`curriculum`のみを定義しており、`internal/`配下のパスは明記していないため、アーキテクチャ規約「8. 命名規約」に従いContext名をそのままディレクトリ名とした|推測ではなく規約適用による直接的な判断|
+|`internal/curriculum`というディレクトリ名を採用した|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |Request用struct（`ListCoursesRequestQuery`）を`presentation/handler`内に配置した|アーキテクチャ規約のTransaction Script構造例に`presentation/request/`ディレクトリが含まれていないため|推測ではなく規約の構造例に基づく判断|
 |`CourseResult`/`UnitResult`/`CourseRecord`/`UnitRecord`等のDTO・GORMモデルの具体的なフィールド型（`uint`/`int`/`string`）|②はEntityの属性名のみを定義しており、Go/DB上の型までは記載していないため、一般的な対応関係から補った|推測（①未提供のため実際のカラム型は参照不可。実装時にDB定義との突き合わせが必要）|
 |`subject`クエリパラメータ（文字列）と`courses.subject_id`カラム（数値属性）との対応関係・変換要否|②「3. Bounded Context」で科目情報の詳細テーブルが存在しないことが述べられているのみで、クエリパラメータとカラムの対応関係は明記がない|推測（①未提供のため参照不可。実装着手前に業務側・DB定義側の確認が必要な要検討事項）|

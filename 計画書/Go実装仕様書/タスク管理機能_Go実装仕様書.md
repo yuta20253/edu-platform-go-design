@@ -35,7 +35,7 @@
 
 `task-management`
 
-`規約/アーキテクチャ規約.md`「4. Bounded Context構成」の機能Context一覧表では `task-management` は上位ドメイン `Task` に属し、対応する内部ディレクトリ名は明記されていない。②にも明記がなく、アーキテクチャ規約側もディレクトリ構成が未定（旧2章削除。同「1. 全体方針」の注記を参照）のため、本書では暫定的に `internal/task/` をディレクトリ名として採用する（**②からの補足・推測**。アーキテクチャ規約のディレクトリ構成確定後に見直しが必要。詳細は「17. ②からの補足事項」参照）。
+アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）により、Context名 `task-management` に対応するディレクトリ名は `internal/task_management/` となる。package名は `taskmanagement` とする（同節のとおり、package名にアンダースコアを使わないため）。②に明記がなくても規則から機械的に決まるため、本書で推測する余地はない。
 
 ## ②で採用した設計パターン
 
@@ -43,32 +43,32 @@ Active Record（②「4. 設計パターン」）
 
 ## 採用パターンに対応する構造
 
-`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節に従い、domain/infrastructureのレイヤー分離およびusecase層を設けない。Entity相当のstructと永続化操作（Store）を同一package（`internal/task`）に置く。
+`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節に従い、domain/infrastructureのレイヤー分離およびusecase層を設けない。Entity相当のstructと永続化操作（Store）を同一package（`internal/task_management`）に置く。
 
 作成するディレクトリ一覧:
 
 ```
-internal/task/
-internal/task/presentation/
-internal/task/presentation/handler/
-internal/task/presentation/request/
-internal/task/presentation/response/
+internal/task_management/
+internal/task_management/presentation/
+internal/task_management/presentation/handler/
+internal/task_management/presentation/request/
+internal/task_management/presentation/response/
 ```
 
 ## 作成するファイル一覧
 
 ```
-internal/task/task.go                          # Task struct・TaskStatus型・Validate()等
-internal/task/task_unit_link.go                 # TaskUnitLink struct
-internal/task/task_unit_relation_policy.go       # 単元紐付け追加・削除可否判定（②「8. Domain Service」相当）
-internal/task/dependency.go                     # 他Context参照用インターフェース定義（GoalOwnershipChecker / UnitReferenceChecker）
-internal/task/errors.go                          # struct/Storeが返すエラー変数定義
-internal/task/task_store.go                      # TaskStore
-internal/task/task_unit_link_store.go            # TaskUnitLinkStore
-internal/task/presentation/handler/task_handler.go
-internal/task/presentation/request/task_request.go
-internal/task/presentation/response/task_response.go
-internal/task/presentation/routes.go
+internal/task_management/task.go                          # Task struct・TaskStatus型・Validate()等
+internal/task_management/task_unit_link.go                 # TaskUnitLink struct
+internal/task_management/task_unit_relation_policy.go       # 単元紐付け追加・削除可否判定（②「8. Domain Service」相当）
+internal/task_management/dependency.go                     # 他Context参照用インターフェース定義（GoalOwnershipChecker / UnitReferenceChecker）
+internal/task_management/errors.go                          # struct/Storeが返すエラー変数定義
+internal/task_management/task_store.go                      # TaskStore
+internal/task_management/task_unit_link_store.go            # TaskUnitLinkStore
+internal/task_management/presentation/handler/task_handler.go
+internal/task_management/presentation/request/task_request.go
+internal/task_management/presentation/response/task_response.go
+internal/task_management/presentation/routes.go
 ```
 
 `domain/` `application/` `infrastructure/` の各ディレクトリはActive Record採用のため作成しない（規約3章）。
@@ -81,7 +81,7 @@ internal/task/presentation/routes.go
 
 ## Model（Entity相当）
 
-### Task（`internal/task/task.go`）
+### Task（`internal/task_management/task.go`）
 
 ②「6. Entity設計」Taskの責務・②「7. Value Object設計」TaskStatus/DueDate/Priorityの独自ルールを、同一package内のstruct・型・メソッドとして統合する。
 
@@ -132,7 +132,7 @@ const (
 - 生成直後のStatusは常に`TaskStatusNotStarted`
 - 生成直後のCompletedAtは常にnil
 
-### TaskUnitLink（`internal/task/task_unit_link.go`）
+### TaskUnitLink（`internal/task_management/task_unit_link.go`）
 
 ②「6. Entity設計」TaskUnitLinkの責務を反映する。
 
@@ -159,7 +159,7 @@ const (
 
 規約3章「Active Record」節により、domain層にRepository Interfaceを定義しない（原則「対象外」）。②「11. Repository設計」の責務は「8. Infrastructure層設計」節のStoreとして実装する。
 
-なお、②「11. Repository設計」のGoalStore・UnitStoreは、goal-management Context・curriculum(Unit) Context側が公開する参照手段であり、task-managementがこれらのデータを所有・実装するものではない（`規約/アーキテクチャ規約.md`「5. Context間連携ルール」）。task-management側では、コーディング規約「5. インターフェース」（利用側でインターフェースを定義する）に従い、`internal/task/dependency.go`に以下の参照用interfaceを定義する。
+なお、②「11. Repository設計」のGoalStore・UnitStoreは、goal-management Context・curriculum(Unit) Context側が公開する参照手段であり、task-managementがこれらのデータを所有・実装するものではない（`規約/アーキテクチャ規約.md`「5. Context間連携ルール」）。task-management側では、コーディング規約「5. インターフェース」（利用側でインターフェースを定義する）に従い、`internal/task_management/dependency.go`に以下の参照用interfaceを定義する。
 
 ```go
 // GoalOwnershipChecker は goal-management Context が公開する
@@ -180,7 +180,7 @@ type UnitReferenceChecker interface {
 
 ## Domain Service
 
-②「8. Domain Service」TaskUnitRelationPolicyを、独立したstruct/interfaceではなく、`internal/task/task_unit_relation_policy.go`内のpackageレベル関数として実装する（規約3章 Active Record節に従いDomain Serviceは原則「対象外」とするための構造上の読み替え。判断根拠は「17. ②からの補足事項」参照）。
+②「8. Domain Service」TaskUnitRelationPolicyを、独立したstruct/interfaceではなく、`internal/task_management/task_unit_relation_policy.go`内のpackageレベル関数として実装する（規約3章 Active Record節に従いDomain Serviceは原則「対象外」とするための構造上の読み替え。判断根拠は「17. ②からの補足事項」参照）。
 
 |関数|引数|戻り値|責務|
 |-|-|-|-|
@@ -192,7 +192,7 @@ type UnitReferenceChecker interface {
 
 ## Domain Error
 
-規約3章「Active Record」節に従い、「struct/Storeが返すエラー」として`internal/task/errors.go`に`sentinel error`を定義する。
+規約3章「Active Record」節に従い、「struct/Storeが返すエラー」として`internal/task_management/errors.go`に`sentinel error`を定義する。
 
 |変数名|発生条件|対応する②の記載|
 |-|-|-|
@@ -294,7 +294,7 @@ stateDiagram-v2
 
 # 6. Application層設計
 
-**実装上の位置づけ**: 本機能はActive Record採用のためusecase層を設けない。「対象外（Active Record採用のため、usecase層を設けない）」とする。②「12. UseCase設計」に記載された4つの業務操作（ListTasks／ShowTask／CreateTask／UpdateTask）は、Handlerが`internal/task`のStore・Modelを直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する。
+**実装上の位置づけ**: 本機能はActive Record採用のためusecase層を設けない。「対象外（Active Record採用のため、usecase層を設けない）」とする。②「12. UseCase設計」に記載された4つの業務操作（ListTasks／ShowTask／CreateTask／UpdateTask）は、Handlerが`internal/task_management`のStore・Modelを直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する。
 
 ## DTO（Command / Query）
 
@@ -343,11 +343,11 @@ flowchart TD
 
 # 8. Infrastructure層設計
 
-**実装上の位置づけ**: 本機能はActive Record採用のためinfrastructure層のディレクトリ分離は行わない。「3. Domain層設計」で定義したModelと同一package（`internal/task`）にStoreを置く。
+**実装上の位置づけ**: 本機能はActive Record採用のためinfrastructure層のディレクトリ分離は行わない。「3. Domain層設計」で定義したModelと同一package（`internal/task_management`）にStoreを置く。
 
 ## Store実装
 
-### TaskStore（`internal/task/task_store.go`）
+### TaskStore（`internal/task_management/task_store.go`）
 
 - struct名: `TaskStore`
 - 対応するGORMモデル: `Task`（同一struct。GORMタグは付与せず、規約のデフォルト命名規則（フィールド名→snake_caseカラム名）に委ねる。「15. GORM / DBクエリ設計」参照）
@@ -369,7 +369,7 @@ func NewTaskStore(db *gorm.DB) *TaskStore
 
 保持しない責務（②「11. Repository設計」保持しない責務を踏襲）: 業務ルール判定・認可判定・状態遷移の判断・単元紐付けの削除可否判定はStoreに持たせない。
 
-### TaskUnitLinkStore（`internal/task/task_unit_link_store.go`）
+### TaskUnitLinkStore（`internal/task_management/task_unit_link_store.go`）
 
 - struct名: `TaskUnitLinkStore`
 - 対応するGORMモデル: `TaskUnitLink`（テーブル名`task_units`。「15. GORM / DBクエリ設計」参照）
@@ -402,7 +402,7 @@ Entity ⇔ GORMモデルの変換方針: Active Record採用のため、`Task`�
 
 ## Handler
 
-### TaskHandler（`internal/task/presentation/handler/task_handler.go`）
+### TaskHandler（`internal/task_management/presentation/handler/task_handler.go`）
 
 - struct名: `TaskHandler`
 - 依存: `*task.TaskStore`、`*task.TaskUnitLinkStore`、`task.GoalOwnershipChecker`、`task.UnitReferenceChecker`（コンストラクタで注入する）
@@ -467,7 +467,7 @@ Active Record採用のためUseCase層を経由しない。以下、②「12. Us
 
 ## Request / Response DTO
 
-### Request（`internal/task/presentation/request/task_request.go`）
+### Request（`internal/task_management/presentation/request/task_request.go`）
 
 |struct名|フィールドと型|バリデーションタグ／チェック内容|
 |-|-|-|
@@ -475,7 +475,7 @@ Active Record採用のためUseCase層を経由しない。以下、②「12. Us
 |`CreateTaskRequest`|`GoalID uint`、`Title string`、`Content string`、`DueDate string`、`Priority any`、`Memo string`、`UnitIDs []uint`|`GoalID`・`Title`・`DueDate`は`binding:"required"`。`DueDate`は日付フォーマット検証（②「15. Validation設計」フォーマットチェック：日付形式）。`Priority`は文字列・数値いずれの形式も受け付ける（②「7. Value Object設計」Priority独自仕様。具体的な許容値は②に明記がないため「17. ②からの補足事項」参照）。`UnitIDs`は配列形式チェック（②「15. Validation設計」フォーマットチェック：unit_idsの配列形式）|
 |`UpdateTaskRequest`|`Title *string`、`Content *string`、`DueDate *string`、`Priority any`、`Memo *string`、`Status *string`、`UnitIDs *[]uint`|部分更新のためポインタ型で「未指定」を表現する。`Status`指定時は`binding:"omitempty,oneof=not_started in_progress completed"`|
 
-### Response（`internal/task/presentation/response/task_response.go`）
+### Response（`internal/task_management/presentation/response/task_response.go`）
 
 |struct名|フィールドと型|
 |-|-|
@@ -487,7 +487,7 @@ Active Record採用のためUseCase層を経由しない。以下、②「12. Us
 
 ## Routing
 
-`internal/task/presentation/routes.go`
+`internal/task_management/presentation/routes.go`
 
 |Method|Path|Handler|
 |-|-|-|
@@ -705,9 +705,9 @@ SQL文そのものは本書に記載しない。
 
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
-|Bounded Context `task-management` の内部ディレクトリ名を`internal/task`とした|②はContext名（task-management）のみを記載し、内部ディレクトリ名を明記していない。アーキテクチャ規約の具体的なディレクトリ構成は未定（旧2章は削除。1章の注記を参照）のため、4章の上位ドメイン「Task」およびタスク管理機能の対応から暫定的に`internal/task/`とした|推測（アーキテクチャ規約のディレクトリ構成確定後に見直しが必要な暫定案）|
+|Bounded Context `task-management` の内部ディレクトリ名を`internal/task_management`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |GoalStore・UnitStoreをtask-management内で実装せず、task package側に参照用interface（`GoalOwnershipChecker`／`UnitReferenceChecker`）を定義し、実装はgoal-management／curriculum Context側に委ねる構成とした|②「11. Repository設計」はGoalStore・UnitStoreをtask-managementの節内で記載しているが、`規約/アーキテクチャ規約.md`「5. Context間連携ルール」により他Contextの内部実装に直接依存できないため、コーディング規約「5. インターフェース」（利用側での定義）に従って整理した。②の「責務」「保持しない責務」の記載内容自体は変更していない|補足（規約の適用による構造上の具体化であり、推測ではなく規約遵守のための判断）|
-|②「8. Domain Service」TaskUnitRelationPolicyを、独立したstruct/interfaceではなく`internal/task`パッケージ内のpackageレベル関数`CanRemoveTaskUnitLink`として実装した|`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
+|②「8. Domain Service」TaskUnitRelationPolicyを、独立したstruct/interfaceではなく`internal/task_management`パッケージ内のpackageレベル関数`CanRemoveTaskUnitLink`として実装した|`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
 |②「7. Value Object設計」TaskStatus／DueDate／Priorityを独立したValue Object structではなく、Taskの型・メソッドとして実装した|同上、規約3章Active Record節により、Value Objectは原則「対象外」とされているため|補足（規約適用）|
 |`TaskUnitLink`のGORMテーブル名を`task_units`として`TableName()`で明示的に上書きする必要がある点|②「20. DB設計方針」はテーブル名`task_units`を利用する旨のみ記載しており、Go構造体`TaskUnitLink`のデフォルト複数形（`task_unit_links`）との不一致には触れていない。Gorm規約「テーブル名」に基づき③側で明示した|補足（Gorm規約の適用によりテーブル不一致を検出したもの）|
 |`Priority`の正規化後の具体的な許容値集合（例："low"/"medium"/"high"等）|②「7. Value Object設計」は「文字列・整数の両方で受け取る」「一貫した値へ正規化する」とのみ記載し、具体的なマッピングルール・値集合を明記していない。①未提供のため参照不可|推測（実装着手前に要件確認が必要）|

@@ -35,9 +35,9 @@
 ## 対象Bounded Context名
 
 - Context名（②）: `authentication`
-- ディレクトリ名: `internal/auth`
+- ディレクトリ名: `internal/authentication`
 
-  > **②からの補足**: ②にはディレクトリ名の明記がない。アーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」に従い、Context名`authentication`を英単語1語のディレクトリ名に短縮したものであり、他機能（`internal/task`等）の命名慣習に合わせた実装判断である（推測）。
+  > **ディレクトリ名について**: アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）により、Context名 `authentication` に対応するディレクトリ名は `internal/authentication/` となる（1語のため変換なし）。
 
 ## ②で採用した設計パターン
 
@@ -46,7 +46,7 @@ Domain Model
 ## 作成するディレクトリ一覧
 
 ```
-internal/auth/
+internal/authentication/
 ├── domain/
 │   ├── entity/
 │   ├── valueobject/
@@ -77,76 +77,76 @@ internal/auth/
 ## 作成するファイル一覧
 
 ```
-internal/auth/domain/entity/account.go
-internal/auth/domain/entity/password_reset_token.go
+internal/authentication/domain/entity/account.go
+internal/authentication/domain/entity/password_reset_token.go
 
-internal/auth/domain/valueobject/email.go
-internal/auth/domain/valueobject/raw_password.go
-internal/auth/domain/valueobject/reset_token_validity_period.go
-internal/auth/domain/valueobject/signup_role_requirement.go
-internal/auth/domain/valueobject/student_number.go
+internal/authentication/domain/valueobject/email.go
+internal/authentication/domain/valueobject/raw_password.go
+internal/authentication/domain/valueobject/reset_token_validity_period.go
+internal/authentication/domain/valueobject/signup_role_requirement.go
+internal/authentication/domain/valueobject/student_number.go
 
-internal/auth/domain/repository/account_repository.go
-internal/auth/domain/repository/user_role_repository.go
-internal/auth/domain/repository/high_school_repository.go
-internal/auth/domain/repository/grade_repository.go
+internal/authentication/domain/repository/account_repository.go
+internal/authentication/domain/repository/user_role_repository.go
+internal/authentication/domain/repository/high_school_repository.go
+internal/authentication/domain/repository/grade_repository.go
 
-internal/auth/domain/service/credential_verification_service.go
-internal/auth/domain/service/password_hasher.go
-internal/auth/domain/service/registration_eligibility_policy.go
-internal/auth/domain/service/provisional_account_activation_policy.go
-internal/auth/domain/service/password_reset_lifecycle_policy.go
+internal/authentication/domain/service/credential_verification_service.go
+internal/authentication/domain/service/password_hasher.go
+internal/authentication/domain/service/registration_eligibility_policy.go
+internal/authentication/domain/service/provisional_account_activation_policy.go
+internal/authentication/domain/service/password_reset_lifecycle_policy.go
 
-internal/auth/domain/event/password_reset_token_issued.go
-internal/auth/domain/event/account_activated.go
+internal/authentication/domain/event/password_reset_token_issued.go
+internal/authentication/domain/event/account_activated.go
 
-internal/auth/domain/errors/errors.go
+internal/authentication/domain/errors/errors.go
 
-internal/auth/application/dto/login_dto.go
-internal/auth/application/dto/logout_dto.go
-internal/auth/application/dto/register_dto.go
-internal/auth/application/dto/password_reset_dto.go
-internal/auth/application/dto/get_current_user_dto.go
+internal/authentication/application/dto/login_dto.go
+internal/authentication/application/dto/logout_dto.go
+internal/authentication/application/dto/register_dto.go
+internal/authentication/application/dto/password_reset_dto.go
+internal/authentication/application/dto/get_current_user_dto.go
 
-internal/auth/application/usecase/transaction_manager.go
-internal/auth/application/usecase/login_usecase.go
-internal/auth/application/usecase/logout_usecase.go
-internal/auth/application/usecase/register_usecase.go
-internal/auth/application/usecase/request_password_reset_usecase.go
-internal/auth/application/usecase/change_password_usecase.go
-internal/auth/application/usecase/verify_reset_token_usecase.go
-internal/auth/application/usecase/get_current_user_usecase.go
+internal/authentication/application/usecase/transaction_manager.go
+internal/authentication/application/usecase/login_usecase.go
+internal/authentication/application/usecase/logout_usecase.go
+internal/authentication/application/usecase/register_usecase.go
+internal/authentication/application/usecase/request_password_reset_usecase.go
+internal/authentication/application/usecase/change_password_usecase.go
+internal/authentication/application/usecase/verify_reset_token_usecase.go
+internal/authentication/application/usecase/get_current_user_usecase.go
 
-internal/auth/application/apperror/apperror.go
+internal/authentication/application/apperror/apperror.go
 
-internal/auth/infrastructure/persistence/gorm/user_model.go
+internal/authentication/infrastructure/persistence/gorm/user_model.go
 
-internal/auth/infrastructure/repository/account_repository.go
-internal/auth/infrastructure/repository/user_role_repository.go
-internal/auth/infrastructure/repository/high_school_repository.go
-internal/auth/infrastructure/repository/grade_repository.go
-internal/auth/infrastructure/repository/transaction_manager.go
-internal/auth/infrastructure/repository/profile_reader.go
+internal/authentication/infrastructure/repository/account_repository.go
+internal/authentication/infrastructure/repository/user_role_repository.go
+internal/authentication/infrastructure/repository/high_school_repository.go
+internal/authentication/infrastructure/repository/grade_repository.go
+internal/authentication/infrastructure/repository/transaction_manager.go
+internal/authentication/infrastructure/repository/profile_reader.go
 
-internal/auth/infrastructure/security/bcrypt_password_hasher.go
-internal/auth/infrastructure/security/jwt_token_issuer.go
-internal/auth/infrastructure/security/secure_token_generator.go
+internal/authentication/infrastructure/security/bcrypt_password_hasher.go
+internal/authentication/infrastructure/security/jwt_token_issuer.go
+internal/authentication/infrastructure/security/secure_token_generator.go
 
-internal/auth/infrastructure/mail/auth_notifier.go
+internal/authentication/infrastructure/mail/auth_notifier.go
 
-internal/auth/presentation/handler/session_handler.go
-internal/auth/presentation/handler/registration_handler.go
-internal/auth/presentation/handler/password_reset_handler.go
-internal/auth/presentation/handler/current_user_handler.go
+internal/authentication/presentation/handler/session_handler.go
+internal/authentication/presentation/handler/registration_handler.go
+internal/authentication/presentation/handler/password_reset_handler.go
+internal/authentication/presentation/handler/current_user_handler.go
 
-internal/auth/presentation/request/session_request.go
-internal/auth/presentation/request/registration_request.go
-internal/auth/presentation/request/password_reset_request.go
+internal/authentication/presentation/request/session_request.go
+internal/authentication/presentation/request/registration_request.go
+internal/authentication/presentation/request/password_reset_request.go
 
-internal/auth/presentation/response/user_response.go
-internal/auth/presentation/response/message_response.go
+internal/authentication/presentation/response/user_response.go
+internal/authentication/presentation/response/message_response.go
 
-internal/auth/presentation/routes.go
+internal/authentication/presentation/routes.go
 ```
 
 > **②からの補足**: `application/apperror/apperror.go`は、アーキテクチャ規約「12. Error変換パターン（AppError）」が「配置場所はディレクトリ構成確定後に定める。層としてはApplication層に置く」としていることを受け、本機能のapplication層直下に暫定配置する。プロジェクト全体のディレクトリ構成確定後、複数機能で共有される`internal/shared/apperror`等への集約が検討される可能性がある（推測）。`application/usecase/transaction_manager.go`（インターフェース定義）も同様の理由で暫定配置する。
@@ -1298,7 +1298,7 @@ AccountRepository・UserRoleRepositoryはいずれも一意検索または存在
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/auth`とした|②のContext名は`authentication`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「8. 命名規約」に従い短縮した|推測|
+|ディレクトリ名を`internal/authentication`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |Account Entityに`Name`/`NameKana`を持たせず、Repository作成・有効化入力（`CreateAccountParams` / `ActivateAccountParams`）のみで受け渡す構成とした|②「5. Aggregate設計」がプロフィール情報をAggregate外としている方針と、②「6. Entity設計」の「有効化時に入力内容で自身を更新する」という責務記述の両方を、矛盾なく実装に落とし込むための判断|②の記載同士の整合を取るための判断（推測ではない）|
 |`SignUpRoleRequirement.RequiresGrade` / `RequiresStudentNumber`が`highSchoolIsCSVManaged bool`を引数に取る構成とした|②「7. Value Object設計」の「生徒コード管理対象校の場合、`grade_id`の代わりに`student_number`を必須とする」分岐を表現するために必要だが、②はメソッドシグネチャまでは規定していない|推測|
 |`StudentNumber`の形式不正をDomain Errorのセンチネル変数ではなく通常のerrorとして扱った|②「15. Validation設計」がフォーマットチェックをPresentation層の責務としており、Domain側は多重防御として位置づけたため。既存の`Email`/`RawPassword`の扱いと一貫させた|推測|

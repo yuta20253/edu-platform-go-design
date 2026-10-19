@@ -40,9 +40,9 @@
 ## 対象Bounded Context名
 
 - Context名（②）: `admin-account-management`
-- ディレクトリ名: `internal/admin_account`
+- ディレクトリ名: `internal/admin_account_management`
 
-  > **②からの補足**: ②にはディレクトリ名の明記がない。アーキテクチャ規約「4. Bounded Context構成」の命名規則（Context名はkebab-case、`internal/`配下は英単語1語または短いスネークケース）に従い、`admin-account-management`を短縮した（推測。`認証機能`が`authentication`→`internal/auth`と短縮した先例に倣う）。
+  > **ディレクトリ名について**: アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）により、Context名 `admin-account-management` に対応するディレクトリ名は `internal/admin_account_management/` となる。②に明記がなくても規則から機械的に決まる。
 
 ## ②で採用した設計パターン
 
@@ -51,7 +51,7 @@ Domain Model
 ## 作成するディレクトリ一覧
 
 ```
-internal/admin_account/
+internal/admin_account_management/
 ├── domain/
 │   ├── entity/
 │   ├── valueobject/
@@ -79,54 +79,54 @@ internal/admin_account/
 ## 作成するファイル一覧
 
 ```
-internal/admin_account/domain/entity/admin_account.go
-internal/admin_account/domain/entity/admin_personal_info.go
+internal/admin_account_management/domain/entity/admin_account.go
+internal/admin_account_management/domain/entity/admin_personal_info.go
 
-internal/admin_account/domain/valueobject/phone_number.go
-internal/admin_account/domain/valueobject/birthday.go
-internal/admin_account/domain/valueobject/gender.go
+internal/admin_account_management/domain/valueobject/phone_number.go
+internal/admin_account_management/domain/valueobject/birthday.go
+internal/admin_account_management/domain/valueobject/gender.go
 
-internal/admin_account/domain/repository/admin_account_repository.go
-internal/admin_account/domain/repository/admin_personal_info_repository.go
-internal/admin_account/domain/repository/admin_account_creator.go
-internal/admin_account/domain/repository/address_lookup.go
+internal/admin_account_management/domain/repository/admin_account_repository.go
+internal/admin_account_management/domain/repository/admin_personal_info_repository.go
+internal/admin_account_management/domain/repository/admin_account_creator.go
+internal/admin_account_management/domain/repository/address_lookup.go
 
-internal/admin_account/domain/service/admin_deletion_policy.go
+internal/admin_account_management/domain/service/admin_deletion_policy.go
 
-internal/admin_account/domain/errors/errors.go
+internal/admin_account_management/domain/errors/errors.go
 
-internal/admin_account/application/dto/list_admins_dto.go
-internal/admin_account/application/dto/show_admin_dto.go
-internal/admin_account/application/dto/create_admin_dto.go
-internal/admin_account/application/dto/update_admin_dto.go
-internal/admin_account/application/dto/delete_admin_dto.go
-internal/admin_account/application/dto/search_address_candidates_dto.go
+internal/admin_account_management/application/dto/list_admins_dto.go
+internal/admin_account_management/application/dto/show_admin_dto.go
+internal/admin_account_management/application/dto/create_admin_dto.go
+internal/admin_account_management/application/dto/update_admin_dto.go
+internal/admin_account_management/application/dto/delete_admin_dto.go
+internal/admin_account_management/application/dto/search_address_candidates_dto.go
 
-internal/admin_account/application/usecase/transaction_manager.go
-internal/admin_account/application/usecase/list_admins_usecase.go
-internal/admin_account/application/usecase/show_admin_usecase.go
-internal/admin_account/application/usecase/create_admin_usecase.go
-internal/admin_account/application/usecase/update_admin_usecase.go
-internal/admin_account/application/usecase/delete_admin_usecase.go
-internal/admin_account/application/usecase/search_address_candidates_usecase.go
-internal/admin_account/application/usecase/errors.go
+internal/admin_account_management/application/usecase/transaction_manager.go
+internal/admin_account_management/application/usecase/list_admins_usecase.go
+internal/admin_account_management/application/usecase/show_admin_usecase.go
+internal/admin_account_management/application/usecase/create_admin_usecase.go
+internal/admin_account_management/application/usecase/update_admin_usecase.go
+internal/admin_account_management/application/usecase/delete_admin_usecase.go
+internal/admin_account_management/application/usecase/search_address_candidates_usecase.go
+internal/admin_account_management/application/usecase/errors.go
 
-internal/admin_account/infrastructure/persistence/gorm/user_model.go
-internal/admin_account/infrastructure/persistence/gorm/user_personal_info_model.go
+internal/admin_account_management/infrastructure/persistence/gorm/user_model.go
+internal/admin_account_management/infrastructure/persistence/gorm/user_personal_info_model.go
 
-internal/admin_account/infrastructure/repository/admin_account_repository.go
-internal/admin_account/infrastructure/repository/admin_personal_info_repository.go
-internal/admin_account/infrastructure/repository/admin_account_creator.go
-internal/admin_account/infrastructure/repository/address_lookup.go
+internal/admin_account_management/infrastructure/repository/admin_account_repository.go
+internal/admin_account_management/infrastructure/repository/admin_personal_info_repository.go
+internal/admin_account_management/infrastructure/repository/admin_account_creator.go
+internal/admin_account_management/infrastructure/repository/address_lookup.go
 
-internal/admin_account/presentation/handler/admin_handler.go
-internal/admin_account/presentation/handler/address_handler.go
+internal/admin_account_management/presentation/handler/admin_handler.go
+internal/admin_account_management/presentation/handler/address_handler.go
 
-internal/admin_account/presentation/request/admin_request.go
+internal/admin_account_management/presentation/request/admin_request.go
 
-internal/admin_account/presentation/response/admin_response.go
+internal/admin_account_management/presentation/response/admin_response.go
 
-internal/admin_account/presentation/routes.go
+internal/admin_account_management/presentation/routes.go
 ```
 
 > **②からの補足**: `domain/repository/admin_account_creator.go`・`infrastructure/repository/admin_account_creator.go`は、②「3. Bounded Context」「11. Repository設計」が定める`user` Contextへの依存（管理者アカウントの作成）を実装レベルで具体化したものである。本Contextは`AdminAccountCreator`というInterfaceを自ら定義し（アーキテクチャ規約「2. レイヤー責務と依存方向」の依存性逆転）、その実装は`users`テーブルへ直接書き込まず、`user` Contextが公開する`CreateAdminAccount`関数を呼び出す構成とする（アーキテクチャ規約「5. Context間連携ルール」）。管理者の作成で`user_role_id`を解決する必要はなくなるため、ロール名からロールIDを解決する専用のRepositoryは持たない。一覧・詳細・件数取得での管理者ロールによる絞り込みは、`AdminAccountRepository`の実装が`user_roles`テーブルとの結合で行う（②「21. DB操作仕様」）。
@@ -712,7 +712,7 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 
 ### UserModel（`infrastructure/persistence/gorm/user_model.go`）
 
-- 対応テーブル: `users`（既存Railsスキーマ。認証機能の`internal/auth/infrastructure/persistence/gorm/user_model.go`と同一テーブルを参照するが、Bounded Context間の独立性を保つため、本Contextは自身のモデル定義を別途保持する（②からの補足。認証機能③文書の先例に倣う）
+- 対応テーブル: `users`（既存Railsスキーマ。認証機能の`internal/authentication/infrastructure/persistence/gorm/user_model.go`と同一テーブルを参照するが、Bounded Context間の独立性を保つため、本Contextは自身のモデル定義を別途保持する（②からの補足。認証機能③文書の先例に倣う）
 
 |フィールド|対応カラム|備考|
 |-|-|-|
@@ -833,7 +833,7 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/admin_account`とした|②のContext名は`admin-account-management`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「4. Bounded Context構成」の命名規則に従い短縮した（認証機能の先例に倣う）|推測|
+|ディレクトリ名を`internal/admin_account_management`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |`domain/repository/admin_account_creator.go`を新設し、`user` Contextの`CreateAdminAccount`を呼び出す窓口Interfaceとして扱った（実装は`infrastructure/repository/admin_account_creator.go`）|②「3. Bounded Context」「11. Repository設計」が`user` Contextへの依存（管理者アカウントの作成）を定めているが、具体的なInterface名・配置場所までは規定していない。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従った|推測|
 |`UpdateAdminCommand`からメールアドレスの変更項目を除外した|②「12. UseCase設計」がUpdateAdminUseCase入力を抽象的にしか記載しておらず、メールアドレス変更に関する業務ルールの記載が②のどこにもないため|推測（実装時に②側での再確認が必要）|
 |Genderの具体的な許容値（列挙値）を確定しなかった|②「7. Value Object設計」はRails `UserPersonalInfo.genders`への準拠を示すのみで具体的な値を記載していない。①（Rails実装詳細）が本タスクでは未提供のため、値を確定できない|①未提供のため参照不可|

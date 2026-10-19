@@ -687,7 +687,7 @@ SQL文そのものは本書に記載しない。
 
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
-|Bounded Context `teacher-management`（教師教員管理機能と共通）の内部ディレクトリ名を`internal/teacher_management`とした|②はContext名（teacher-management）のみを記載し、内部ディレクトリ名を明記していない。`規約/アーキテクチャ規約.md`「8. 命名規約」の「Context名とディレクトリ名が一致しない場合は②文書内で対応関係を明記する」に該当する明記がないため、既存の他機能（student-directory→internal/student_directory）の対応方針にならい、Context名のハイフンをアンダースコアに置き換えたディレクトリ名を採用した|推測（既存の他②③文書での対応付けからの類推であり、②文書内に明示的な対応付けの記載はない）|
+|Bounded Context `teacher-management`（教師教員管理機能と共通）の内部ディレクトリ名を`internal/teacher_management`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |②「9. Repository設計」HighSchoolStore・GradeStoreをteacher-management内で実装せず、teacher_management package側に参照用interface（`HighSchoolExistenceChecker`／`GradeReferenceChecker`）を定義し、実装はHighSchool Context・Grade Context側に委ねる構成とした|②「9. Repository設計」はHighSchoolStore・GradeStoreをteacher-managementの節内で記載しているが、`規約/アーキテクチャ規約.md`「5. Context間連携ルール」により他Contextの内部実装に直接依存できないため、コーディング規約「5. インターフェース」（利用側での定義）に従って整理した。②の「責務」「保持しない責務」の記載内容自体は変更していない|補足（規約の適用による構造上の具体化であり、推測ではなく規約遵守のための判断）|
 |②「8. Domain Service」TeacherGradeAssignmentPolicyを、独立したstruct/interfaceではなく`internal/teacher_management`パッケージ内のpackageレベル関数`ValidateGradeAssignment`として実装した|`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
 |②「7. Value Object設計」TeacherPermission・GradeAssignmentSetを、独立層としてではなくstruct・メソッドとして`internal/teacher_management`パッケージ内に実装した|同上、規約4章Active Record節により、Value Objectは原則「対象外」とされているため|補足（規約適用）|

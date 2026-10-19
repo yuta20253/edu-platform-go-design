@@ -34,14 +34,14 @@
 
 ## ディレクトリ・パッケージ名について（②からの補足）
 
-②にはGo実装上のディレクトリ名（`internal/`配下のパッケージ名）の明記がない。アーキテクチャ規約「4. Bounded Context構成」の命名規則に基づき、既存の`task-management`→`internal/task`の対応関係に倣い、`goal-management`→`internal/goal`とする。**この対応は②に明記がないため推測である。**
+アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）により、Context名 `goal-management` に対応するディレクトリ名は `internal/goal_management/` となる。package名は `goalmanagement` とする。②に明記がなくても規則から機械的に決まる。
 
 ## 作成するディレクトリ一覧
 
 アーキテクチャ規約「3. 設計パターンごとの構造適用方針」のActive Record構造に従う。domain/infrastructureのレイヤー分離・usecase層は設けない。
 
 ```
-internal/goal/
+internal/goal_management/
 └── presentation/
     ├── handler/
     ├── request/
@@ -52,17 +52,17 @@ internal/goal/
 ## 作成するファイル一覧
 
 ```
-internal/goal/goal.go              # Goal struct（Model）+ Validate()
-internal/goal/goal_status.go       # GoalStatus型（許容値の型定義）
-internal/goal/due_date.go          # DueDate型（保存値/表示フォーマットの一元化）
-internal/goal/errors.go            # struct/Storeが返すエラー定義
-internal/goal/goal_store.go        # GoalStore（永続化・検索）
-internal/goal/task_ref.go          # TaskRef struct（参照専用の読み取りモデル）
-internal/goal/task_store.go        # TaskStore（参照専用の永続化・検索）
-internal/goal/presentation/handler/goal_handler.go
-internal/goal/presentation/request/goal_request.go
-internal/goal/presentation/response/goal_response.go
-internal/goal/presentation/routes.go
+internal/goal_management/goal.go              # Goal struct（Model）+ Validate()
+internal/goal_management/goal_status.go       # GoalStatus型（許容値の型定義）
+internal/goal_management/due_date.go          # DueDate型（保存値/表示フォーマットの一元化）
+internal/goal_management/errors.go            # struct/Storeが返すエラー定義
+internal/goal_management/goal_store.go        # GoalStore（永続化・検索）
+internal/goal_management/task_ref.go          # TaskRef struct（参照専用の読み取りモデル）
+internal/goal_management/task_store.go        # TaskStore（参照専用の永続化・検索）
+internal/goal_management/presentation/handler/goal_handler.go
+internal/goal_management/presentation/request/goal_request.go
+internal/goal_management/presentation/response/goal_response.go
+internal/goal_management/presentation/routes.go
 ```
 
 **②からの補足**: ②の構造適用方針の例示は`model.go`/`store.go`という単一ファイルの雛形だが、本機能はGoal（Model）とTask参照（読み取り専用モデル）という2種類のstructを扱うため、責務ごとにファイルを分割している。これはActive Record構造（domain/infrastructureレイヤーを分離しない、同一package内に置く）という②の設計方針自体は変更せず、同一package内でのファイル分割という実装レベルの整理にとどまる。
@@ -71,7 +71,7 @@ internal/goal/presentation/routes.go
 
 # 3. Domain層設計
 
-**実装上の位置づけ**: 本機能はActive Record採用のため、domain層・infrastructure層のレイヤー分離を行わない。以下は「Entity」の代わりに「Model（Entity相当）」として、`internal/goal`パッケージ直下のstructとして扱う（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Active Record節）。
+**実装上の位置づけ**: 本機能はActive Record採用のため、domain層・infrastructure層のレイヤー分離を行わない。以下は「Entity」の代わりに「Model（Entity相当）」として、`internal/goal_management`パッケージ直下のstructとして扱う（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Active Record節）。
 
 ## Model（Entity相当）
 
@@ -525,7 +525,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、Go
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|Bounded Context名`goal-management`に対応する`internal/`配下のディレクトリ名を`internal/goal`とした|アーキテクチャ規約「4. Bounded Context構成」の命名規則、および既存の`task-management`→`internal/task`の対応関係からの類推|推測|
+|Bounded Context名`goal-management`に対応する`internal/`配下のディレクトリ名を`internal/goal_management`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |Active Record構造の雛形（`model.go`/`store.go`）を、Goal用・TaskRef用に複数ファイル（`goal.go`/`goal_status.go`/`due_date.go`/`errors.go`/`goal_store.go`/`task_ref.go`/`task_store.go`）に分割した|②が扱う対象（Goal本体・参照専用のTask）が2種類あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断とは矛盾しない）|
 |作成・更新リクエストにStatusフィールドを含めず、作成時にStatusを内部で初期値（not_started）に設定する|②「4. 設計パターン」に「statusの変更ロジックはこの機能のAPI内では直接定義されていない」とあることから、Statusをユーザー入力の対象外とする方が現行仕様に忠実と判断したため|推測|
 |DueDateのリクエスト入力フォーマットをISO 8601形式（`YYYY-MM-DD`）と仮定し、表示用フォーマット（`YYYY/MM/DD`）と分離した|②はDueDateの表示用フォーマットのみを明記しており、入力フォーマットの記載がないため。①未提供のため参照不可|推測|

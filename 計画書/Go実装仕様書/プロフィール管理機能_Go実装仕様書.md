@@ -562,7 +562,7 @@ Active Record採用のため、Domain Error相当の層は存在しない（ア�
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/profile`とした|②のContext名は`profile`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「8. 命名規約」に従いそのまま採用した|推測|
+|ディレクトリ名を`internal/profile`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |`ProfileCompletionStatus`を独立したstructのメソッドではなく、`ProfileAccount`・`PersonalInfo`両方を引数に取るパッケージ関数`EvaluateProfileCompletion`として実装した|②「4. 設計パターン」がActive Record採用時のValue Object統合を許容しており、かつ完了判定が単一Modelでは完結しない（2つのstructにまたがる）ため、メソッドではなく関数として実装する判断とした|実装判断（②の方針の範囲内）|
 |`ProfileAccountStore.Update` / `PersonalInfoStore.Update`で`Select`を用いて更新対象列を明示し、ゼロ値でも強制的に更新する設計とした|②「19. API仕様」の「全項目置換方式（未指定項目は空値）」というセマンティクスを実現するために必要な、GORMの一般的な挙動（`Updates(struct)`はデフォルトでゼロ値フィールドを更新対象から除外する）を踏まえた実装判断|推測|
 |2つのStore（`ProfileAccountStore` / `PersonalInfoStore`）にまたがるトランザクションを、`store.go`内のパッケージ関数`UpdateProfile`が一元管理する設計とした|②「12. UseCase設計」はトランザクション範囲を定めるのみで、2 Store間のトランザクション管理主体は指定していない。Gorm規約「0. 本プロジェクトでの採用方針」の「Active Record採用機能はStoreメソッド内でトランザクションを直接使用する」方針に従った|推測|

@@ -35,9 +35,9 @@ Active Record・Domain Model・Event Sourcingは、②「4. 設計パターン �
 ## 対象Bounded Context名
 
 - Context名（②）: `learning-analytics`
-- ディレクトリ名: `internal/analytics`
+- ディレクトリ名: `internal/learning_analytics`
 
-  > **②からの補足**: ②にはディレクトリ名の明記がない。アーキテクチャ規約「4. Bounded Context構成」の命名規則の「Context名とディレクトリ名が一致しない場合は②文書内で対応関係を明記する」「英単語1語または短いスネークケースにする」に従い、`learning-analytics`を1語に短縮した（認証機能の②③文書における`authentication`→`internal/auth`の前例に倣う判断。推測）。
+  > **ディレクトリ名について**: アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）により、Context名 `learning-analytics` に対応するディレクトリ名は `internal/learning_analytics/` となる。②に明記がなくても規則から機械的に決まる。
 
 ## ②で採用した設計パターン
 
@@ -48,7 +48,7 @@ Transaction Script
 規約「3. 設計パターンごとの構造適用方針」の「Transaction Script」構造に従う。domain層・usecase層（struct）・Repository Interfaceは作成しない。
 
 ```
-internal/analytics/
+internal/learning_analytics/
 ├── application/
 ├── infrastructure/
 └── presentation/
@@ -61,27 +61,27 @@ internal/analytics/
 ## 作成するファイル一覧
 
 ```
-internal/analytics/application/analytics_dto.go
-internal/analytics/application/completion_rate.go
-internal/analytics/application/understanding_score.go
-internal/analytics/application/get_task_completion_analytics.go
-internal/analytics/application/get_understanding_score_analytics.go
-internal/analytics/application/get_grade_average_analytics.go
-internal/analytics/application/get_course_rank_analytics.go
-internal/analytics/application/get_unit_rank_analytics.go
-internal/analytics/application/rank_calculation.go
-internal/analytics/application/errors.go
+internal/learning_analytics/application/analytics_dto.go
+internal/learning_analytics/application/completion_rate.go
+internal/learning_analytics/application/understanding_score.go
+internal/learning_analytics/application/get_task_completion_analytics.go
+internal/learning_analytics/application/get_understanding_score_analytics.go
+internal/learning_analytics/application/get_grade_average_analytics.go
+internal/learning_analytics/application/get_course_rank_analytics.go
+internal/learning_analytics/application/get_unit_rank_analytics.go
+internal/learning_analytics/application/rank_calculation.go
+internal/learning_analytics/application/errors.go
 
-internal/analytics/infrastructure/task_completion_query.go
-internal/analytics/infrastructure/understanding_score_query.go
-internal/analytics/infrastructure/grade_query.go
-internal/analytics/infrastructure/rank_query.go
+internal/learning_analytics/infrastructure/task_completion_query.go
+internal/learning_analytics/infrastructure/understanding_score_query.go
+internal/learning_analytics/infrastructure/grade_query.go
+internal/learning_analytics/infrastructure/rank_query.go
 
-internal/analytics/presentation/request/analytics_request.go
-internal/analytics/presentation/request/analytics_type.go
-internal/analytics/presentation/response/analytics_response.go
-internal/analytics/presentation/handler/analytics_handler.go
-internal/analytics/presentation/routes.go
+internal/learning_analytics/presentation/request/analytics_request.go
+internal/learning_analytics/presentation/request/analytics_type.go
+internal/learning_analytics/presentation/response/analytics_response.go
+internal/learning_analytics/presentation/handler/analytics_handler.go
+internal/learning_analytics/presentation/routes.go
 ```
 
 > **②からの補足**: ファイル分割の粒度（1関数1ファイルにするか等）は②に明記がない。コーディング規約の「パッケージ名はディレクトリ名と一致させる」方針の範囲内で、分析タイプ単位・関心事単位に分割した（推測）。
@@ -518,7 +518,7 @@ infrastructure層で発生したエラーは`fmt.Errorf`でラップしてapplic
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/analytics`とした|②のContext名は`learning-analytics`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「5. 命名規則」に従い短縮した（認証機能の前例に倣う）|推測|
+|ディレクトリ名を`internal/learning_analytics`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
 |`AnalyticsType`・`CompletionRate`・`UnderstandingScore`・`RankCalculationService`（②のVO/Domain Service）の実装位置を、domain層ではなく`presentation/request`・`application`直下の単純な型・関数として確定した|規約「10. ①②③文書との関係」の「②文書内のRepository/UseCase等の記載は概念的な設計意図であり、実装構造への変換は③で行う」方針、および禁止事項「TS/AR採用機能へのDomain Model相当の過剰な構造追加の禁止」に基づく判断|規約に基づく判断（推測ではない）|
 |`AnalyticsType`を`presentation/request`層に配置した|②「12. Validation設計」がAnalyticsTypeの許容値チェックをPresentation層の責務として明記しているため|②内の記載を整合させた判断（推測ではない）|
 |`RankCalculationService`をstruct＋interfaceではなく、`application/rank_calculation.go`内の非公開共有関数として実装した|禁止事項「TS/AR採用機能へのDomain Model相当のusecase層・Repository Interface・依存性逆転の不要な追加」を避けるための判断|規約に基づく判断（推測ではない）|
