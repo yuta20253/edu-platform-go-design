@@ -29,8 +29,6 @@ type Teacher struct {
 
 `gorm.DeletedAt`型を使うことで、`Delete`実行時に`deleted_at`が自動的に現在時刻へ設定され、`Find`系メソッドは標準で`deleted_at IS NULL`を自動的に条件へ付与する。物理削除が必要な場合のみ`Unscoped()`を明示的に呼び出す。
 
-> 補足: この方針が明記される以前は、③Go実装仕様書側（例：管理者管理者ユーザー機能、教師教員管理機能）が機能ごとに同じ結論を個別に「推測」として導出していた。今後はこの規約を正とし、③文書側での再導出は不要とする。
-
 ### カラム名の例外（連続大文字・略語）
 
 `JTI`のような連続大文字を含む略語など、GORMの標準snake_case変換では意図が曖昧になりうるフィールド名は、`column`タグで明示的にカラム名を指定する。
@@ -64,7 +62,7 @@ for _, c := range courses {
 
 ### 配置（ディレクトリ構成との対応）
 
-GORM用のモデルstruct・タグ定義は、Infrastructure層に置く（具体的な配置ディレクトリはアーキテクチャ規約のディレクトリ構成が確定次第定める）。Domain Modelパターン採用時、Domain層の`entity/`にはGORMタグを持つstructを直接置かず、Infrastructure層のGORMモデルとDomain Entityを分離する。Active Recordパターン採用時は、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の簡略構造（`model.go`にGORMタグ付きstructを直接定義）に従う。
+GORM用のモデルstruct・タグ定義は、Infrastructure層に置く（配置はアーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」のとおり、Domain Model採用時はContextディレクトリ配下の`infrastructure/gormrepo/`、Active Record採用時はContextディレクトリ直下の`model.go`）。Domain Modelパターン採用時、Domain層の`entity/`にはGORMタグを持つstructを直接置かず、Infrastructure層のGORMモデルとDomain Entityを分離する。Active Recordパターン採用時は、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の簡略構造（`model.go`にGORMタグ付きstructを直接定義）に従う。
 
 ---
 
