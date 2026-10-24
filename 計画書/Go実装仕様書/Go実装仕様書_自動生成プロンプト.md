@@ -262,6 +262,28 @@ internal/dashboard/presentation/handler/dashboard_handler.go
 
 1スライスが35を超える場合はHandler内のアクションでさらに分け、小さすぎる場合は複数のHandlerを1つのスライス編にまとめてください。
 
+### Handlerが1つしかない機能
+
+エンドポイントが少なく、Handlerが1つしかない機能は、スライスで割れません。この場合は**レイヤーで割ってください。**
+
+|文書|担当|
+|-|-|
+|1つ目|Domain層|
+|2つ目|Infrastructure層|
+|3つ目|Application層・Presentation層|
+
+Domain層だけで35を超える場合は、Entity・Value Object・Repository Interfaceと、Domain Service・Domain Eventに分けてください。
+
+レイヤーで割った場合も、1つ目 → 2つ目 → 3つ目の順に実装すれば各PRは単体でコンパイルが通ります。Infrastructure層はDomain層のRepository Interfaceを実装し、Application層・Presentation層はその両方に依存するためです。
+
+例（生徒CSVインポート機能。実装47ファイル。Handlerは`student_import_handler.go`の1つのみ）:
+
+|文書|担当|実装|テスト込みの目安|
+|-|-|-|-|
+|`生徒CSVインポート機能_Go実装仕様書_1_Domain.md`|Domain層|20|約34|
+|`生徒CSVインポート機能_Go実装仕様書_2_Infrastructure.md`|Infrastructure層|13|約22|
+|`生徒CSVインポート機能_Go実装仕様書_3_Application・Presentation.md`|Application層・Presentation層|14|約24|
+
 ### ファイル名
 
 ```
