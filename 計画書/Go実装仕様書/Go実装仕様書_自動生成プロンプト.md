@@ -145,7 +145,17 @@ internal
 
 # 出力ファイル
 
+```
 〇〇機能_Go実装仕様書.md
+```
+
+実装ファイルが20以上になる場合は、「2. ディレクトリ構成」の「文書の分割」に従って複数の文書に分けてください。
+
+```
+〇〇機能_Go実装仕様書_1_基盤.md
+〇〇機能_Go実装仕様書_2_<スライス名>.md
+〇〇機能_Go実装仕様書_3_<スライス名>.md
+```
 
 ---
 
@@ -181,20 +191,20 @@ internal
 例（Domain Model採用時）:
 
 ```
-internal/task/domain/entity/task.go
-internal/task/domain/valueobject/task_status.go
-internal/task/domain/repository/task_repository.go
-internal/task/application/usecase/create_task.go
-internal/task/infrastructure/repository/task_repository.go
-internal/task/presentation/handler/task_handler.go
+internal/announcement/domain/entity/announcement.go
+internal/announcement/domain/valueobject/announcement_status.go
+internal/announcement/domain/repository/announcement_repository.go
+internal/announcement/application/usecase/create_announcement.go
+internal/announcement/infrastructure/gormrepo/announcement_repository.go
+internal/announcement/presentation/handler/announcement_handler.go
 ```
 
 例（Active Record採用時）:
 
 ```
-internal/teacher_directory/model.go
-internal/teacher_directory/store.go
-internal/teacher_directory/presentation/handler/teacher_handler.go
+internal/teacher_management/model.go
+internal/teacher_management/store.go
+internal/teacher_management/presentation/handler/teacher_handler.go
 ```
 
 例（Transaction Script採用時）:
@@ -204,6 +214,77 @@ internal/dashboard/application/list_recent_goals.go
 internal/dashboard/infrastructure/goal_query.go
 internal/dashboard/presentation/handler/dashboard_handler.go
 ```
+
+
+## 文書の分割（1文書あたり30〜35ファイル）
+
+**1つの③が扱う実装ファイルを30〜35に収めてください。** 超える場合は、③そのものを複数の文書に分割します。
+
+### なぜ分割するか
+
+1機能のファイル数は機能によって5〜54と幅があります。大きい機能を1文書にまとめると、文書自体が1,300行を超えてレビューできない量になり、その文書をもとにした実装PRも1本50ファイル超になります。**1文書＝1PR**に保つため、文書の側で区切ります。
+
+### ファイル数の見積り
+
+ファイル一覧には**テストファイルを含めません**。ただし分割の判断は**テストを含めた数**で行ってください。**実装ファイル数の約1.7倍**が目安です。
+
+テストが付くもの: Entity・Value Object・Domain Service・Repository実装・Store・UseCase・Transaction Scriptの関数
+テストが付かないもの: Repository Interface・DTO・Request/Response・routes.go・GORMモデル
+
+つまり実装ファイルが**19以下なら分割しない**（テスト込みで33前後）。20以上なら分割を検討します。
+
+### 分割の単位
+
+**1つ目を「基盤編」、2つ目以降を「スライス編」にします。**
+
+基盤編に書くもの:
+
+- 機能概要・採用した設計パターンとその理由
+- ディレクトリ構成（**機能全体のファイル一覧**と、どの文書がどのファイルを担当するかの対応表）
+- Domain層設計のうち、複数のスライスが使うもの（Entity・共通のValue Object・Repository Interface・共通のDomain Service・Domain Error）
+- Infrastructure層設計のうち、複数のスライスが使うもの（GORMモデル・共通のRepository実装・`TransactionManager`）
+- Transaction・Validation・Authorization・Error の実装方針（機能全体で共通のため基盤編に置く）
+
+スライス編に書くもの:
+
+- そのスライスが担当するエンドポイント
+- Application層設計（UseCase・DTO）
+- そのスライスだけが使うDomain（固有のValue Object・Domain Service・Domain Event）
+- そのスライスだけが使うInfrastructure（固有のRepository実装・外部連携実装）
+- Presentation層設計（Handler・Request / Response DTO）
+- API仕様・テストケース設計
+
+共通の実装方針はスライス編で繰り返さず、基盤編を参照してください。
+
+### スライスの切り方
+
+**Handlerファイル単位で切ってください。** Handlerは②のAPI仕様のどのエンドポイント群を担当するかで分かれており、Rails現行のController単位に対応します。ルーティングの登録もまとまるため、「このエンドポイント群が仕様どおりか」で閉じて確認できます。
+
+1スライスが35を超える場合はHandler内のアクションでさらに分け、小さすぎる場合は複数のHandlerを1つのスライス編にまとめてください。
+
+### ファイル名
+
+```
+<機能名>_Go実装仕様書.md                       分割しない場合
+<機能名>_Go実装仕様書_1_基盤.md                基盤編
+<機能名>_Go実装仕様書_2_<スライス名>.md         スライス編
+<機能名>_Go実装仕様書_3_<スライス名>.md
+```
+
+スライス名は担当するエンドポイント群が分かる日本語にしてください（例: `セッション`・`パスワードリセット`）。
+
+### 実装の順序
+
+基盤編 → スライス編の順に実装すれば、各PRは単体でコンパイルが通ります。スライス編の間に依存はないため、2つ目以降の順序は問いません。
+
+### 例（認証機能。実装54ファイル）
+
+|文書|担当するエンドポイント|実装|テスト込みの目安|
+|-|-|-|-|
+|`認証機能_Go実装仕様書_1_基盤.md`|なし（Domain・共通Infrastructure・実装方針）|19|約28|
+|`認証機能_Go実装仕様書_2_セッション.md`|POST /login・DELETE /logout・GET /me|12|約22|
+|`認証機能_Go実装仕様書_3_登録.md`|POST /sign_up（通常登録・仮アカウント有効化）|12|約22|
+|`認証機能_Go実装仕様書_4_パスワードリセット.md`|POST /password_resets・PATCH /password_resets・GET /password_resets/verify|13|約23|
 
 ---
 
