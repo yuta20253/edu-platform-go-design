@@ -76,7 +76,7 @@ Context単位でルート登録関数を分割し、各Contextのルート登録
 
 ```go
 // Good
-// internal/task_management/presentation/routes.go
+// internal/taskmanagement/presentation/routes.go
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler) {
     tasks := rg.Group("/tasks")
     tasks.GET("", h.ListTasks)
