@@ -20,8 +20,10 @@ argument-hint: <機能名> [Railsプロジェクトのパス] [出力先ディ�
 `$ARGUMENTS` を解釈してください。想定される内容:
 
 - 1つ目: 対象の機能名（例: `認証機能`・`タスク管理機能`）。`Rails現行機能一覧.md` 自体を作る場合は「機能一覧」と指定される
-- 2つ目（省略可）: Railsプロジェクトのルートパス。省略時は `/Users/yuta20253/Desktop/edu-platform/rails`
-- 3つ目（省略可）: 出力先ディレクトリ。省略時は `/Users/yuta20253/Desktop/edu-platform/rails/tmp/Rails現行仕様書`
+- 2つ目（省略可）: Railsプロジェクトのルートパス。省略時は `../edu-platform/rails`
+- 3つ目（省略可）: 出力先ディレクトリ。省略時は `../edu-platform/rails/tmp/Rails現行仕様書`
+
+パスはいずれもこのリポジトリのルートからの相対パスです。
 
 パスが曖昧・不足している場合は、推測せずユーザーに確認してください。
 
