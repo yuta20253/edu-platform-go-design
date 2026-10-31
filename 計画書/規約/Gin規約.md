@@ -24,8 +24,19 @@ Handlerは、UseCase（またはTransaction Script/Active Recordの場合は該�
 |-|-|-|
 |認証（本人確認）|`AuthMiddleware`|認証が必要なルートグループにのみ`Use`|
 |認可（役割チェック）|`RequireRole(enforcer)`（Casbin RBAC、詳細は「4. 認可（Casbin RBAC）」）|`AuthMiddleware`の後段で、認証が必要なルートグループに`Use`|
-|エラーハンドリング|`ErrorHandler`|ルーター全体に最初に`Use`|
-|アクセスログ|`AccessLogger`|ルーター全体に`Use`|
+|エラーハンドリング|`ErrorHandler`|ルーター全体に`Use`（`AccessLogger`の次）|
+|アクセスログ|`AccessLogger`|ルーター全体に最初に`Use`（最も外側）|
+
+`router.Use`は、先に登録したものが外側になる。`AccessLogger`を最初に登録し、`ErrorHandler`をその次に登録する。
+
+```go
+router.Use(
+    AccessLogger(logger),
+    ErrorHandler(logger),
+)
+```
+
+`AccessLogger`は`c.Next()`の後に`c.Writer.Status()`を記録する（「3. ミドルウェア」）。`ErrorHandler`より内側に置くと、`ErrorHandler`がエラーレスポンスのステータスを書く前にログを出すことになり、失敗したリクエストのアクセスログに200が記録される。
 
 ---
 
@@ -499,7 +510,7 @@ func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
     }
 }
 
-router.Use(ErrorHandler(logger)) // 最初に登録する
+router.Use(AccessLogger(logger), ErrorHandler(logger)) // ErrorHandlerはAccessLoggerの次に登録する（「0. 本プロジェクトでの採用方針」の「ミドルウェアの配置」）
 ```
 
 ```go
