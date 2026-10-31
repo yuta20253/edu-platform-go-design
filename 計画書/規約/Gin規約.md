@@ -287,7 +287,21 @@ func CSRFMiddleware(secret []byte) gin.HandlerFunc {
 
 ### 適用範囲
 
-Cookie経由の認証を用いるルートグループにのみ`Use`する（0章の表のとおり、認証が必要なルートグループへの適用に準じる）。Cookieを発行する前のログインエンドポイント自体は、検証対象に含めない。
+Cookie経由の認証を用いるルートグループにのみ`Use`する（0章の表のとおり、認証が必要なルートグループへの適用に準じる）。
+
+判断の基準は「そのリクエストがCookieによって認可されるか」である。**Cookieで認可される状態変更（POST / PATCH / PUT / DELETE）はすべて検証対象に含める。** Cookieを使わないエンドポイントは対象外とする。攻撃者のサイトからブラウザに自動送信させられる資格情報がなく、CSRFトークンを検証しても守るものがないためである。
+
+検証対象に含める:
+
+- ログアウト（`DELETE /api/v1/user/logout`）。Cookieで認可されるため、含めないと意図しないログアウトを強制されうる
+- Cookie認証下の更新操作（例：`PATCH /api/v1/profile`）
+- 今後追加するCookie認証下のPOST / PATCH / PUT / DELETE。トークン更新のようなエンドポイントを追加する場合も、Cookieで認可されるなら含める（Rails現行に該当するエンドポイントはない）
+
+検証対象に含めない:
+
+- ログイン（`POST /api/v1/user/login`）。Cookie発行前であり、検証対象にできない
+- サインアップ（`POST /api/v1/{student,teacher,admin}/signup`）。認証不要で、Cookieも発行しない（Rails現行の`RegistrationsController#create`はサインインしない）
+- パスワードリセット（`POST /api/v1/password/reset/request`・`POST /api/v1/password/verify`・`PATCH /api/v1/password/reset`）。Cookieではなく、メールで送ったトークンで本人確認するため、Cookieに依存しない
 
 ---
 
