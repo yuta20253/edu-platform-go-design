@@ -174,6 +174,20 @@ type Animal struct {
 
 ## 4. タイムスタンプのトラッキング
 
+### 接続のタイムゾーン
+
+DSNに`parseTime=true`と`loc=UTC`を指定する。
+
+```
+user:pass@tcp(host:3306)/dbname?charset=utf8mb4&parseTime=true&loc=UTC
+```
+
+Railsが`config.active_record.default_timezone = :utc`でタイムスタンプをUTCで保存しているため、Go側もUTCとして読み書きする。`loc`を`Asia/Tokyo`にすると、タイムゾーンを持たない`datetime`列の値をJSTとして解釈し、9時間ずれる。
+
+`loc`は、DBから読んだ`datetime`を`time.Time`へ解釈するときと、`time.Time`をクエリのパラメータとして送るときの両方に効く。したがって`time.Now()`をそのまま条件に使っても、ドライバがUTCへ変換して送るため比較はずれない（例: アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」の`scheduled_at <= ?`）。
+
+アプリケーション内で保持する時刻もUTCに統一する（コーディング規約「17. `time.Time` とタイムゾーン」）。利用者向けの表示でJST（Railsの`config.time_zone = "Asia/Tokyo"`に相当）へ変換するのはPresentation層の責務とし、Domain・Repositoryでは変換しない。
+
 ### CreatedAt
 
 CreatedAtフィールドを持つモデルの場合、フィールドの値がゼロ値であれば、レコード作成時に現在時刻が設定されます。
