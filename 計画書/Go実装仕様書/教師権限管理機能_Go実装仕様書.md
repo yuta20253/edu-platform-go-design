@@ -154,7 +154,7 @@ internal/teacherpermission/presentation/routes.go
 ### GradeScope（`domain/valueobject/grade_scope.go`）
 
 - struct名: `GradeScope`
-- フィールド: `value string`（非公開）
+- フィールド: `value string`（非公開）。APIの入出力と同じ文字列表現を保持する。永続化される`grade_scope`列は整数であり、その対応付けはInfrastructure層が担う（8章・15章）
 - 生成時に検証するルール: `own_grade` / `all_grades` の定義済み値以外を許容しない（②7章）
 - 公開メソッド: `NewGradeScope(raw string) (GradeScope, error)` / `(g GradeScope) String() string` / `(g GradeScope) IsAllGrades() bool`
 
@@ -524,7 +524,7 @@ flowchart TD
   - `FindByTeacherID`: `teacher_permissions`の対象教員IDと`users.high_school_id`が指定校IDに一致し、`users.deleted_at`が未設定であるレコードを取得する（同校スコープを兼ねる。②16章「UseCase」の「更新時、対象教員が同校であることを確認する」をクエリレベルで反映）
   - `Update`: 対象レコードの`grade_scope`・`manage_other_teachers`列を更新する
 - DB接続の取得: 各メソッドは`gormtx.DBFromContext(ctx, r.db)`で接続を取得する。トランザクション中であればその接続を、そうでなければ通常の接続を使う（規約「11. Transaction実装パターン（TransactionManager）」。11章参照）
-- Entity ⇔ GORMモデルの変換方針: 取得した行の`grade_scope`文字列から`valueobject.NewGradeScope`、`manage_other_teachers`真偽値から`valueobject.NewManageOtherTeachersFlag`を生成し、`entity.NewTeacherPermission`でEntityを組み立てる。結合先`users`テーブルの`name`・`name_kana`は`TeacherPermissionRecord`の付帯情報として保持する（3章参照）。変換関数（`toEntity`・`toRecord`）はrepository実装内の非公開関数とする
+- Entity ⇔ GORMモデルの変換方針: 取得した行の`grade_scope`（整数）を`own_grade` / `all_grades`の文字列へ対応付けてから`valueobject.NewGradeScope`、`manage_other_teachers`真偽値から`valueobject.NewManageOtherTeachersFlag`を生成し、`entity.NewTeacherPermission`でEntityを組み立てる。書き込み時は逆向きに、`valueobject.GradeScope`の文字列表現を整数へ対応付ける。整数と文字列の対応（`own_grade`=0 / `all_grades`=1）は①「6. データモデル」のRailsの`enum`に一致させ、`gormrepo`内の非公開の対応表に閉じ込める。Domain層・Application層は整数を扱わない。結合先`users`テーブルの`name`・`name_kana`は`TeacherPermissionRecord`の付帯情報として保持する（3章参照）。変換関数（`toEntity`・`toRecord`）はrepository実装内の非公開関数とする
 
 > **②からの補足**: `teacher_permissions`は`user_id`・`grade_scope`・`manage_other_teachers`のみを持ち、`high_school_id`列を持たない（①「6. データモデル」）。所属校・有効性・氏名はいずれも`users`テーブルとの結合で判定する。`teacher_permissions`が所属校・有効状態・氏名を持たず、これらを`users`との結合で判定することは②「21. DB操作仕様」が定めている。また、規約「5. Context間連携ルール」は他Contextの内部Entity・Infrastructure実装への直接依存を禁止しているが、本書では`users`テーブルの必要列のみを射影する読み取り専用の結合用structを本Context内に定義することで、`user` Context側のGORMモデル実装への直接依存を避ける（実装上の判断）。一覧・詳細の表示に必要な氏名・氏名カナは、ページネーションと並び替えを伴う画面向けの一覧であり、`user`②「3. Bounded Context」の「画面向けの一覧は、一覧を必要とする各Contextが自前の参照モデルとして持つ」に従って本Contextが参照モデルを持つ。一方、保護ルールの判定に使う「校内に他の有効な教員が存在するか」は画面向けの一覧ではないため、`user` Contextの`CountUsers`に委ねる（②「11. Repository設計」）。
 
@@ -794,7 +794,11 @@ DB接続失敗等のInfrastructure Errorは、Repository実装から`fmt.Errorf`
 |`gormrepo.TeacherPermissionModel`|`teacher_permissions`|Gorm規約「複数形のテーブル名」のデフォルト変換では`teacher_permission_models`となり実テーブル名と一致しないため、`Tabler`インターフェース（`func (TeacherPermissionModel) TableName() string { return "teacher_permissions" }`）でテーブル名を明示する（Gorm規約「テーブル名」節に従う）|
 |（読み取り専用射影）|`users`|`id`・`high_school_id`・`name`・`name_kana`・`deleted_at`列のみを射影する非公開struct。一覧・詳細の所属校絞り込み・有効教員判定・氏名表示・名前順ソートに用いる|
 
-`TeacherPermissionModel`は主キーとして`ID`フィールドを持ち（Gorm規約「主キーとしてのID」のデフォルト規約に従う）、`CreatedAt` / `UpdatedAt`フィールドを持たせ、GORMの自動タイムスタンプ管理（Gorm規約「タイムスタンプのトラッキング」）に従う。カラム名はGoフィールド名のsnake_case変換に従い、`GradeScope string`は`grade_scope`列、`ManageOtherTeachers bool`は`manage_other_teachers`列に対応する。
+`TeacherPermissionModel`は主キーとして`ID`フィールドを持ち（Gorm規約「主キーとしてのID」のデフォルト規約に従う）、`CreatedAt` / `UpdatedAt`フィールドを持たせ、GORMの自動タイムスタンプ管理（Gorm規約「タイムスタンプのトラッキング」）に従う。カラム名はGoフィールド名のsnake_case変換に従い、`GradeScope`は`grade_scope`列、`ManageOtherTeachers`は`manage_other_teachers`列に対応する。
+
+`grade_scope`列はRailsの`enum`として**整数**で保持されるため（①「6. データモデル」）、`TeacherPermissionModel.GradeScope`は`int`とする。Domain層の`valueobject.GradeScope`は`own_grade` / `all_grades`という文字列表現を持つため、整数と文字列の相互変換はrepository実装の変換関数が担う（8章）。`ManageOtherTeachers`は`bool`とする。カラムはNULL可だが、Railsのモデルが`true` / `false`のいずれかであることを検証しており、有効なレコードはNULLを取らない（①「6. データモデル」）。
+
+`user_id`に一意制約があるため、`FindByTeacherID`の取得結果は0件または1件である（①「6. データモデル」）。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -857,6 +861,7 @@ Domain Model採用のため、②22章の区分をそのまま使用する。
 |`TeacherPermissionRepository実装のFindByTeacherID`|同校かつ有効な対象教員の場合、レコードが取得できること|
 |`TeacherPermissionRepository実装のFindByTeacherID`|他校・無効教員・不存在の場合、レコードが取得できないこと|
 |`TeacherPermissionRepository実装のUpdate`|`grade_scope` / `manage_other_teachers`が正しく更新されること|
+|`TeacherPermissionRepository実装の変換`|`grade_scope`列の整数0 / 1が`own_grade` / `all_grades`へ、またその逆へ正しく対応付けられること（①「6. データモデル」のRailsの`enum`と一致すること）|
 |`UserDirectoryAdapter.CountActiveTeachers`|対象教員以外に同校の有効教員が存在する場合、1以上が返ること|
 |`UserDirectoryAdapter.CountActiveTeachers`|対象教員が校内で最後の有効教員である場合、0が返ること|
 
@@ -912,3 +917,4 @@ Domain Model採用のため、②22章の区分をそのまま使用する。
 |14|トランザクションの抽象化に`internal/shared/transaction`の`TransactionManager`（`WithinTransaction`）を用い、Repository実装では`gormtx.DBFromContext`で接続を取り出す|②14章はトランザクション境界（開始・終了位置）のみを定めるが、その実装パターンは規約「11. Transaction実装パターン（TransactionManager）」が定めている|規約に基づく（推測ではない）|
 |15|更新の入力に操作者の種別（教師／管理者）を持たせ、管理者の場合は`TeacherPermissionUpdateGuard`が保護ルールを適用しない構成とした|②8章・12章に従う。Rails現行では教師の権限管理画面にのみ保護ルール（①「7. 権限制御」）があり、管理者の教員更新には保護ルールに相当する定めがない（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」）ため、挙動を変えずに更新経路を一本化するための設計である|②・管理者教員管理機能①に基づく（推測ではない）|
 |16|校内の有効教員の存在確認を本ContextのRepositoryではなく`user` Contextの`CountUsers`に委ねた|②「3. Bounded Context」「11. Repository設計」に従う。`teacher-management`への依存を外すことで、権限更新の入口の一本化によって生じる`teacher-management` → `teacher-permission`の依存と循環しないようにする|②に基づく（推測ではない）|
+|17|`TeacherPermissionModel.GradeScope`を`int`とし、Domain層の`valueobject.GradeScope`が持つ文字列表現との相互変換をrepository実装に置いた|①「6. データモデル」のとおり`grade_scope`列はRailsの`enum`として整数で保持される。Domain層は永続化の表現に依存しないため、対応付けをInfrastructure層に閉じ込めた|①・規約に基づく（推測ではない）|

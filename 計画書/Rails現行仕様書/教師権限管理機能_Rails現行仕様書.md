@@ -182,7 +182,36 @@
 ## `teacher_permissions`
 
 - 役割: 教師の権限を管理するテーブル
-- 主なカラム: `user_id`, `grade_scope`, `manage_other_teachers`
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`user_id`|bigint|不可|教員（`users`）への外部キー。一意インデックスを持ち、教員1人につき1件|
+|`grade_scope`|integer|可|閲覧権限スコープ。Rails の `enum` で `own_grade: 0` / `all_grades: 1` に対応する整数。カラムは NULL 可だがモデルで必須検証がある|
+|`manage_other_teachers`|boolean|可|他教員管理権限。カラムは NULL 可だがモデルで `true` / `false` のいずれかであることを検証する|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- リレーション: `belongs_to :user`
+- モデルの検証: `user_id` の一意性、`grade_scope` の必須、`manage_other_teachers` が `true` / `false` のいずれかであること、対象ユーザーが教員であること
+- 権限レコードを持たない教員が存在しうる。その場合、権限なしとして扱う（「7. 権限制御」）
+
+## `users`
+
+- 役割: 全ロールのアカウントを格納するテーブル。本機能は教員のレコードを対象とする
+- 主なカラム（本機能が参照する範囲）:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー。`teacher_permissions.user_id` が参照する|
+|`name`|string(100)|可|氏名。一覧・詳細の表示に用いる|
+|`name_kana`|string(100)|可|氏名カナ。一覧の並び順に用いる|
+|`user_role_id`|bigint|可|`user_roles` への外部キー。ロール名そのものを保持するカラムはない|
+|`high_school_id`|bigint|可|所属高校。一覧・詳細・更新の対象をこのカラムで絞り込む|
+|`deleted_at`|datetime|可|論理削除日時。「最後の有効教員」の判定に用いる|
+
+- リレーション: `belongs_to :user_role` / `belongs_to :high_school` / `has_one :teacher_permission`
+- 教員の抽出: `User.teachers` スコープが `user_roles` との結合でロールを判定する（`user_roles.name` は `admin`=0 / `student`=1 / `teacher`=2 / `guardian`=3 に対応する整数）
 
 ---
 

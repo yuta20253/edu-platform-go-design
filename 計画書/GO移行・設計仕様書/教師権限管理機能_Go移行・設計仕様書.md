@@ -397,7 +397,7 @@ flowchart TD
 
 - 業務ルール: 更新者が `manage_other_teachers` 権限を持つか（TeacherPermissionUpdateGuard）
 - 状態チェック: 自己更新でないか、最後の有効教員でないか（TeacherPermissionUpdateGuard）
-- 整合性チェック: grade_scopeが許容値であるか（GradeScope Value Object）、manage_other_teachersが真偽値であるか（ManageOtherTeachersFlag Value Object）
+- 整合性チェック: grade_scopeが許容値（`own_grade` / `all_grades`）であるか（GradeScope Value Object）、manage_other_teachersが真偽値であるか（ManageOtherTeachersFlag Value Object）
 
 ## 責務分離
 
@@ -581,6 +581,9 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 - 現行の `teacher_permissions` テーブルは、権限の参照・更新という業務要件を満たしており、追加のスキーマ変更は不要である
 - 「最後の有効教員」判定は `users.deleted_at` による既存の論理削除の仕組みを利用でき、新たなスキーマは不要である
+- 既存カラムの型・制約もそのまま利用する。とくに次の2点は、現行DBを継続利用する以上、Go側の永続化がこれに合わせる必要がある（①「6. データモデル」）
+  - `grade_scope` はRailsの `enum` として**整数**で保持される（`own_grade`=0 / `all_grades`=1）。APIの入出力は文字列であり、永続化との間で相互変換が必要になる
+  - `user_id` に一意制約があり、権限レコードは教員1人につき1件である
 
 ---
 
@@ -589,6 +592,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 ## TeacherPermissionRepository
 
 - 対象テーブル: `teacher_permissions`（本Contextが所有する）、`users`（所属校・有効状態・氏名の判定のために参照する）
+- 値の表現: `grade_scope` は整数で保持されるため、Value Object が扱う文字列表現との相互変換を永続化の境界で行う（「20. DB設計方針」）
 - 操作種別:
   - 参照: 同校教員の権限一覧、指定教員の権限1件
   - 更新: 指定教員の`grade_scope`・`manage_other_teachers`
