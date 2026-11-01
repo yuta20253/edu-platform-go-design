@@ -32,4 +32,6 @@ Rails から Go への移行設計を保管するリポジトリ。①Rails現�
 
 ## ③をもとに実装するとき
 
-`.claude/commands/impl/` の6工程（①plan → ②plan-check → ③code → ④code-check → ⑤coverage → ⑥quality-review）に従う。各工程はユーザーの明示的な承認を得るまで次に進まない。
+`.claude/commands/impl/` の7工程（①spec-check → ②plan → ③plan-check → ④code → ⑤code-check → ⑥coverage → ⑦quality-review）に従う。各工程はユーザーの明示的な承認を得るまで次に進まない。
+
+①spec-check は実装着手前に①②③と規約・Rails実体の整合を検証する工程である。ここで「要修正」が出た場合は②plan に進まず、①②③を直してから再チェックする。
