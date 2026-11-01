@@ -198,7 +198,70 @@ Active Record
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
+
+「5. Aggregate設計」「6. Entity設計」「7. Value Object設計」「8. Domain Service」で整理した関係を次のとおり可視化する。Active Record採用のため、永続化操作はEntity相当のstructと同一packageに置くStoreとして実装される（「11. Repository設計」）。属性・操作は概要レベルで示し、Goのstruct定義は③Go実装仕様書で扱う。
+
+```mermaid
+classDiagram
+    class Teacher {
+        教員の識別子
+        氏名
+        氏名カナ
+        メールアドレス
+        所属校
+        権限
+        担当学年
+    }
+    class TeacherPermission {
+        閲覧権限スコープ（own_grade / all_grades）
+        他教員管理権限（true / false）
+        全学年を対象とするか()
+    }
+    class TeacherGradeAssignment {
+        教員の識別子
+        学年の識別子
+    }
+    class GradeAssignmentSet {
+        担当学年の集合
+        重複を排除する()
+        担当学年なしか()
+    }
+    class TeacherGradeAssignmentPolicy {
+        所属校に属する学年だけを選び出す()
+    }
+    class HighSchool {
+        高校の識別子
+    }
+    class Grade {
+        学年の識別子
+        所属校
+    }
+
+    Teacher *-- TeacherPermission : 1対1で保有（Value Object）
+    Teacher *-- TeacherGradeAssignment : 0以上を保有
+    GradeAssignmentSet ..> TeacherGradeAssignment : 全置換の内容として渡す
+    TeacherGradeAssignmentPolicy ..> Grade : 所属校の判定に参照する
+    TeacherGradeAssignmentPolicy ..> GradeAssignmentSet : 選び出した結果を返す
+    Teacher ..> HighSchool : 所属先として参照する
+
+    note for Teacher "Aggregate Root。Aggregate境界はTeacherとその権限・担当学年（「5. Aggregate設計」）"
+    note for TeacherPermission "値の書き換えはteacher-permission Contextの更新操作に委ねる（「3. Bounded Context」）"
+```
+
+HighSchool・GradeはAggregateの外部参照であり、本Contextが所有しない（「5. Aggregate設計」）。
+
+---
+
+# 10. 状態遷移図
+
+本機能では状態遷移図を作成しない。
+
+理由: 「6. Entity設計」のとおり、Teacherには有効／無効・招待中といった明示的な状態フィールドが現行仕様に存在せず、作成後は属性の更新のみが行われる。担当学年（TeacherGradeAssignment）も追加・削除があるだけで、名前付きの状態を持たない。遷移条件として表現すべきものがないため、状態遷移図を設けない。
+
+---
+
+# 11. Repository設計
 
 **実装上の位置づけ**: 本機能はActive Record採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はEntity相当のstructと同一packageに置くStore(例: `〇〇Store`)として直接実装する(規約: アーキテクチャ規約.md「3. 設計パターンごとの構造適用方針」)。
 
@@ -263,7 +326,7 @@ Active Record
 
 ---
 
-# 10. UseCase設計
+# 12. UseCase設計
 
 **実装上の位置づけ**: 本機能はActive Record採用のため、UseCase層(struct)を設けない。以下はHandlerが行う業務操作の設計意図であり、実装時はHandlerがStoreを直接呼び出す処理として実装する。
 
@@ -299,14 +362,14 @@ Active Record
 - 目的: 既存教員のプロフィール・権限・担当学年を更新する
 - 入力: current admin, high_school_id, teacher_id, update request
 - 出力: 更新後の教員情報
-- トランザクション範囲: プロフィール更新・権限更新・担当学年の全置換を1トランザクションで扱う。`teacher-permission` Contextの更新操作は、本Contextが開始したトランザクションに参加する（規約「11. Transaction設計」のとおり`context.Context`で引き継ぐ）
+- トランザクション範囲: プロフィール更新・権限更新・担当学年の全置換を1トランザクションで扱う。`teacher-permission` Contextの更新操作は、本Contextが開始したトランザクションに参加する（規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」のとおり`context.Context`で引き継ぐ）
 - 呼び出すStore・Context:
   - HighSchoolStore
   - TeacherStore
   - TeacherPermissionStore（更新後の`grade_scope`の参照。担当学年の決定に用いる）
   - TeacherGradeStore
   - GradeStore
-  - `teacher-permission` Context: 権限（`grade_scope` / `manage_other_teachers`）の更新。操作者の種別を管理者として渡すため、自己更新禁止・最後の有効教員保護・他教員管理権限の判定は適用されない（`teacher-permission`②「8. Domain Service」「10. UseCase設計」）
+  - `teacher-permission` Context: 権限（`grade_scope` / `manage_other_teachers`）の更新。操作者の種別を管理者として渡すため、自己更新禁止・最後の有効教員保護・他教員管理権限の判定は適用されない（`teacher-permission`②「8. Domain Service」「12. UseCase設計」）
 - 権限の更新: `grade_scope` / `manage_other_teachers`のうち送信された項目のみを更新する（Rails現行の`Admin::UpdateTeacherService`が`slice(...).compact`で`nil`を除くことに合わせる）。本Contextは値を自分で書き換えず、`teacher-permission`の更新操作に委ねる
 - 担当学年の決定順序: 権限の更新を先に行い、更新後の`grade_scope`をもとに担当学年を決める（Rails現行の`Admin::UpdateTeacherService`が`update_permission_attributes`の後に`update_teacher_grades`を呼び、`valid_grade_ids`が更新後の`all_grades?`を参照することに合わせる）
 - 権限レコードが存在しない対象教員の扱い: 権限項目（`grade_scope` / `manage_other_teachers`）の更新、または`grade_ids`による担当学年の全置換が指定された場合、権限レコードを参照できないため、想定外の状態として内部エラー（500）とする。氏名・メールアドレスのみの更新は影響を受けない。Rails現行が、この場合に特別な扱いをせず、権限情報を参照する処理が例外となって500になることに合わせる
@@ -314,7 +377,112 @@ Active Record
 
 ---
 
-# 11. Transaction設計
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図
+
+Active Record採用のため、HandlerがStoreを直接呼び出す（「12. UseCase設計」）。
+
+### 一覧参照
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant HS as HighSchoolStore
+    participant TS as TeacherStore
+
+    H->>HS: 対象高校の存在確認
+    HS-->>H: 高校
+    H->>TS: 対象高校の教員一覧を取得（id昇順・ページングなし）
+    TS-->>H: 教員（権限・担当学年を含む）
+    H-->>H: レスポンスへ変換
+```
+
+### 招待（作成）
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant HS as HighSchoolStore
+    participant GS as GradeStore
+    participant TS as TeacherStore
+    participant UC as user Context
+    participant P as TeacherPermissionStore
+    participant TG as TeacherGradeStore
+
+    H->>HS: 対象高校の存在確認
+    HS-->>H: 高校
+    H->>GS: 指定された学年の取得（所属校の判定用）
+    GS-->>H: 学年
+    H->>TS: トランザクションを開始
+    TS->>UC: CreateTeacherAccount（招待待ち=しない・作成時に招待メールを送る=する）
+    UC-->>TS: 作成された教員アカウント
+    TS->>P: 権限レコードを作成
+    TS->>TG: 担当学年を作成
+    TS-->>H: コミット
+    H-->>H: レスポンスへ変換
+```
+
+### 更新
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant HS as HighSchoolStore
+    participant TS as TeacherStore
+    participant TP as teacher-permission Context
+    participant P as TeacherPermissionStore
+    participant GS as GradeStore
+    participant TG as TeacherGradeStore
+
+    H->>HS: 対象高校の存在確認
+    HS-->>H: 高校
+    H->>TS: 対象教員の取得（所属校でスコープ）
+    TS-->>H: 教員
+    H->>TS: トランザクションを開始
+    TS->>TS: 送信されたプロフィール項目を更新
+    TS->>TP: 権限の更新を依頼（操作者の種別=管理者）
+    TP-->>TS: 更新後の権限
+    TS->>P: 更新後のgrade_scopeを参照
+    P-->>TS: 権限
+    TS->>GS: 指定された学年の取得（所属校の判定用）
+    GS-->>TS: 学年
+    TS->>TG: 担当学年を全置換
+    TS-->>H: コミット
+    H-->>H: レスポンスへ変換
+```
+
+`teacher-permission` Contextへの依頼は、相手Contextが公開する更新操作の呼び出しである（「3. Bounded Context」、規約「5. Context間連携ルール」）。本Contextが開始したトランザクションに参加する（「14. Transaction設計」）。
+
+## 処理フロー図
+
+更新操作は、権限の更新順序と担当学年の決定に業務ルールがあるため、判断の流れを次のとおり整理する。
+
+```mermaid
+flowchart TD
+    A[更新要求] --> B{対象高校が存在するか}
+    B -- いいえ --> B1[対象不存在として拒否]
+    B -- はい --> C{対象教員が対象高校に所属するか}
+    C -- いいえ --> B1
+    C -- はい --> D{権限項目またはgrade_idsの指定があるか}
+    D -- いいえ --> E[送信されたプロフィール項目のみ更新]
+    D -- はい --> F{対象教員の権限レコードが存在するか}
+    F -- いいえ --> F1[想定外の状態として内部エラー]
+    F -- はい --> G[送信された権限項目のみteacher-permissionへ更新を依頼]
+    G --> H{更新後のgrade_scopeが全学年か}
+    H -- はい --> I[対象高校の全学年を担当学年とする]
+    H -- いいえ --> J[指定された学年のうち対象高校に属するものだけを担当学年とする]
+    I --> K[担当学年を全置換]
+    J --> K
+    K --> L[コミットして更新後の教員を返す]
+    E --> L
+```
+
+対象高校に属さない学年IDは、拒否せず担当学年の対象から除外する（「8. Domain Service」）。一覧参照は所属校による絞り込みのみで分岐を持たないため、処理フロー図を設けない。
+
+---
+
+# 14. Transaction設計
 
 ## Transaction開始位置
 
@@ -333,7 +501,7 @@ Active Record
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
@@ -352,9 +520,27 @@ Active Record
 - Presentationは「入力が正しいか」を担当する
 - Domainは「業務的に妥当か（自校の学年か、自校の教員か）」を担当する
 
+## バリデーション仕様
+
+|フィールド|検証層|ルール|エラーメッセージ方針|
+|-|-|-|-|
+|`high_school_id`（パス）|Presentation|必須・整数であること|入力形式の不正として扱う|
+|`id`（パス、更新時）|Presentation|必須・整数であること|入力形式の不正として扱う|
+|`name`|Presentation|作成時は必須・文字列であること。更新時は未送信と値を区別する|氏名未入力は`user` Contextの作成操作が返すValidationエラーに従う|
+|`email`|Presentation|作成時は必須・メールアドレス形式であること。更新時は未送信と値を区別する|形式不正・重複は`user` Contextの作成操作が返すValidationエラーに従う|
+|`grade_scope`|Presentation|作成時は必須・文字列であること。更新時は未送信と値を区別する|入力形式の不正として扱う|
+|`grade_scope`|Domain|`own_grade` / `all_grades` のいずれかであること|許容外の値は業務ルール違反として扱う（Rails現行は`ArgumentError`で422）|
+|`manage_other_teachers`|Presentation|作成時は必須・真偽値であること。更新時は未送信と値を区別する|入力形式の不正として扱う|
+|`grade_ids`|Presentation|整数の配列であること|入力形式の不正として扱う|
+|`grade_ids`|Domain|対象高校に属する学年のみを担当学年とする。属さないIDは除外し、拒否しない|エラーとしない（Rails現行と同じ挙動。「8. Domain Service」）|
+|対象高校|Domain|指定された高校が存在すること|対象不存在として扱う|
+|対象教員|Domain|対象教員が指定高校に所属すること|対象不存在として扱う|
+
+更新で送信されなかった項目は検証も更新も行わない（Rails現行の`slice(...).compact`に合わせる）。このため入力の表現は、項目ごとに「未送信」と「値」を区別できる形とする。
+
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
 ## Middleware
 
@@ -381,7 +567,7 @@ Active Record
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
@@ -402,9 +588,32 @@ Active Record
 - 責務: DB接続失敗・永続化失敗を表現する。教員の更新時に対象教員の権限レコードが存在しない場合のように、業務上は想定されていないデータ状態（Rails現行では例外となり500になる）も、この種別として500に対応させる
 - 判断理由: 技術的な障害を業務エラーと切り分けるため
 
+## 層間の変換
+
+- Domain ErrorはHTTPステータス・ログレベルを持たない。どう外部に見せるかはApplication層のエラー型が担う
+- Active Record採用のためDomain Errorに相当する層が薄く、structやStoreが返すエラーをそのままApplication Error相当として扱ってよい（規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）
+- Presentation層は、Application Errorが持つステータスコードを用いてレスポンスを組み立てる。個々のエラーをPresentation層で列挙して判定しない
+
+## エラー仕様
+
+|業務シナリオ|エラー種別|発生層|想定するHTTPステータス|
+|-|-|-|-|
+|対象高校が存在しない|NotFound|Application|404|
+|対象教員が存在しない、または指定高校に所属しない|NotFound|Application|404|
+|`grade_scope`が許容値でない|Validation|Domain（判定）→ Application（変換）|422|
+|必須項目が未指定・型不正|Validation|Presentation|422|
+|氏名未入力・メールアドレスの不備や重複（招待時）|Validation|`user` Contextの作成操作 → Application|422|
+|`grade_ids`に対象高校に属さない学年が含まれる|エラーとしない|—|—（該当IDを除外して処理する）|
+|未認証|Unauthorized|Middleware|401|
+|`admin`ロールでない|Forbidden|Middleware|403|
+|更新時に対象教員の権限レコードが存在しない|Internal|Infrastructure → Application（変換）|500|
+|DB接続・永続化の失敗|Internal|Infrastructure → Application（変換）|500|
+
+管理者経路では、教師経路の保護ルール（自己更新禁止・最後の有効教員保護・他教員管理権限）が適用されないため、これらによる403・422は発生しない（`teacher-permission`②「8. Domain Service」）。
+
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
 本機能では現時点でDomain Eventを採用しない。教員の招待時に送信される招待メールは、`user` Contextの`CreateTeacherAccount`が、アカウントの作成と同一トランザクションで、招待メールの送信依頼（規約13の`jobs`テーブル）として登録する。本Contextは、メール送信のためのイベント・アダプタを持たない。
 
@@ -412,47 +621,57 @@ Active Record
 
 ---
 
-# 16. API互換方針
+# 19. API仕様
 
-## URL
+## エンドポイント一覧
 
-- Rails現行仕様と同じエンドポイントを維持する
-  - GET /api/v1/admin/high_schools/:high_school_id/teachers
-  - POST /api/v1/admin/high_schools/:high_school_id/teachers
-  - PATCH /api/v1/admin/high_schools/:high_school_id/teachers/:id
+|エンドポイント|HTTP Method|概要|
+|-|-|-|
+|/api/v1/admin/high_schools/:high_school_id/teachers|GET|対象高校の教員一覧取得|
+|/api/v1/admin/high_schools/:high_school_id/teachers|POST|教員の招待（作成）|
+|/api/v1/admin/high_schools/:high_school_id/teachers/:id|PATCH|教員のプロフィール・権限・担当学年の更新|
 
-## HTTP Method
+いずれもRails現行仕様と同じURL・HTTP Methodを維持する。
 
-- 既存仕様どおりに維持する
+## 各エンドポイントの仕様
 
-## Request
+### GET /api/v1/admin/high_schools/:high_school_id/teachers
 
-- 既存のパラメータ構造（`email`, `name`, `grade_scope`, `manage_other_teachers`, `grade_ids` 等）を維持しつつ、Go側では入力DTOとして吸収する
-- 更新では、送信されなかった項目を更新対象から外す（Rails現行の`slice(...).compact`と同じ）。このため、入力DTOは項目ごとに「未送信」と「値」を区別できる形にする
-- `grade_ids`に対象高校に属さない学年IDが含まれていても、エラーとせず無視する（Rails現行と同じ）
+- Request: パスパラメータ`high_school_id`。`page` / `per_page`は受け付けない
+- Response: 対象高校の教員を全件返す（`Admin::TeacherSerializer`相当の構造）。各教員に権限（閲覧権限スコープ・他教員管理権限）と担当学年を含める。権限レコードが存在しない教員の権限項目は`null`とする。ページ情報（`meta`）は返さない
+- Status Code: 正常系200。異常系は対象高校不存在404、未認証401、`admin`ロール不一致403
+- Error Response方針: 既存の`errors`形式を踏襲する
 
-## Response
+### POST /api/v1/admin/high_schools/:high_school_id/teachers
 
-- 一覧・作成・更新の成功時は、Rails現行仕様（`Admin::TeacherSerializer` 相当）に近い構造を維持する
-- 一覧は、Rails現行と同じくページングしない（全件を返し、`meta`を返さない）。権限レコードが存在しない教員の`grade_scope` / `manage_other_teachers`は`null`とする
+- Request: パスパラメータ`high_school_id`。ボディに`name`・`email`・`grade_scope`・`manage_other_teachers`・`grade_ids`
+- Response: 作成された教員情報（権限・担当学年を含む）
+- Status Code: 正常系201。異常系は対象高校不存在404、入力不正（氏名未入力・メールアドレスの不備や重複・`grade_scope`の許容外の値・必須項目の未指定）422、未認証401、`admin`ロール不一致403
+- Error Response方針: 氏名・メールアドレスに関する入力不備は、`user` Contextの作成操作が返すValidationエラーをそのまま422として返す
 
-## Status Code
+### PATCH /api/v1/admin/high_schools/:high_school_id/teachers/:id
 
-- 200: 取得・更新成功
-- 201: 作成成功
-- 404: 対象高校・対象教員不存在
-- 422: 入力不正（氏名未入力・メールアドレスの不備や重複・`grade_scope`の許容外の値・必須項目の未指定）
+- Request: パスパラメータ`high_school_id`・`id`。ボディは`name`・`email`・`grade_scope`・`manage_other_teachers`・`grade_ids`のうち送信された項目のみを更新対象とする。入力の表現は項目ごとに「未送信」と「値」を区別できる形とする（Rails現行の`slice(...).compact`と同じ）
+- Response: 更新後の教員情報
+- Status Code: 正常系200。異常系は対象高校・対象教員不存在404、入力不正422、未認証401、`admin`ロール不一致403、対象教員の権限レコードが存在しない場合500
+- Error Response方針: 既存の`errors`形式を踏襲する
 
-`grade_ids`に他校の学年IDが含まれる場合は、エラーにせず無視するため、422にはならない。管理者経路では、教師経路の保護ルール（自己更新禁止・最後の有効教員保護・他教員管理権限）が適用されないため、403にもならない（`teacher-permission`②「16. API互換方針」）。
-- 500: 更新時に対象教員の権限レコードが存在しない（Rails現行と同じく想定外の状態として扱う）、DB障害等
+`grade_ids`に対象高校に属さない学年IDが含まれていても、エラーとせず該当IDを無視する（Rails現行と同じ）。管理者経路では、教師経路の保護ルール（自己更新禁止・最後の有効教員保護・他教員管理権限）が適用されないため403・422にはならない（`teacher-permission`②「19. API仕様」）。
 
-## Error Response
+## Railsとの差分
 
-- 既存の `errors` 形式を踏襲し、フロントエンド互換性を優先する
+API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構造・ステータスコード）はRails現行仕様から変更しない。一覧のページングなし、権限レコードが存在しない教員の権限項目を`null`とすること、更新時に権限レコードが存在しない場合の500も、Rails現行と同一である。
+
+内部の呼び出し経路には次の差分がある。
+
+- Rails仕様: `Admin::UpdateTeacherService`が`teacher_permissions`を直接更新しており、教師の権限管理画面と権限の書き換え経路が二重化している。また`Admin::CreateTeacherService`が共通の作成処理を継承して教員アカウント本体・仮パスワード・招待メールを扱っている
+- Go設計での変更: 権限の更新を`teacher-permission` Contextの更新操作に委ね、操作者の種別を管理者として渡す。教員アカウント本体の作成と作成時の招待メールの送信依頼を`user` Contextの`CreateTeacherAccount`に委ねる
+- 変更理由: 権限の書き換えが2箇所にあると、保護ルールや権限項目の追加時に片方だけが修正される。アカウント作成規則（仮パスワード・メールアドレスの一意性・招待メールの内容）も`user`に一本化することで、本Contextは権限・担当学年の業務ルールに責務を限定できる
+- 影響範囲: 本機能の3エンドポイントの外部仕様に変更はない。管理者経路では保護ルールが適用されないため、更新の挙動もRailsと変わらない。招待では教員アカウントが招待待ちにならず、作成時に招待メールが届く点もRailsと変わらない
 
 ---
 
-# 17. DB設計方針
+# 20. DB設計方針
 
 ## 現行DBを利用するか
 
@@ -469,7 +688,53 @@ Active Record
 
 ---
 
-# 18. テスト戦略
+# 21. DB操作仕様
+
+## TeacherStore
+
+- 対象テーブル: `users`（教員レコード）
+- 操作種別: 参照（一覧・1件）、更新。作成は行わない（`user` Contextの`CreateTeacherAccount`の責務）
+- 主な検索条件・絞り込み条件: 所属校が一致すること。1件取得では教員の識別子が一致すること（所属校スコープ付き）
+- 関連テーブルとの結合: 一覧・1件取得で、権限（`teacher_permissions`）と担当学年（`teacher_grades`）をあわせて取得する必要がある。権限レコードが存在しない教員も一覧に含めるため、権限側は存在しない場合でも教員が落ちない形で取得する
+- ページネーション・ソート: ページネーションは行わない（Rails現行の一覧がページングしないことに合わせる）。並び順は教員の識別子の昇順で固定する
+
+## TeacherPermissionStore
+
+- 対象テーブル: `teacher_permissions`
+- 操作種別: 参照、作成（教員の着任時）。更新は行わない（`teacher-permission` Contextの更新操作の責務）
+- 主な検索条件・絞り込み条件: 対象教員の識別子が一致すること
+- 関連テーブルとの結合: 不要
+- ページネーション・ソート: 不要
+
+## TeacherGradeStore
+
+- 対象テーブル: `teacher_grades`
+- 操作種別: 参照、全置換（対象教員の既存紐付けの削除と、新しい紐付けの作成）
+- 主な検索条件・絞り込み条件: 対象教員の識別子が一致すること
+- 関連テーブルとの結合: 担当学年の表示に学年の情報が必要な場合は`grades`を参照する
+- ページネーション・ソート: 不要
+
+## HighSchoolStore
+
+- 対象テーブル: `high_schools`
+- 操作種別: 参照（存在確認）
+- 主な検索条件・絞り込み条件: 高校の識別子が一致すること
+- 関連テーブルとの結合: 不要
+- ページネーション・ソート: 不要
+
+## GradeStore
+
+- 対象テーブル: `grades`
+- 操作種別: 参照
+- 主な検索条件・絞り込み条件: 指定された学年の識別子に一致すること。対象高校に属するかの判定に所属校を用いる。`grade_scope`が全学年の場合は、対象高校に属する学年を全件取得する
+- 関連テーブルとの結合: 不要
+- ページネーション・ソート: 不要
+
+HighSchoolStore・GradeStoreは`master-data` Contextが所有するデータへの参照であり、本Contextは参照のみを行う（「3. Bounded Context」）。
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
@@ -477,11 +742,11 @@ Active Record
 
 ## UseCase Test
 
-- 目的: ListTeachersUseCase / InviteTeacherUseCase / UpdateTeacherUseCase の業務振る舞いを検証する。UpdateTeacherでは、権限の更新を`teacher-permission` Contextの更新操作に委ね、操作者の種別を管理者として渡すこと（保護ルールが適用されないこと）、送信された項目のみを更新すること、更新後の`grade_scope`をもとに担当学年を決めることを検証する。InviteTeacherでは、`user` Contextの`CreateTeacherAccount`を「招待待ち=しない・作成時に招待メールを送る=する」の指定で呼ぶこと、氏名カナに氏名と同じ値を渡すこと、`grade_scope`が全学年の場合に対象高校の全学年が担当学年になること、権限・担当学年の作成に失敗した場合にアカウントも作成されない（招待メールも送信されない）ことを検証する
+- 目的: 一覧参照・招待・更新の各Handler処理の業務振る舞いを検証する（Active Record採用のためUseCase層を設けないため、③では本区分を「対象外」とし、Handler Testに統合する。「12. UseCase設計」）。更新では、権限の更新を`teacher-permission` Contextの更新操作に委ね、操作者の種別を管理者として渡すこと（保護ルールが適用されないこと）、送信された項目のみを更新すること、更新後の`grade_scope`をもとに担当学年を決めることを検証する。InviteTeacherでは、`user` Contextの`CreateTeacherAccount`を「招待待ち=しない・作成時に招待メールを送る=する」の指定で呼ぶこと、氏名カナに氏名と同じ値を渡すこと、`grade_scope`が全学年の場合に対象高校の全学年が担当学年になること、権限・担当学年の作成に失敗した場合にアカウントも作成されない（招待メールも送信されない）ことを検証する
 
 ## Repository Test
 
-- 目的: TeacherRepository・TeacherPermissionRepository・TeacherGradeRepositoryによる永続化・検索の正確性を検証する
+- 目的: TeacherStore・TeacherPermissionStore・TeacherGradeStore・HighSchoolStore・GradeStoreによる永続化・検索の正確性を検証する（Active Record採用のため、③では「Store Test」として扱う）
 
 ## Handler Test
 
@@ -493,7 +758,7 @@ Active Record
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
 | Rails | Go | 設計方針 |
 |---|---|---|
@@ -505,7 +770,7 @@ Active Record
 
 ---
 
-# 20. 採用しなかった設計
+# 24. 採用しなかった設計
 
 ## Domain Model
 
@@ -524,7 +789,7 @@ Active Record
 
 ---
 
-# 21. 設計判断サマリー
+# 25. 設計判断サマリー
 
 | 項目 | 採用 | 判断理由 |
 |---|---|---|
