@@ -24,8 +24,19 @@ Handlerは、UseCase（またはTransaction Script/Active Recordの場合は該�
 |-|-|-|
 |認証（本人確認）|`AuthMiddleware`|認証が必要なルートグループにのみ`Use`|
 |認可（役割チェック）|`RequireRole(enforcer)`（Casbin RBAC、詳細は「4. 認可（Casbin RBAC）」）|`AuthMiddleware`の後段で、認証が必要なルートグループに`Use`|
-|エラーハンドリング|`ErrorHandler`|ルーター全体に最初に`Use`|
-|アクセスログ|`AccessLogger`|ルーター全体に`Use`|
+|エラーハンドリング|`ErrorHandler`|ルーター全体に`Use`（`AccessLogger`の次）|
+|アクセスログ|`AccessLogger`|ルーター全体に最初に`Use`（最も外側）|
+
+`router.Use`は、先に登録したものが外側になる。`AccessLogger`を最初に登録し、`ErrorHandler`をその次に登録する。
+
+```go
+router.Use(
+    AccessLogger(logger),
+    ErrorHandler(logger),
+)
+```
+
+`AccessLogger`は`c.Next()`の後に`c.Writer.Status()`を記録する（「3. ミドルウェア」）。`ErrorHandler`より内側に置くと、`ErrorHandler`がエラーレスポンスのステータスを書く前にログを出すことになり、失敗したリクエストのアクセスログに200が記録される。
 
 ---
 
@@ -72,11 +83,11 @@ api := router.Group("/api")
 }
 ```
 
-Context単位でルート登録関数を分割し、各Contextのルート登録関数が自分のグループのみを構築する（具体的な配置ディレクトリはアーキテクチャ規約のディレクトリ構成が確定次第定める）。
+Context単位でルート登録関数を分割し、各Contextのルート登録関数が自分のグループのみを構築する（配置はアーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」のとおり、Contextディレクトリ配下の`presentation/routes.go`）。
 
 ```go
 // Good
-// internal/task/presentation/routes.go
+// internal/taskmanagement/presentation/routes.go
 func RegisterRoutes(rg *gin.RouterGroup, h *Handler) {
     tasks := rg.Group("/tasks")
     tasks.GET("", h.ListTasks)
@@ -135,6 +146,10 @@ func AuthMiddleware() gin.HandlerFunc {
 ```
 
 グローバルに適用するミドルウェア（エラーハンドリング・アクセスログ等）は`router.Use()`で登録し、特定のルートグループにのみ必要なミドルウェア（認証・認可）はそのグループの`Use()`で登録する。すべてのミドルウェアをグローバルに登録しない。
+
+### CORSミドルウェアは使わない
+
+CORSミドルウェア（`gin-contrib/cors`等）は登録しない。フロントエンド（Next.js）がAPIリクエストを`rewrites`で中継しており、ブラウザから見るとAPIは同一オリジンになるため、CORSヘッダーを返す必要がない。詳細な前提と、別オリジン構成に変更する場合の見直し項目はアーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「CORS」節に従う。
 
 ---
 
@@ -272,7 +287,21 @@ func CSRFMiddleware(secret []byte) gin.HandlerFunc {
 
 ### 適用範囲
 
-Cookie経由の認証を用いるルートグループにのみ`Use`する（0章の表のとおり、認証が必要なルートグループへの適用に準じる）。ログインエンドポイント自体（Cookie発行前）の扱いは、フロントエンド実装と合わせて別途確認する。
+Cookie経由の認証を用いるルートグループにのみ`Use`する（0章の表のとおり、認証が必要なルートグループへの適用に準じる）。
+
+判断の基準は「そのリクエストがCookieによって認可されるか」である。**Cookieで認可される状態変更（POST / PATCH / PUT / DELETE）はすべて検証対象に含める。** Cookieを使わないエンドポイントは対象外とする。攻撃者のサイトからブラウザに自動送信させられる資格情報がなく、CSRFトークンを検証しても守るものがないためである。
+
+検証対象に含める:
+
+- ログアウト（`DELETE /api/v1/user/logout`）。Cookieで認可されるため、含めないと意図しないログアウトを強制されうる
+- Cookie認証下の更新操作（例：`PATCH /api/v1/profile`）
+- 今後追加するCookie認証下のPOST / PATCH / PUT / DELETE。トークン更新のようなエンドポイントを追加する場合も、Cookieで認可されるなら含める（Rails現行に該当するエンドポイントはない）
+
+検証対象に含めない:
+
+- ログイン（`POST /api/v1/user/login`）。Cookie発行前であり、検証対象にできない
+- サインアップ（`POST /api/v1/{student,teacher,admin}/signup`）。認証不要で、Cookieも発行しない（Rails現行の`RegistrationsController#create`はサインインしない）
+- パスワードリセット（`POST /api/v1/password/reset/request`・`POST /api/v1/password/verify`・`PATCH /api/v1/password/reset`）。Cookieではなく、メールで送ったトークンで本人確認するため、Cookieに依存しない
 
 ---
 
@@ -495,7 +524,7 @@ func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
     }
 }
 
-router.Use(ErrorHandler(logger)) // 最初に登録する
+router.Use(AccessLogger(logger), ErrorHandler(logger)) // ErrorHandlerはAccessLoggerの次に登録する（「0. 本プロジェクトでの採用方針」の「ミドルウェアの配置」）
 ```
 
 ```go
@@ -571,3 +600,4 @@ func TestCreateTask(t *testing.T) {
 ```
 
 `gin.SetMode(gin.TestMode)`でデバッグ出力を抑制する。ミドルウェア単体のテストは、対象のミドルウェアと簡易なハンドラのみを持つ最小構成のルーターで行い、他のミドルウェアの影響を受けないようにする。複数ケースを検証する場合は、コーディング規約「26. テスト」のテーブル駆動テストに従う。
+
