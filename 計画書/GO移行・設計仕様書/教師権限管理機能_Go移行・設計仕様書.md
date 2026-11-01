@@ -172,7 +172,55 @@ Domain Model
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
+
+「5. Aggregate設計」「6. Entity設計」「7. Value Object設計」「8. Domain Service」で整理した関係を次のとおり可視化する。属性・操作は概要レベルで示し、Goのstruct定義（フィールドの可視性・タグ）は③Go実装仕様書で扱う。
+
+```mermaid
+classDiagram
+    class TeacherPermission {
+        権限レコードの識別子
+        対象教員への参照
+        所属校
+        学年閲覧範囲
+        他教員管理権限
+        他教員を管理できるか()
+        学年閲覧範囲を変更する()
+        他教員管理権限を変更する()
+    }
+    class GradeScope {
+        値（own_grade / all_grades）
+        全学年を対象とするか()
+    }
+    class ManageOtherTeachersFlag {
+        値（true / false）
+        他教員を管理できるか()
+    }
+    class TeacherPermissionUpdateGuard {
+        更新が組織運用上許可されるか判定する()
+    }
+
+    TeacherPermission *-- GradeScope : 保有
+    TeacherPermission *-- ManageOtherTeachersFlag : 保有
+    TeacherPermissionUpdateGuard ..> TeacherPermission : 操作者の権限・更新対象として受け取る
+
+    note for TeacherPermission "Aggregate Root。Aggregate境界はTeacherPermission 1件（「5. Aggregate設計」）"
+    note for TeacherPermissionUpdateGuard "校内に他の有効教員が存在するかはAggregate外部の参照情報として受け取る"
+```
+
+対象教員の氏名はTeacherPermissionが保持しない（「7. Value Object設計」の「Value Objectを採用しないもの」）ため、図にも含めない。
+
+---
+
+# 10. 状態遷移図
+
+本機能では状態遷移図を作成しない。
+
+理由: TeacherPermissionは「下書き → 公開」のような名前付きの状態を持たず、`grade_scope`（own_grade / all_grades）と`manage_other_teachers`（true / false）という2つの値が互いに独立して更新されるだけである（「6. Entity設計」の「状態変化」）。値の組み合わせは4通りあるが、業務上禁止される組み合わせはなく、遷移の条件は「更新操作が保護ルールを満たすこと」の一点に集約される。その判定内容は「16. Authorization設計」および「13. シーケンス図・処理フロー図」の処理フロー図で表現できるため、状態遷移図を別に設ける意味がない。
+
+---
+
+# 11. Repository設計
 
 ## TeacherPermissionRepository
 
@@ -202,7 +250,7 @@ Domain Model
 
 ---
 
-# 10. UseCase設計
+# 12. UseCase設計
 
 ## ListTeacherPermissionsUseCase
 
@@ -238,7 +286,87 @@ Domain Model
 
 ---
 
-# 11. Transaction設計
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図
+
+### 参照（一覧・詳細）
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant U as 参照UseCase
+    participant R as TeacherPermissionRepository
+
+    H->>U: 操作者の所属校・ページ指定（詳細は対象教員ID）を渡す
+    U->>R: 所属校でスコープした権限の取得を依頼
+    R-->>U: 権限（氏名等の表示用情報を伴う）
+    U-->>H: 出力データ
+```
+
+### 更新
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant U as UpdateTeacherPermissionUseCase
+    participant G as TeacherPermissionUpdateGuard
+    participant R as TeacherPermissionRepository
+    participant UC as user Context（公開参照）
+
+    H->>U: 操作者（識別子・種別）・対象教員ID・更新値
+    U->>U: 入力値をValue Objectに変換（許容値検証）
+    alt 操作者が管理者
+        U->>UC: GetUserAttributes（対象教員の所属校・ロール・有効状態）
+        UC-->>U: 対象教員の属性
+    end
+    alt 操作者が教師
+        U->>R: 操作者自身の権限を取得
+        R-->>U: 操作者の権限
+    end
+    U->>R: 更新対象の権限を取得（所属校でスコープ）
+    R-->>U: 更新対象の権限
+    alt 操作者が教師
+        U->>UC: CountUsers（対象教員を除く同校の有効教員数）
+        UC-->>U: 人数
+    end
+    U->>G: 操作者・更新対象・他の有効教員の有無を渡して判定を依頼
+    G-->>U: 許可、または保護ルール違反
+    U->>R: 権限を更新
+    R-->>U: 完了
+    U-->>H: 更新結果
+```
+
+`user` Contextへの参照は、相手Contextが公開する参照手段の呼び出しである（「3. Bounded Context」、規約「5. Context間連携ルール」）。
+
+## 処理フロー図
+
+更新操作は保護ルールの判定を複数経るため、判断の流れを次のとおり整理する。
+
+```mermaid
+flowchart TD
+    A[更新要求] --> B{入力値が許容値か}
+    B -- いいえ --> B1[入力不正として拒否]
+    B -- はい --> C{操作者の種別}
+    C -- 管理者 --> H{更新対象が存在し、有効な教員か}
+    C -- 教師 --> D{更新対象が同校に存在し、有効か}
+    D -- いいえ --> D1[対象不存在として拒否]
+    D -- はい --> E{操作者が他教員管理権限を持つか}
+    E -- いいえ --> E1[権限不足として拒否]
+    E -- はい --> F{更新対象が操作者自身か}
+    F -- はい --> F1[自己更新禁止として拒否]
+    F -- いいえ --> G{対象を除く同校の有効教員がいるか}
+    G -- いいえ --> G1[最後の有効教員保護として拒否]
+    G -- はい --> I[権限を更新して確定]
+    H -- いいえ --> D1
+    H -- はい --> I
+```
+
+一覧・詳細の参照は所属校による絞り込みのみで分岐を持たないため、処理フロー図を設けない。
+
+---
+
+# 14. Transaction設計
 
 ## Transaction開始位置
 
@@ -256,7 +384,7 @@ Domain Model
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
@@ -276,9 +404,24 @@ Domain Model
 - Domainは「業務的に妥当か（更新してよい権限者か、保護対象でないか）」を担当する
 - これにより、入力仕様の変更と組織運用ルールの変更を独立して扱える
 
+## バリデーション仕様
+
+|フィールド|検証層|ルール|エラーメッセージ方針|
+|-|-|-|-|
+|`grade_scope`|Presentation|必須・文字列であること|入力形式の不正として扱う|
+|`grade_scope`|Domain|`own_grade` / `all_grades` のいずれかであること（GradeScope Value Object）|許容値以外は業務ルール違反として扱う|
+|`manage_other_teachers`|Presentation|必須・真偽値であること。未送信と`false`を区別する|入力形式の不正として扱う|
+|`manage_other_teachers`|Domain|真偽値であること（ManageOtherTeachersFlag Value Object）|Goの型で保証されるため実行時の検証は生じない|
+|`page`|Presentation|整数であること。不正な形式は未指定として扱い、エラーとしない|Rails現行仕様と同じ扱いを維持する|
+|`per_page`|Presentation|1以上の整数であること。既定値20・上限100。不正な形式は既定値として扱い、エラーとしない|Rails現行仕様と同じ扱いを維持する|
+|対象教員（`id`）|Domain|同校に所属する有効な教員であること|対象不存在として扱う|
+|操作者の権限|Domain|操作者が教師の場合、`manage_other_teachers`を持つこと（TeacherPermissionUpdateGuard）|権限不足として扱う|
+|操作者と更新対象の関係|Domain|操作者が教師の場合、更新対象が操作者自身でないこと（TeacherPermissionUpdateGuard）|「自分自身は更新できません」相当のメッセージを維持する|
+|校内の有効教員|Domain|操作者が教師の場合、更新対象を除く有効教員が校内に存在すること（TeacherPermissionUpdateGuard）|「最後の教員は更新できません」相当のメッセージを維持する|
+
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
 ## Middleware
 
@@ -306,11 +449,11 @@ Domain Model
 
 「同校教員のみを対象とする」という認証・スコープ確認はMiddleware/UseCaseに配置し、「更新してよい権限者か」「保護対象でないか」という組織運用上の判断はDomain（Guard）に集約することで、権限体系や保護ルールの変更が生じてもDomain層のみの修正で対応できるようにする。
 
-他教員管理権限の不足はHTTPの403、保護ルール違反は422として区別する。いずれもDomain Errorとして表現し、Presentation層でStatus Codeへ変換する。
+他教員管理権限の不足はHTTPの403、保護ルール違反は422として区別する。いずれもDomain Errorとして表現し、HTTPステータスの決定はApplication Errorが担う（「17. Error設計」）。Domainはステータスコードという関心事を持たない。
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
@@ -331,13 +474,39 @@ Domain Model
 
 責務: DB接続・永続化失敗等の技術的障害を表現する
 
+## 層間の変換
+
+- Domain ErrorはHTTPステータス・ログレベルを持たない。Domainが`grade_scope`の許容値違反や保護ルール違反を表現し、それをどう外部に見せるかはApplication層の責務とする
+- UseCaseは、Domain Error・Infrastructure Errorを受け取り、ステータスコードとログレベルを持つApplication Errorへ変換して返す
+- Presentation層は、Application Errorが持つステータスコードを用いてレスポンスを組み立てる。個々の業務ルール違反をPresentation層で列挙して判定しない
+
+この分担は規約「12. Error変換パターン（AppError）」に従う。
+
 ## 判断理由
 
-自己更新禁止・最後の教員保護・権限不足といった組織運用上の拒否理由は、単なる入力ミスとは性質が異なる業務ルール違反であるため、Domain Errorとして明確に区別する。これにより、Rails現行仕様のように個別の日本語メッセージ（「自分自身は更新できません」等）をControllerに直接書くのではなく、Domain層でルールごとに意味のあるエラーとして表現し、Presentation層でメッセージへ変換する構造とする。
+自己更新禁止・最後の教員保護・権限不足といった組織運用上の拒否理由は、単なる入力ミスとは性質が異なる業務ルール違反であるため、Domain Errorとして明確に区別する。これにより、Rails現行仕様のように個別の日本語メッセージ（「自分自身は更新できません」等）をControllerに直接書くのではなく、Domain層でルールごとに意味のあるエラーとして表現し、Application層で外部に見せる形へ変換する構造とする。
+
+Domain ErrorにHTTPステータスを持たせないのは、「権限不足を403、保護ルール違反を422とする」というAPIの見せ方の都合で、組織運用ルールを表すDomain層の定義を書き換えずに済むようにするためである。
+
+## エラー仕様
+
+|業務シナリオ|エラー種別|発生層|想定するHTTPステータス|
+|-|-|-|-|
+|操作者（教師）が`manage_other_teachers`権限を持たない|Forbidden|Domain（判定）→ Application（変換）|403|
+|操作者が自分自身の権限を更新しようとした|BusinessRuleViolation|Domain（判定）→ Application（変換）|422|
+|更新対象が校内で最後の有効教員である|BusinessRuleViolation|Domain（判定）→ Application（変換）|422|
+|`grade_scope`が許容値でない|Validation|Domain（判定）→ Application（変換）|422|
+|`grade_scope` / `manage_other_teachers`が未送信・型不正|Validation|Presentation|422|
+|対象教員が存在しない、同校でない、または論理削除済み|NotFound|Application|404|
+|未認証|Unauthorized|Middleware|401|
+|`teacher`ロールでない|Forbidden|Middleware|403|
+|DB接続・永続化の失敗|Internal|Infrastructure → Application（変換）|500|
+
+対象教員の特定は権限判定より先に行う。存在しないIDを指定した場合は、操作者の権限の有無によらず404とする（Rails現行仕様と同じ処理順）。
 
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
 本機能では現時点でDomain Eventを採用しない。
 
@@ -347,44 +516,57 @@ Domain Model
 
 ---
 
-# 16. API互換方針
+# 19. API仕様
 
-## URL
+## エンドポイント一覧
 
-- Rails現行仕様と同じエンドポイントを維持する
-  - GET /api/v1/teacher/permissions
-  - GET /api/v1/teacher/permissions/:id
-  - PATCH /api/v1/teacher/permissions/:id
+|エンドポイント|HTTP Method|概要|
+|-|-|-|
+|/api/v1/teacher/permissions|GET|同校教員の権限一覧取得|
+|/api/v1/teacher/permissions/:id|GET|指定教員の権限詳細取得|
+|/api/v1/teacher/permissions/:id|PATCH|指定教員の権限更新|
 
-## HTTP Method
+いずれもRails現行仕様と同じURL・HTTP Methodを維持する。
 
-- 既存仕様どおりに維持する
+## 各エンドポイントの仕様
 
-## Request
+### GET /api/v1/teacher/permissions
 
-- `page` / `per_page` はクエリパラメータとして維持する。`per_page` は既定値20・上限100とし、1以上の整数以外が指定された場合は既定値を用いる（`page` は未指定として扱う）
-- `teacher_permission[grade_scope]` / `teacher_permission[manage_other_teachers]` はGo側で入力DTOとして吸収する
+- Request: クエリパラメータ`page`（任意・整数。1以上の整数以外は未指定として扱う）、`per_page`（任意・整数。既定値20、上限100。1以上の整数以外は既定値を使う）
+- Response: 操作者自身の情報、同校教員の権限一覧（氏名カナ昇順）、ページ情報の3要素
+- Status Code: 正常系200。異常系は未認証401・`teacher`ロール不一致403
+- Error Response方針: `page` / `per_page`の形式不正はエラーとせず、Rails現行仕様と同じ既定値での処理を維持する
 
-## Response
+### GET /api/v1/teacher/permissions/:id
 
-- 一覧・詳細・更新のレスポンス構造はRails現行仕様に近い意味を維持する
+- Request: パスパラメータ`id`（対象教員）
+- Response: 対象教員の識別子・氏名・権限
+- Status Code: 正常系200。異常系は対象教員不存在404（他校・論理削除済みを含む）、未認証401、`teacher`ロール不一致403
+- Error Response方針: 他校の教員・論理削除済みの教員を指定した場合も、存在しない場合と区別せず404とする
 
-## Status Code
+### PATCH /api/v1/teacher/permissions/:id
 
-- 200: 取得・更新成功
-- 403: 他教員管理権限の不足
-- 404: 対象教員不存在（論理削除済みを含む）
-- 422: 保護ルール違反（自己更新・最後の教員）・入力不正
+- Request: パスパラメータ`id`（対象教員）。ボディは`teacher_permission`キーの下に`grade_scope`・`manage_other_teachers`を持つ（Rails現行の`params.require(:teacher_permission).permit(...)`と同じ形）
+- Response: 更新成功を示すメッセージ。更新後の権限そのものは返さない
+- Status Code: 正常系200。異常系は他教員管理権限の不足403、対象教員不存在404、保護ルール違反および入力不正422
+- Error Response方針: 既存のerrors形式と日本語メッセージ（`自分自身は更新できません`・`他教員を編集する権限がありません`等）を踏襲する
 
-権限不足を403、保護ルール違反を422として区別する。対象教員の特定は権限判定より先に行うため、存在しないIDを指定した場合は権限の有無によらず404を返す。
+権限不足を403、保護ルール違反を422として区別する。対象教員の特定は権限判定より先に行うため、存在しないIDを指定した場合は権限の有無によらず404を返す（「17. Error設計」）。
 
-## Error Response
+## Railsとの差分
 
-- 既存のerrors形式（`自分自身は更新できません`・`他教員を編集する権限がありません` 等の日本語メッセージ）を踏襲し、フロントエンド互換性を優先する
+API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構造・エラーメッセージ・ステータスコード）はRails現行仕様から変更しない。既存フロントエンドとの接続を維持することを優先する（「2. 設計方針」）。
+
+内部の呼び出し経路には次の差分がある。
+
+- Rails仕様: 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し、管理者の教員更新（`Api::V1::Admin::TeachersController#update`）は同じ項目を保護ルールなしで更新している
+- Go設計での変更: 書き換え経路を本Contextの更新操作に一本化し、管理者の教員更新も同じ操作を呼ぶ。保護ルールと他教員管理権限の判定は操作者が教師である場合にのみ適用する
+- 変更理由: 権限の書き換えが2箇所にあると、保護ルールや権限項目の追加時に片方だけが修正される。経路を1つにすることで、権限体系の変更が本Contextに閉じる
+- 影響範囲: 本機能の3エンドポイントの外部仕様に変更はない。管理者教員管理機能側は、自前で`teacher_permissions`を更新せず本Contextの更新操作を呼ぶ形になる。操作者が管理者の場合は保護ルールを適用しないため、管理者の教員更新の挙動もRailsと変わらない
 
 ---
 
-# 17. DB設計方針
+# 20. DB設計方針
 
 ## 現行DBを利用するか
 
@@ -401,7 +583,32 @@ Domain Model
 
 ---
 
-# 18. テスト戦略
+# 21. DB操作仕様
+
+## TeacherPermissionRepository
+
+- 対象テーブル: `teacher_permissions`（本Contextが所有する）、`users`（所属校・有効状態・氏名の判定のために参照する）
+- 操作種別:
+  - 参照: 同校教員の権限一覧、指定教員の権限1件
+  - 更新: 指定教員の`grade_scope`・`manage_other_teachers`
+- 主な検索条件・絞り込み条件:
+  - 所属校が一致すること
+  - 教員が論理削除されていない（有効である）こと
+  - 詳細取得・更新時は対象教員が一致すること
+- 関連テーブルとの結合: 必要である。`teacher_permissions`は`user_id`・`grade_scope`・`manage_other_teachers`のみを持ち、所属校・有効状態・氏名を持たない（①「6. データモデル」）。これらは`users`との結合で判定する
+- ページネーション・ソート: 一覧取得で必要である。氏名カナの昇順で並べ、ページ単位で取得するとともに、絞り込み条件に一致する総件数を取得する
+
+## 他Contextの参照手段
+
+- 対象テーブル: なし。本Contextからはクエリを発行しない
+- 「校内に対象教員以外の有効な教員が存在するか」の確認は`user` Contextの`CountUsers`、操作者・更新対象の属性確認は`GetUserAttributes`に委ねる（「11. Repository設計」）
+- 判断根拠: 「有効な教員とは何か」の判断を`user` Contextに集約するためである。本Contextが`users`を独自に解釈すると判断が2箇所に分かれる
+
+一覧・詳細の表示に必要な氏名は画面向けの参照であり、本Contextが`users`との結合で取得する。一方、保護ルールの判定に用いる有効教員数は業務判断の前提となる事実であるため、`user` Contextの公開参照に委ねる。
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
@@ -413,7 +620,7 @@ Domain Model
 
 ## Repository Test
 
-- 目的: TeacherPermissionRepositoryによる同校絞り込み・ページネーション、ActiveTeacherCountRepositoryによる有効教員存在確認の正確性を検証する
+- 目的: TeacherPermissionRepositoryによる同校絞り込み・氏名カナ順のソート・ページネーションの正確性を検証する。`user` Contextの公開参照（`CountUsers` / `GetUserAttributes`）を呼び出す部分は、本Contextが定義したインターフェースの実装として、委譲内容が正しいことを検証する
 
 ## Handler Test
 
@@ -425,7 +632,7 @@ Domain Model
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
 | Rails | Go | 設計方針 |
 |---|---|---|
@@ -440,7 +647,7 @@ Domain Model
 
 ---
 
-# 20. 採用しなかった設計
+# 24. 採用しなかった設計
 
 ## Transaction Script
 
@@ -459,7 +666,7 @@ Domain Model
 
 ---
 
-# 21. 設計判断サマリー
+# 25. 設計判断サマリー
 
 | 項目 | 採用 | 判断理由 |
 |---|---|---|
