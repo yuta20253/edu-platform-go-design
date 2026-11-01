@@ -77,6 +77,8 @@ Goでどのように実装するかを具体化し、
 ```
 internal
 └── {context}
+    ├── context.go
+    ├── dependency.go
     ├── domain
     │   ├── entity
     │   ├── valueobject
@@ -91,9 +93,8 @@ internal
     │   ├── query
     │   └── usecase
     ├── infrastructure
-    │   ├── persistence
-    │   │   └── gorm
-    │   ├── repository
+    │   ├── gormrepo
+    │   ├── contextadapter
     │   ├── mail
     │   ├── cache
     │   └── queue
@@ -103,6 +104,8 @@ internal
         ├── response
         └── routes.go
 ```
+
+Contextディレクトリ直下の`context.go`（依存関係の組み立て）・`dependency.go`（他Contextへの依存を宣言するインターフェース）、Repository実装とGORMモデルを置く`gormrepo`、`dependency.go`のインターフェースの実装を置く`contextadapter`は、いずれも`規約/アーキテクチャ規約.md`「4. Bounded Context構成」の「ディレクトリ構成」が定めるものです。ディレクトリ名は同節を正本とし、本プロンプトのツリーと食い違う場合は同節に従ってください。
 
 ②で当該機能に不要と判断されたディレクトリ（例：Domain Eventを採用しない機能のevent、非同期処理のないqueue等）は無理に埋めず、「対象外」と明記してください。
 
@@ -202,9 +205,9 @@ internal/announcement/presentation/handler/announcement_handler.go
 例（Active Record採用時）:
 
 ```
-internal/teacher_management/model.go
-internal/teacher_management/store.go
-internal/teacher_management/presentation/handler/teacher_handler.go
+internal/teachermanagement/model.go
+internal/teachermanagement/store.go
+internal/teachermanagement/presentation/handler/teacher_handler.go
 ```
 
 例（Transaction Script採用時）:
