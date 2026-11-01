@@ -236,7 +236,7 @@ type UserAttributes struct {
   - `operator.Permission.TeacherID == target.TeacherID`の場合、自己更新として扱う
   - `hasOtherActiveTeacher`が`false`の場合、最後の有効教員保護として扱う
   - 上記いずれにも該当しない場合のみ`nil`を返す
-- 操作者が管理者（`OperatorKindAdmin`）の場合は、いずれの判定も行わず`nil`を返す（②8章。Rails現行では管理者の教員更新に保護ルールがない）
+- 操作者が管理者（`OperatorKindAdmin`）の場合は、いずれの判定も行わず`nil`を返す（②8章。Rails現行の管理者の教員更新には保護ルールに相当する定めがない。`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」）
 
 > **②からの補足**: `Authorize`のシグネチャが参照手段を直接受け取らず`hasOtherActiveTeacher bool`という判定済みの事実を引数で受け取る構成としたのは、②8章「テスト容易性: 保護ルールを独立したDomain Serviceとして切り出すことで、DBや他の全業務フローを経由せずにルール単体を検証できる」を満たすための実装判断である（推測）。事実確認（`user` Contextの`CountUsers`の呼び出し）はUseCase側の責務とし（6章参照）、Domain Serviceは`dependency.go`のインターフェースにもRepository Interfaceにも依存しない純粋な判定ロジックとする。これによりDomainがInfrastructureは元より、他Contextの呼び出しコストにも依存しない構成となる。
 
@@ -364,7 +364,7 @@ classDiagram
 
 > **②からの補足**: `RequestingTeacher`・`Operator`の具体的なフィールド構成は②16章「UseCase」の記載（「current userの所属校IDを用いて、権限一覧・詳細の取得範囲を同校にスコープする」）と②12章「UpdateTeacherPermissionUseCase」の入力（操作者の識別子・種別）から導出したものであり、型・フィールド名自体は②に明記がない（推測）。current user情報自体の取得元（認証Middleware・shared/authパッケージ等）は本機能のスコープ外とする。更新のみ`Operator`を受け取るのは、一覧・詳細が教師の画面専用であり管理者経路を持たないためである（②「19. API仕様」）。
 
-更新時に本Contextが`Operator.HighSchoolID`でスコープするのは操作者が教師の場合に限る。管理者は所属校を持たないため、更新対象の所属校は`user` Contextの`GetUserAttributes`で取得した対象教員自身の所属校を用いる。
+更新時に本Contextが`Operator.HighSchoolID`でスコープするのは操作者が教師の場合に限る。管理者は所属校を持たないため、更新対象の所属校は`user` Contextの`GetUserAttributes`で取得した対象教員自身の所属校を用いる。対象教員が指定高校に所属することの確認は、呼び出し側（管理者教員管理機能のHandler）が行う（②「12. UseCase設計」の「対象教員の所属校の確認」）。
 
 ## UseCase
 
@@ -402,7 +402,7 @@ classDiagram
   1. `valueobject.NewGradeScope(cmd.GradeScope)`で入力形式を検証する（不正時は`ErrInvalidGradeScope`）
   2. `valueobject.NewManageOtherTeachersFlag(cmd.ManageOtherTeachers)`を生成する
   3. `transaction.TransactionManager.WithinTransaction`のクロージャ内で以下（4〜8）を実行する
-  4. 対象教員のスコープを決める。操作者が教師の場合は`cmd.Operator.HighSchoolID`を用いる。操作者が管理者の場合は`UserDirectory.GetUserAttributes(ctx, []uint{cmd.TeacherID})`で対象教員の所属校・ロール・無効化状態を取得し、その所属校を用いる（見つからない・教員でない・無効化済みの場合は`ErrTargetTeacherNotFound`）
+  4. 対象教員のスコープを決める。操作者が教師の場合は`cmd.Operator.HighSchoolID`を用いる。操作者が管理者の場合は`UserDirectory.GetUserAttributes(ctx, []uint{cmd.TeacherID})`で対象教員の所属校・ロール・無効化状態を取得し、その所属校を用いる（見つからない・教員でない・無効化済みの場合は`ErrTargetTeacherNotFound`）。管理者経路で対象教員が指定高校に所属することの確認は、本UseCaseでは行わず呼び出し側の責務とする（②「12. UseCase設計」の「対象教員の所属校の確認」）
   5. 操作者が教師の場合のみ、`TeacherPermissionRepository.FindByTeacherID(ctx, cmd.Operator.HighSchoolID, cmd.Operator.UserID)`で操作者自身の権限を取得する（②16章「Domain」の「更新者が`manage_other_teachers`権限を持つか」の判定に必要な入力）
   6. `TeacherPermissionRepository.FindByTeacherID(ctx, highSchoolID, cmd.TeacherID)`で更新対象の権限を取得する。見つからない場合は`ErrTargetTeacherNotFound`を返す
   7. 操作者が教師の場合のみ、`UserDirectory.CountActiveTeachers(ctx, highSchoolID, cmd.TeacherID)`で校内の他の有効教員の人数を取得し、0より大きいかどうかを存在確認とする
@@ -414,7 +414,7 @@ classDiagram
 
 > **②からの補足**: ステップ5（操作者自身の`TeacherPermission`をRepository経由で取得する処理）は②に明記された呼び出し一覧（②12章）には直接記載がない。しかし②16章「Domain」で「更新者が`manage_other_teachers`権限を持つか」の判定がGuardの責務とされており、Guardが`*entity.TeacherPermission`を受け取る設計（本書3章）である以上、操作者自身のEntityをどこかで取得する必要がある。UseCase内で`TeacherPermissionRepository.FindByTeacherID`を再利用してこれを取得する構成とした（推測、②の記載を矛盾なく実装するための補足）。
 
-> **②からの補足**: ステップ4で管理者の場合に対象教員の所属校を`user` Contextから取得するのは、管理者が所属校を持たず、教師経路と同じ「操作者の所属校でスコープする」方法が使えないためである。Rails現行の管理者の教員更新（`Api::V1::Admin::TeachersController#update`）は対象教員を高校で絞らずIDで特定しており、その挙動に合わせている（②「12. UseCase設計」）。
+> **②からの補足**: ステップ4で管理者の場合に対象教員の所属校を`user` Contextから取得するのは、管理者が所属校を持たず、教師経路と同じ「操作者の所属校でスコープする」方法が使えないためである。Rails現行の管理者の教員更新は、対象高校を取得した上でその高校に所属する教員として対象を特定している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「処理内容」。他校の教員IDを指定した場合は404となる）。本UseCaseは管理者の所属校を持たないため、この高校スコープの確認は呼び出し側（管理者教員管理機能のHandlerが、対象教員を高校スコープ付きで取得する）が担い、現行の挙動を保つ（②「12. UseCase設計」の「対象教員の所属校の確認」）。
 
 ---
 
@@ -722,7 +722,7 @@ Domain Model採用のため、Entity／Value Object生成時とUseCase内で以�
 ## UseCase
 
 - `ListTeacherPermissionsUseCase` / `ShowTeacherPermissionUseCase`: `RequestingTeacher.HighSchoolID`を用いて取得範囲を同校にスコープする（②16章「UseCase」）
-- `UpdateTeacherPermissionUseCase`: 操作者が教師の場合、`TeacherPermissionRepository.FindByTeacherID`のクエリ条件（同校スコープ）により、対象教員が同校であることを確認する（②16章「UseCase」「更新時、対象教員が同校であることを確認する」）。操作者が管理者の場合は所属校によるスコープを行わず、`user` Contextから取得した対象教員自身の所属校を用いる
+- `UpdateTeacherPermissionUseCase`: 操作者が教師の場合、`TeacherPermissionRepository.FindByTeacherID`のクエリ条件（同校スコープ）により、対象教員が同校であることを確認する（②16章「UseCase」「更新時、対象教員が同校であることを確認する」）。操作者が管理者の場合は、本UseCaseでは操作者の所属校によるスコープを行わず、`user` Contextから取得した対象教員自身の所属校を用いる。対象教員が指定高校に所属することの確認は呼び出し側（管理者教員管理機能のHandler）の責務である（②「12. UseCase設計」の「対象教員の所属校の確認」）
 
 ## Domain
 
@@ -730,7 +730,7 @@ Domain Model採用のため、Entity／Value Object生成時とUseCase内で以�
   - 更新者が`manage_other_teachers`権限を持つか
   - 更新者が更新対象本人でないか
   - 更新対象が校内で最後の有効教員でないか
-- 操作者が管理者の場合は、いずれの判定も行わない。管理者であることの確認は管理者教員管理機能側のMiddleware・UseCaseの責務である（②16章）
+- 操作者が管理者の場合は、いずれの判定も行わない。管理者であることの確認と、対象教員が指定高校に所属することの確認は、管理者教員管理機能側のMiddleware・Handlerの責務である（②16章）
 
 ## 判断理由
 
@@ -844,8 +844,8 @@ Domain Model採用のため、②22章の区分をそのまま使用する。
 |`UpdateTeacherPermissionUseCase`|更新対象が校内で最後の有効教員である場合、`ErrLastActiveTeacherProtected`が返り更新が行われないこと|
 |`UpdateTeacherPermissionUseCase`|対象教員が存在しない、または他校である場合、`ErrTargetTeacherNotFound`が返ること|
 |`UpdateTeacherPermissionUseCase`|保護ルール違反時、トランザクションがロールバックされ`Update`が呼ばれていないこと|
-|`UpdateTeacherPermissionUseCase`|操作者が管理者の場合、保護ルールを適用せずに更新できること（校内で最後の有効教員・他校の教員のいずれも更新できること）|
-|`UpdateTeacherPermissionUseCase`|操作者が管理者の場合、対象教員の所属校を`user` Contextから取得し、操作者の所属校でスコープしないこと|
+|`UpdateTeacherPermissionUseCase`|操作者が管理者の場合、保護ルールを適用せずに更新できること（校内で最後の有効教員であっても更新できること）|
+|`UpdateTeacherPermissionUseCase`|操作者が管理者の場合、対象教員の所属校を`user` Contextから取得し、操作者の所属校でスコープしないこと（指定高校に所属するかの確認は呼び出し側の責務であり、その検証は管理者教員管理機能③のテストで行う）|
 
 ## Repository Test
 
@@ -910,5 +910,5 @@ Domain Model採用のため、②22章の区分をそのまま使用する。
 |12|CSRF検証を`PATCH /api/v1/teacher/permissions/:id`に適用する方針|②16章「Middleware」はCSRFに言及していないが、Gin規約「7. CSRF対策」の「適用範囲」が、Cookieで認可される状態変更をすべて検証対象に含めると定めている|規約に基づく（推測ではない）|
 |13|Domain ErrorをUseCaseで`AppError`へ変換し、ステータスコードの決定をエラーハンドリングミドルウェアに集約する方針|②「17. Error設計」の「層間の変換」に従い、具体的な実装パターンは規約「12. Error変換パターン（AppError）」・Gin規約「8. エラーハンドリングミドルウェア」が定めている|規約に基づく（推測ではない）|
 |14|トランザクションの抽象化に`internal/shared/transaction`の`TransactionManager`（`WithinTransaction`）を用い、Repository実装では`gormtx.DBFromContext`で接続を取り出す|②14章はトランザクション境界（開始・終了位置）のみを定めるが、その実装パターンは規約「11. Transaction実装パターン（TransactionManager）」が定めている|規約に基づく（推測ではない）|
-|15|更新の入力に操作者の種別（教師／管理者）を持たせ、管理者の場合は`TeacherPermissionUpdateGuard`が保護ルールを適用しない構成とした|②8章・12章に従う。Rails現行では教師の権限管理画面にのみ保護ルールがあり、管理者の教員更新（`Api::V1::Admin::TeachersController#update`）には保護ルールがないため、挙動を変えずに更新経路を一本化するための設計である|②に基づく（推測ではない）|
+|15|更新の入力に操作者の種別（教師／管理者）を持たせ、管理者の場合は`TeacherPermissionUpdateGuard`が保護ルールを適用しない構成とした|②8章・12章に従う。Rails現行では教師の権限管理画面にのみ保護ルール（①「7. 権限制御」）があり、管理者の教員更新には保護ルールに相当する定めがない（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」）ため、挙動を変えずに更新経路を一本化するための設計である|②・管理者教員管理機能①に基づく（推測ではない）|
 |16|校内の有効教員の存在確認を本ContextのRepositoryではなく`user` Contextの`CountUsers`に委ねた|②「3. Bounded Context」「11. Repository設計」に従う。`teacher-management`への依存を外すことで、権限更新の入口の一本化によって生じる`teacher-management` → `teacher-permission`の依存と循環しないようにする|②に基づく（推測ではない）|

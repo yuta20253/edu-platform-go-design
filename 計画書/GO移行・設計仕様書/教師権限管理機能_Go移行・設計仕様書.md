@@ -162,7 +162,7 @@ Domain Model
 
 - 責務: 権限更新操作が組織運用上許可されるかどうかを判定する。判定は操作者の種別によって次のように分かれる
   - 操作者が教師の場合: 更新者が `manage_other_teachers` 権限を持つか、更新者が更新対象本人ではないか（自己更新禁止）、更新対象が校内で最後の有効教員でないか（最後の教員保護）
-  - 操作者が管理者の場合: 上記3つの判定をいずれも適用しない。管理者は自校という概念を持たず、他教員管理権限も持たないため、教師向けの保護ルールの前提が成り立たない（Rails現行の挙動と同じ）
+  - 操作者が管理者の場合: 上記3つの判定をいずれも適用しない。管理者は自校という概念を持たず、他教員管理権限も持たないため、教師向けの保護ルールの前提が成り立たない（Rails現行の挙動と同じ。管理者経路の現行仕様は`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」に記載があり、保護ルールに相当する定めは置かれていない）
 - Entityへ持たせない理由: 判定には更新者自身の権限情報、対象教員の情報、さらに「同校に所属する他の有効教員の集合」というTeacherPermission単体では保持し得ない情報が必要なため。TeacherPermission Entityに持たせると、Entityが他教員の集合を検索する責務まで抱えることになり、責務が肥大化する
 - 判断根拠: 自己更新禁止・最後の教員保護という組織運用上の不変条件は、単一のEntityに閉じた判定ではなく、Aggregateをまたいだ集合的な判定であるため、独立したDomain Serviceとして切り出すことで、ルールの所在を明確にし、テスト・変更を容易にする
 
@@ -282,7 +282,8 @@ classDiagram
   - TeacherPermissionRepository（対象取得・更新）
   - `user` Contextの公開参照（`CountUsers`による最後の教員判定、`GetUserAttributes`による対象教員の有効性確認）
 - 操作者の種別: 教師と管理者の2種類を入力として受け取る。本UseCaseは、教師の権限管理画面（`PATCH /api/v1/teacher/permissions/:id`）と、管理者の教員更新（管理者教員管理機能）の双方から呼ばれる、教員権限の唯一の更新経路である
-- 判断根拠: TeacherPermissionUpdateGuardによる保護ルール判定を経てから更新を確定する必要があるため。操作者の種別を入力に含めるのは、保護ルールと他教員管理権限の判定が操作者が教師である場合にのみ適用されるためである（Rails現行では、教師の画面にのみ保護ルールがあり、管理者の教員更新は同じ項目を保護ルールなしで更新している）
+- 対象教員の所属校の確認: 操作者が教師の場合は、操作者自身の所属校でスコープする。操作者が管理者の場合は、管理者が自校という概念を持たないため本UseCaseでは所属校でスコープせず、対象教員が指定高校に所属することの確認は呼び出し側（管理者教員管理機能）の責務とする。Rails現行の管理者の教員更新も、対象高校を取得した上でその高校に所属する教員として対象を特定している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「処理内容」）ため、呼び出し側で確認することで現行の挙動を保てる
+- 判断根拠: TeacherPermissionUpdateGuardによる保護ルール判定を経てから更新を確定する必要があるため。操作者の種別を入力に含めるのは、保護ルールと他教員管理権限の判定が操作者が教師である場合にのみ適用されるためである。Rails現行では、教師の画面にのみ保護ルール（①「7. 権限制御」）があり、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」。`grade_scope` / `manage_other_teachers`のうち送信された項目のみを更新すると定められており、保護ルールに相当する定めはない）
 
 ---
 
@@ -443,7 +444,7 @@ flowchart TD
   - 更新者が `manage_other_teachers` 権限を持つか
   - 更新者が更新対象本人でないか
   - 更新対象が校内で最後の有効教員でないか
-- 操作者が管理者の場合、上記は適用しない。管理者であることの確認は、管理者教員管理機能側のMiddleware・UseCaseの責務とする
+- 操作者が管理者の場合、上記は適用しない。管理者であることの確認と、対象教員が指定高校に所属することの確認は、管理者教員管理機能側のMiddleware・Handlerの責務とする（「12. UseCase設計」）
 
 ## 判断理由
 
@@ -559,7 +560,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 内部の呼び出し経路には次の差分がある。
 
-- Rails仕様: 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し、管理者の教員更新（`Api::V1::Admin::TeachersController#update`）は同じ項目を保護ルールなしで更新している
+- Rails仕様: 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し（①「7. 権限制御」）、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」）
 - Go設計での変更: 書き換え経路を本Contextの更新操作に一本化し、管理者の教員更新も同じ操作を呼ぶ。保護ルールと他教員管理権限の判定は操作者が教師である場合にのみ適用する
 - 変更理由: 権限の書き換えが2箇所にあると、保護ルールや権限項目の追加時に片方だけが修正される。経路を1つにすることで、権限体系の変更が本Contextに閉じる
 - 影響範囲: 本機能の3エンドポイントの外部仕様に変更はない。管理者教員管理機能側は、自前で`teacher_permissions`を更新せず本Contextの更新操作を呼ぶ形になる。操作者が管理者の場合は保護ルールを適用しないため、管理者の教員更新の挙動もRailsと変わらない
@@ -639,7 +640,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 | Controller | Handler | HTTP入出力のみを担当する |
 | Concern `RequireManageOtherTeachers` の `require_manage_other_teachers!` | TeacherPermissionUpdateGuard（Domain Service） | 権限判定を業務ルールとしてドメイン層に集約する。操作者が教師の場合にのみ適用する |
 | Controllerの `only_active_teacher?` | `user` Contextの`CountUsers` + TeacherPermissionUpdateGuard | 事実確認（他Contextの公開参照）と判断（Domain Service）を分離する |
-| `Api::V1::Admin::TeachersController#update` による `teacher_permissions` の更新 | UpdateTeacherPermissionUseCase（操作者の種別を管理者として呼ぶ） | 権限の書き換え経路を1つにまとめる |
+| `Api::V1::Admin::TeachersController#update` による `teacher_permissions` の更新（`管理者教員管理機能_Rails現行仕様書.md`） | UpdateTeacherPermissionUseCase（操作者の種別を管理者として呼ぶ） | 権限の書き換え経路を1つにまとめる |
 | Form（UpdatePermissionForm） | Request DTO + Presentation Validation + Value Object | 入力形式検証と値の妥当性検証を分離する |
 | Query（TeachersQuery） | TeacherPermissionRepository | 検索条件の実行をRepositoryの責務として整理する |
 | Serializer | Presenter / Response DTO | レスポンス整形をPresentation層に分離する |
@@ -686,7 +687,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 - Controllerのbefore_actionとアクション内条件分岐（`RequireManageOtherTeachers` concernの`require_manage_other_teachers!`、`only_active_teacher?`、自己更新チェック）に保護ルールが直接実装されている
 - 保護ルール違反時のエラーメッセージがController内にハードコードされている
-- 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し、管理者の教員更新（管理者教員管理機能）は同じ項目を保護ルールなしで更新している
+- 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し（①「7. 権限制御」）、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」）
 
 ## Go設計での変更内容
 
