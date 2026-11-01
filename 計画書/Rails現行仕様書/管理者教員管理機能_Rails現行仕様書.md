@@ -193,15 +193,72 @@
 
 # 6. データモデル
 
+## `users`
+
+- 役割: 全ロール（管理者・生徒・教員・保護者）のアカウントを格納するテーブル。教員は `user_roles.name` が `teacher` のレコードとして表される
+- 主なカラム（本機能が扱う範囲）:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`email`|string|不可|メールアドレス。一意インデックスを持つ|
+|`name`|string(100)|可|氏名|
+|`name_kana`|string(100)|可|氏名カナ。本機能の招待では `name` と同じ値が設定される|
+|`user_role_id`|bigint|可|`user_roles` への外部キー。ロール名そのものを保持するカラムはない|
+|`high_school_id`|bigint|可|所属高校。本機能の一覧・取得はこのカラムで絞り込む|
+|`grade_id`|bigint|可|学年。本機能の招待では設定しない|
+|`password_reset_required`|boolean|不可|招待待ち状態（既定値 `false`）。本機能の招待では `false` のまま|
+|`deleted_at`|datetime|可|論理削除日時|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- 本機能の対象外のカラム: `encrypted_password`, `jti`, `reset_password_token`, `reset_password_sent_at`, `remember_created_at`, `address_id`, `activated_at`, `school_class_id`, `student_number`
+- リレーション: `belongs_to :user_role` / `belongs_to :high_school` / `belongs_to :grade` / `has_one :teacher_permission` / `has_many :teacher_grades`
+- 教員の抽出: `User.teachers` スコープが `joins(:user_role).where(user_roles: { name: 'teacher' })` で判定する
+
+## `user_roles`
+
+- 役割: ロールのマスタテーブル
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`name`|integer|不可|ロール名。Rails の `enum` で `admin: 0` / `student: 1` / `guardian: 3` / `teacher: 2` に対応する整数。一意インデックスを持つ（既定値 `1`＝`student`）|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- リレーション: `has_many :users`
+
 ## `teacher_permissions`
 
-- 役割: 教師の閲覧権限を管理するテーブル
-- 主なカラム: `user_id`, `grade_scope`, `manage_other_teachers`
+- 役割: 教師の閲覧権限・他教員管理権限を管理するテーブル
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`user_id`|bigint|不可|教員（`users`）への外部キー。一意インデックスを持ち、教員1人につき1件|
+|`grade_scope`|integer|可|閲覧権限スコープ。Rails の `enum` で `own_grade: 0` / `all_grades: 1` に対応する整数。カラムは NULL 可だがモデルで必須検証がある|
+|`manage_other_teachers`|boolean|可|他教員管理権限。カラムは NULL 可だがモデルで `true` / `false` のいずれかであることを検証する|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- リレーション: `belongs_to :user`
+- モデルの検証: `user_id` の一意性、`grade_scope` の必須、`manage_other_teachers` が `true` / `false` のいずれかであること、対象ユーザーが教員であること
 
 ## `teacher_grades`
 
 - 役割: 教師の担当学年を管理するテーブル
-- 主なカラム: `user_id`, `grade_id`
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`user_id`|bigint|不可|教員（`users`）への外部キー|
+|`grade_id`|bigint|不可|学年（`grades`）への外部キー|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- `(user_id, grade_id)` に一意インデックスを持ち、同じ教員に同じ学年を二重に登録できない
+- リレーション: `belongs_to :user` / `belongs_to :grade`
+- モデルの検証: `user_id` と `grade_id` の組の一意性、対象ユーザーが教員であること
 
 ---
 
