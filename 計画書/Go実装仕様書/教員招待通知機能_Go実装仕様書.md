@@ -33,7 +33,7 @@ Transaction Script・Domain Model・Event Sourcingは②「4. 設計パターン
 ## 対象Bounded Context名
 
 - Context名（②）: `teacher-notification`
-- ディレクトリ名: `internal/teacher_notification`（②からの補足：アーキテクチャ規約「8. 命名規約」に従いkebab-caseをスネークケースへ変換した。推測）
+- ディレクトリ名・package名: `internal/teachernotification`（アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」のとおり、Context名`teacher-notification`から`-`を取り除いて連結した全小文字の名前とし、短縮しない）
 
 ## ②で採用した設計パターン
 
@@ -42,7 +42,7 @@ Active Record
 ## 採用パターンに対応する構造
 
 ```
-internal/teacher_notification/
+internal/teachernotification/
 ├── model.go              # Model（Entity相当）定義: TeacherNotification
 ├── store.go               # Store定義: TeacherNotificationStore
 ├── invitation_email.go    # userの招待メール送信依頼（即時）を呼ぶ利用側のinterface: InvitationEmailRequester、結果の型: InvitationEmailOutcome
@@ -61,16 +61,16 @@ internal/teacher_notification/
 
 |パス|内容|
 |-|-|
-|`internal/teacher_notification/model.go`|`TeacherNotification`のstruct定義・`InvitationStatus`型・状態設定メソッド|
-|`internal/teacher_notification/store.go`|`TeacherNotificationStore`の定義とメソッド|
-|`internal/teacher_notification/invitation_email.go`|`InvitationEmailRequester`（`user`の`RequestInvitationEmail`を実行方式「即時」で呼ぶための、利用側が定義するinterface）と`InvitationEmailOutcome`型（結果の3値）|
-|`internal/teacher_notification/errors.go`|Model/Storeが返すエラー変数の定義|
-|`internal/teacher_notification/presentation/handler/teacher_notification_handler.go`|`TeacherNotificationHandler`（ListUnsentTeachers/SendInvitationNotifications/ListNotificationResults）|
-|`internal/teacher_notification/presentation/request/teacher_notification_request.go`|Request DTO|
-|`internal/teacher_notification/presentation/response/teacher_notification_response.go`|Response DTO|
-|`internal/teacher_notification/presentation/routes.go`|ルーティング登録|
+|`internal/teachernotification/model.go`|`TeacherNotification`のstruct定義・`InvitationStatus`型・状態設定メソッド|
+|`internal/teachernotification/store.go`|`TeacherNotificationStore`の定義とメソッド|
+|`internal/teachernotification/invitation_email.go`|`InvitationEmailRequester`（`user`の`RequestInvitationEmail`を実行方式「即時」で呼ぶための、利用側が定義するinterface）と`InvitationEmailOutcome`型（結果の3値）|
+|`internal/teachernotification/errors.go`|Model/Storeが返すエラー変数の定義|
+|`internal/teachernotification/presentation/handler/teacher_notification_handler.go`|`TeacherNotificationHandler`（ListUnsentTeachers/SendInvitationNotifications/ListNotificationResults）|
+|`internal/teachernotification/presentation/request/teacher_notification_request.go`|Request DTO|
+|`internal/teachernotification/presentation/response/teacher_notification_response.go`|Response DTO|
+|`internal/teachernotification/presentation/routes.go`|ルーティング登録|
 
-**対象外**: `domain/`, `application/usecase/`, `infrastructure/repository/`（Active Record採用のため設けない）
+**対象外**: `domain/`, `application/`, `infrastructure/`（Active Record採用のため設けない。規約「3. 設計パターンごとの構造適用方針」のActive Record構造）
 
 **②からの補足**: 教師教員管理機能（`teacher-management` Context）が本Contextの送信結果を参照するための消費者側インターフェース（`TeacherNotificationStatusProvider`）は、教師教員管理機能側で定義される（教師教員管理機能_Go実装仕様書「8. Infrastructure層設計」参照）。本書では、その消費者側インターフェースを構造的に満たす`TeacherNotificationStore.LatestStatuses`メソッドを提供する。
 
@@ -245,7 +245,7 @@ sequenceDiagram
 
 |メソッド|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
-|`ListUnsentTeachers`|`ctx context.Context, highSchoolID uint`|`[]TeacherIdentity, error`|`users`テーブルを対象に、`high_school_id = highSchoolID`かつ教員ロールかつパスワード未設定（招待未完了。②「Entity設計」の「Teacher（外部参照）」に対応するフィールドを参照。②からの補足：`password_reset_required`相当のフィールドと仮定する）の条件で取得する。無効化済み（`deleted_at`あり）の教員は除外しない（Rails現行の絞り込みと同じ。②「設計差分管理」の「Rails現行との差」）|
+|`ListUnsentTeachers`|`ctx context.Context, highSchoolID uint`|`[]TeacherIdentity, error`|`users`テーブルを対象に、`high_school_id = highSchoolID`かつ教員ロールかつパスワード未設定（招待未完了。②「6. Entity設計」の「Teacher（外部参照）」に対応するフィールドを参照。②からの補足：`password_reset_required`相当のフィールドと仮定する）の条件で取得する。無効化済み（`deleted_at`あり）の教員は除外しない（Rails現行の絞り込みと同じ。②「設計差分管理」の「Rails現行との差」）|
 |`FilterEligibleTeacherIDs`|`ctx context.Context, highSchoolID uint, teacherIDs []uint`|`[]TeacherIdentity, error`|`ListUnsentTeachers`と同条件に加え、`id IN (teacherIDs)`で絞り込む。同校でない教員・招待完了済みの教員が指定されてもエラーとせず単に結果から除外する（②8章`InvitationEligibilityFilter`のルール）|
 |`Create`|`ctx context.Context, n *TeacherNotification`|`error`|`teacher_notifications`へ1件挿入する。`SentAt`が未設定（`failed`）の場合は、`sent_at`列をNULLで挿入する。トランザクションは使わない単発のINSERTである（11章）|
 |`ListNotificationResults`|`ctx context.Context, highSchoolID uint, sentAtDate *time.Time`|`[]TeacherNotificationResult, error`|`teacher_notifications`と`users`（送信者・送信先教員の氏名取得のため）を結合し、送信者が同校であることで絞り込む。`sentAtDate`が指定されている場合、その日付の0時〜24時で`sent_at`を絞り込む（`sent_at`がNULLの`failed`は、指定時の結果に含まれない）。送信日時降順でソートする（②16章・21章。`sent_at`がNULLの行は、MySQLの降順では末尾になる。Rails現行の同じ並び順と同じ動作。推測）|
@@ -294,7 +294,7 @@ sequenceDiagram
 1. Middlewareが設定したcurrent user（`teacher`ロール、所属校ID）をcontextから取得する
 2. 一覧の取得に他職員操作権限は不要である（①「8. 権限制御」。Rails現行の`before_action`の対象は`create`のみ）。同校スコープのみを適用する
 3. `TeacherNotificationStore.ListUnsentTeachers(ctx, currentUser.SchoolID)`を呼び出す
-4. 取得結果を`response.UnsentTeacherListResponse`へ変換し200を返す
+4. 取得結果を`[]response.UnsentTeacherResponse`へ変換し、最上位を配列として200を返す
 
 ### `SendInvitationNotifications` 処理順序（②12節`SendInvitationNotifications`に対応）
 
@@ -314,7 +314,7 @@ sequenceDiagram
 1. current userをcontextから取得する（権限確認は行わない。②13章：同校の教師であれば誰でも閲覧できる）
 2. クエリパラメータ`sent_at`（任意、日付形式）をバインドする
 3. `TeacherNotificationStore.ListNotificationResults(ctx, currentUser.SchoolID, sentAtDate)`を呼び出す
-4. 取得結果を`response.NotificationResultListResponse`へ変換し200を返す
+4. 取得結果を`[]response.NotificationResultResponse`へ変換し、最上位を配列として200を返す
 
 ## Request / Response DTO
 
@@ -330,11 +330,13 @@ sequenceDiagram
 |struct名|フィールドと型|
 |-|-|
 |`UnsentTeacherResponse`|`ID uint`, `Name string`, `NameKana string`, `Email string`|
-|`UnsentTeacherListResponse`|`Teachers []UnsentTeacherResponse`|
 |`NotificationResultResponse`|`ID uint`, `Email string`, `Status string`, `FormattedSentAt *string`（`sent_at`がNULLの`failed`は`nil`＝JSONの`null`。Rails現行の`formatted_sent_at`と同じ）, `Sender NotificationParticipantResponse`, `Receiver NotificationParticipantResponse`|
 |`NotificationParticipantResponse`|`ID uint`, `Name string`|
-|`NotificationResultListResponse`|`Results []NotificationResultResponse`|
-|`MessageResponse`|`Message string`|
+|`MessageResponse`|`Message string`（JSON: `message`）|
+
+一覧の2エンドポイントは、最上位を**配列**として返す。キーでラップするstructは設けず、`[]UnsentTeacherResponse` / `[]NotificationResultResponse` をそのまま返す（①「5. API / 処理詳細」の各Response、②「19. API仕様」）。規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」がページネーションのない一覧をJSON配列とする方針にも一致する。
+
+`NotificationResultResponse`のJSONキーは`id` / `email` / `status` / `formatted_sent_at` / `sender_user` / `receiver_user`、`NotificationParticipantResponse`は`id` / `name`、`UnsentTeacherResponse`は`id` / `name` / `name_kana` / `email`とする（①の各Serializerの項目名に合わせる）。
 
 ## Routing（`presentation/routes.go`）
 
@@ -344,7 +346,7 @@ sequenceDiagram
 |POST|`/api/v1/teacher/teacher_notifications`|`TeacherNotificationHandler.SendInvitationNotifications`|
 |GET|`/api/v1/teacher/teacher_notification_results`|`TeacherNotificationHandler.ListNotificationResults`|
 
-全ルートに、teacherロールを要求する認証Middlewareを適用する（②16章）。
+全ルートに、teacherロールを要求する認証Middlewareを適用する（②16章）。`POST /api/v1/teacher/teacher_notifications`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象にも含める（Gin規約「5. CSRF対策」の「適用範囲」）。2つの一覧取得はGETのため対象外である。
 
 ---
 
@@ -352,9 +354,9 @@ sequenceDiagram
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
-|GET|/api/v1/teacher/teacher_notifications|TeacherNotificationHandler.ListUnsentTeachers|-|UnsentTeacherListResponse|200|
-|POST|/api/v1/teacher/teacher_notifications|TeacherNotificationHandler.SendInvitationNotifications|SendInvitationNotificationsRequest|MessageResponse|202 / 403|
-|GET|/api/v1/teacher/teacher_notification_results|TeacherNotificationHandler.ListNotificationResults|ListNotificationResultsRequest|NotificationResultListResponse|200|
+|GET|/api/v1/teacher/teacher_notifications|TeacherNotificationHandler.ListUnsentTeachers|-|`[]UnsentTeacherResponse`（配列）|200|
+|POST|/api/v1/teacher/teacher_notifications|TeacherNotificationHandler.SendInvitationNotifications|SendInvitationNotificationsRequest|`MessageResponse`|202 / 403|
+|GET|/api/v1/teacher/teacher_notification_results|TeacherNotificationHandler.ListNotificationResults|ListNotificationResultsRequest|`[]NotificationResultResponse`（配列）|200|
 
 ## Errorケース
 
@@ -421,13 +423,19 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 
 ## 判断理由
 
-「他職員操作権限」の要否は、ロール（`teacher`であるか）のような粗い認可ではなく、教員個人が持つ業務権限に基づく判定であるため、Middlewareのロールチェックとは別に、Handler処理内で確認する（アーキテクチャ規約7章「認可（所有権・業務権限）」の配置方針、Active Record採用時はHandler/Storeに従う）。招待未完了教員一覧の取得・送信結果履歴の参照にはこの権限を要求しないという非対称な権限設計は、Rails現行の`before_action`の対象が`create`のみであることをそのまま踏襲したものである（①「8. 権限制御」）。
+「他職員操作権限」の要否は、ロール（`teacher`であるか）のような粗い認可ではなく、教員個人が持つ業務権限に基づく判定であるため、Middlewareのロールチェックとは別に、Handler処理内で確認する（アーキテクチャ規約「7. 横断的関心事の置き場所」が認可（所有権・業務権限）について定める配置方針。Active Record採用時はHandler/Storeに従う）。招待未完了教員一覧の取得・送信結果履歴の参照にはこの権限を要求しないという非対称な権限設計は、Rails現行の`before_action`の対象が`create`のみであることをそのまま踏襲したものである（①「8. 権限制御」）。
 
 ---
 
 # 14. Error実装方針
 
-アーキテクチャ規約8章の指示に従い、本機能ではModel/Storeが返すエラーをそのままHandlerでHTTPレスポンスへ変換する2段階構成とする。
+Active Record採用のためDomain Errorに相当する層がなく、Model/Storeが返すsentinel errorをそのままApplication Error相当として扱う（規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。sentinel errorから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
+
+ステータスコードの決定は、Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
+
+レスポンスのボディは`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す（規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）。
+
+以下の「Handlerで○○に変換する」は、`AppError`へ変換した結果としてミドルウェアがそのステータスを返すことを指す。
 
 ## Model/Storeが返すエラー → HTTPレスポンスへの変換方針
 
@@ -528,7 +536,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/teacher_notification`とした|②のContext名`teacher-notification`とディレクトリ名の対応関係が②に明記がない|推測|
+|ディレクトリ名を`internal/teachernotification`とした|②のContext名`teacher-notification`とディレクトリ名の対応関係が②に明記がない|推測|
 |招待未完了判定を`users`テーブルのパスワード未設定フィールド（`password_reset_required`相当）で行う構成とした|②「6. Entity設計」が「推測: 教師生徒参照機能・教師教員管理機能のデータモデルに記載された`password_reset_required`フィールドと同一の仕組みを、招待完了判定に用いると仮定する」と明記している内容をそのまま踏襲した|②に準拠（②自身が「推測」と明記）|
 |`TeacherNotificationStore.LatestStatuses`を新設し、教師教員管理機能側の`TeacherNotificationStatusProvider`インターフェースを構造的に満たす形で提供する構成とした|②「3. Bounded Context」「12. UseCase設計」（教師教員管理機能側②文書）が参照専用での利用を明記しているが、具体的なメソッドシグネチャは②のいずれにも記載がない|推測|
 |`teacher_ids`が空配列で送信された場合、送信対象が0件（実質何も送信しない）として扱う方針とした|①「5. API / 処理詳細」の「`teacher_ids` が空、または対象が0件でも、送信処理自体はエラーにはならず受け付けられる（実際に送信される教員が0人になるのみ）」に従う|①に基づく（推測ではない）|

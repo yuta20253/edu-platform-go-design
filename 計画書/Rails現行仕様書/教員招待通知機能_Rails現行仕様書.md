@@ -75,6 +75,7 @@
 
 - 同校の教員のみ対象とする。
 - 「招待未完了」とは、初回ログイン用の仮パスワードが設定されたまま、まだパスワードが再設定されていない状態を指す。
+- 絞り込みは「所属校」「教員ロール」「招待未完了」の3条件のみである。**論理削除済み（`deleted_at` が設定済み）の教員を除外しない。** 対象の絞り込み条件に論理削除の判定が入っていないため、論理削除済みの教員も一覧に現れる。
 
 ### Database変更
 
@@ -82,7 +83,9 @@
 
 ### Response
 
-- 招待未完了の教員一覧（`id`, `name`, `name_kana`, `email`）
+- 最上位は**配列**である。`teachers` 等のキーでラップしない
+- 各要素は `Teacher::UnsentTeacherSerializer` の4項目（`id`, `name`, `name_kana`, `email`）
+- ページネーションは行わない（`page` / `per_page` を受け付けず、ページ情報も返さない）
 
 ### Errorケース
 
@@ -164,7 +167,9 @@ teacher_notifications
 
 ### Response
 
-- 送信結果一覧。各件は `id`, `email`（送信先メールアドレス）, `status`（`pending`/`sent`/`failed`）, `formatted_sent_at`（`YYYY/MM/DD HH:MM`形式の送信日時）, 送信者（`id`, `name`）, 送信先教員（`id`, `name`）を含む
+- 最上位は**配列**である。`results` 等のキーでラップしない
+- 各要素は `id`, `email`（送信先メールアドレス）, `status`（`pending`/`sent`/`failed`）, `formatted_sent_at`（`YYYY/MM/DD HH:MM`形式の送信日時。`sent_at` が未設定の場合は `null`）, `sender_user`（`id`, `name`）, `receiver_user`（`id`, `name`）
+- ページネーションは行わない
 
 ### Errorケース
 
@@ -177,8 +182,37 @@ teacher_notifications
 ## `teacher_notifications`
 
 - 役割: 教員への招待通知の送信結果を1件ごとに記録するテーブル
-- 主なカラム: `id`, `sender_user_id`（送信操作を行った教師）, `receiver_user_id`（送信先教員）, `email`（送信先メールアドレス）, `sent_at`（送信日時）, `status`（`pending`/`sent`/`failed`）
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`sender_user_id`|bigint|不可|送信操作を行った教師（`users`）への外部キー|
+|`receiver_user_id`|bigint|不可|送信先教員（`users`）への外部キー|
+|`email`|string(255)|不可|送信先メールアドレス|
+|`sent_at`|datetime|可|送信日時。`failed` の場合は未設定|
+|`status`|string(255)|不可|送信状態。Rails の `enum` で **文字列**（`pending` / `sent` / `failed`）として保持する。既定値は `pending`|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- `sender_user_id` と `receiver_user_id` にそれぞれインデックスを持つ。一意制約はなく、同じ教員へ複数回の送信結果を記録できる
 - リレーション: `belongs_to :sender_user`（送信者ユーザー）, `belongs_to :receiver_user`（受信者ユーザー）
+- モデルの検証: `email` の必須
+
+## `users`
+
+- 役割: 送信対象の教員と、送信操作を行った教師を表す
+- 主なカラム（本機能が参照する範囲）:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`name`|string(100)|可|氏名。一覧・送信結果の表示に用いる|
+|`name_kana`|string(100)|可|氏名カナ。招待未完了教員一覧の表示に用いる|
+|`email`|string|不可|メールアドレス。送信先として用いる|
+|`user_role_id`|bigint|可|`user_roles` への外部キー。教員ロールの判定に用いる|
+|`high_school_id`|bigint|可|所属校。一覧・送信結果の絞り込みに用いる|
+|`password_reset_required`|boolean|不可|招待未完了の判定に用いる（`true` が招待未完了）|
+|`deleted_at`|datetime|可|論理削除日時。**本機能の絞り込み条件には含まれない**（上記「業務ルール」）|
 
 ---
 
