@@ -77,7 +77,21 @@
 
 ### Response
 
-- `teachers` : 各教員の `id`, `name`, `email`, `grade_scope`, `manage_other_teachers`, `grades`
+- 最上位は `teachers` キーでラップした配列（`{ "teachers": [ ... ] }`）。ページ情報（`meta`）は返さない
+- 配列の各要素は `Admin::TeacherSerializer` の項目である
+
+`Admin::TeacherSerializer` が返す項目は次の6つである。
+
+|項目|型|説明|
+|-|-|-|
+|`id`|integer|教員のID|
+|`name`|string|氏名|
+|`email`|string|メールアドレス|
+|`grade_scope`|string|閲覧権限スコープ（`own_grade` / `all_grades`）。権限レコードがない教員は `null`|
+|`manage_other_teachers`|boolean|他教員管理権限。権限レコードがない教員は `null`|
+|`grades`|array|担当学年。各要素は `{ "id": 学年のID, "name": 学年の表示名 }`。表示名は学年の `year` に対応する `中３生` / `高１生` / `高２生` / `高３生` / `高卒生` / `新高１生` / `新高２生` / `新高３生`（該当しない場合は `不明`）|
+
+所属校・作成日時・更新日時は返さない。
 
 ### Errorケース
 
@@ -129,7 +143,8 @@
 ### Response
 
 - 201 Created
-- `teacher` : `Admin::TeacherSerializer`（`id`, `name`, `email`, `grade_scope`, `manage_other_teachers`, `grades`）
+- 最上位は `teacher` キーでラップしたオブジェクト（`{ "teacher": { ... } }`）
+- 中身は `Admin::TeacherSerializer` の項目であり、一覧の各要素と同じ構成である
 
 ### Errorケース
 
@@ -179,7 +194,9 @@
 
 ### Response
 
-- `teacher` : `Admin::TeacherSerializer`
+- 200 OK
+- 最上位は `teacher` キーでラップしたオブジェクト（`{ "teacher": { ... } }`）
+- 中身は `Admin::TeacherSerializer` の項目であり、一覧の各要素と同じ構成である
 
 ### Errorケース
 

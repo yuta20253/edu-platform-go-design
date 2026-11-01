@@ -76,13 +76,14 @@ internal/teachermanagement/
 
 ```
 internal/teachermanagement/context.go                        # NewContext（依存関係の組み立て）
-internal/teachermanagement/teacher.go                        # Teacher struct・Validate()・TeacherAccountOptions等
-internal/teachermanagement/teacher_permission.go              # TeacherPermission struct（VO相当）
+internal/teachermanagement/teacher.go                        # Teacher struct・Validate()・TeacherWithRelations・TeacherAccountOptions・PageInfo
+internal/teachermanagement/teacher_permission.go              # TeacherPermission struct（VO相当）・GradeScope（列挙型）
 internal/teachermanagement/teacher_grade_assignment.go        # TeacherGradeAssignment struct・GradeAssignmentSet
 internal/teachermanagement/teacher_grade_assignment_policy.go # 学年所属妥当性判定（②「8. Domain Service」相当）
-internal/teachermanagement/dependency.go                      # 他Context参照用インターフェース・入力型の定義（HighSchoolExistenceChecker / GradeReferenceChecker / TeacherAccountCreator・TeacherAccountInput）
+internal/teachermanagement/dependency.go                      # 他Context参照用インターフェース・入出力型の定義（HighSchoolExistenceChecker / GradeReferenceChecker・GradeView / TeacherAccountCreator・TeacherAccountInput / TeacherPermissionUpdater・TeacherPermissionUpdateInput）
 internal/teachermanagement/errors.go                          # struct/Storeが返すエラー変数定義
 internal/teachermanagement/teacher_store.go                   # TeacherStore
+internal/teachermanagement/user_role.go                       # user_rolesを参照専用で読むモデル（教員判定の結合に用いる）
 internal/teachermanagement/teacher_permission_store.go        # TeacherPermissionStore
 internal/teachermanagement/teacher_grade_store.go              # TeacherGradeStore
 internal/teachermanagement/presentation/admin/handler/teacher_handler.go
@@ -133,6 +134,18 @@ internal/teachermanagement/presentation/admin/routes.go
 不変条件（`NewTeacher`で保証する内容）:
 
 - HighSchoolID・Name・Emailは空値（ゼロ値）を許容しない（`UserRoleID`は`NewTeacher`の引数に含めない。`NameKana`は`Name`と同じ値とする。教師視点の新規作成における氏名カナの必須・形式検証は教師教員管理機能_Go実装仕様書「3. Domain層設計」が定める）
+
+### TeacherWithRelations（`internal/teachermanagement/teacher.go`）
+
+一覧・1件取得で、教員とその権限・担当学年を一括取得した結果を表す型である。教員ごとに権限・担当学年を問い合わせるN+1を避けるために設ける（Gorm規約「0. 本プロジェクトでの採用方針」の「リレーションの取得とN+1対策」、②「21. DB操作仕様」）。
+
+|フィールド|型|意味|
+|-|-|-|
+|Teacher|`*Teacher`|教員本体|
+|Permission|`*TeacherPermission`|権限。権限レコードが存在しない教員では`nil`（レスポンスの権限項目を`null`とする根拠。①「5. API / 処理詳細」`#index`）|
+|GradeIDs|`[]uint`|担当学年の識別子|
+
+> **②からの補足**: ②「11. Repository設計」「21. DB操作仕様」は「一覧・1件取得で権限と担当学年をあわせて取得する」と定めているが、戻り値の型は定めていない。一括取得の結果を表す型として本書で定義した（実装判断。業務ルールの追加ではない）。
 
 ### TeacherAccountOptions（`internal/teachermanagement/teacher.go`）
 
@@ -221,14 +234,24 @@ type HighSchoolExistenceChecker interface {
     Exists(ctx context.Context, highSchoolID uint) (bool, error)
 }
 
-// GradeReferenceChecker は master-data Context が公開する
-// 「指定 grade_ids のうち、対象高校に属するものはどれか」の参照手段を表す。
+// GradeReferenceChecker は master-data Context が公開する学年の参照手段を表す。
 // （②「11. Repository設計」GradeStoreの責務に対応）
 type GradeReferenceChecker interface {
+    // ExistingGradeIDsForHighSchool は、指定 grade_ids のうち対象高校に属するものを返す。
     ExistingGradeIDsForHighSchool(ctx context.Context, highSchoolID uint, gradeIDs []uint) ([]uint, error)
     // AllGradeIDsForHighSchool は、指定高校の全学年のIDを返す
     // （管理者視点の招待で、grade_scopeが全学年の場合に用いる）。
     AllGradeIDsForHighSchool(ctx context.Context, highSchoolID uint) ([]uint, error)
+    // FindGradeViews は、指定 grade_ids の識別子と表示名を返す。
+    // レスポンスの担当学年は識別子と表示名の組であるため（①「5. API / 処理詳細」）、
+    // 表示名の決定規則を本Contextに持たせず master-data Context から受け取る。
+    FindGradeViews(ctx context.Context, gradeIDs []uint) ([]GradeView, error)
+}
+
+// GradeView は、レスポンスに出す学年の表示用情報である。
+type GradeView struct {
+    ID   uint
+    Name string
 }
 ```
 
@@ -331,6 +354,11 @@ classDiagram
         +Validate() error
         +Apply(gradeScope string, manageOtherTeachers bool) error
     }
+    class TeacherWithRelations {
+        +Teacher *Teacher
+        +Permission *TeacherPermission
+        +GradeIDs []uint
+    }
     class TeacherGradeAssignment {
         +ID uint
         +UserID uint
@@ -342,11 +370,11 @@ classDiagram
         +IsEmpty() bool
     }
     class TeacherStore {
-        +FindAllByHighSchool(ctx, highSchoolID uint) []*Teacher, error
+        +FindAllByHighSchool(ctx, highSchoolID uint) []*TeacherWithRelations, error
         +FindPageByHighSchool(ctx, highSchoolID uint, page, perPage int) []*Teacher, PageInfo, error
-        +FindByIDForHighSchool(ctx, id, highSchoolID uint) *Teacher, error
+        +FindByIDForHighSchool(ctx, id, highSchoolID uint) *TeacherWithRelations, error
         +CreateWithPermissionAndGrades(ctx, t *Teacher, options TeacherAccountOptions, permission *TeacherPermission, set *GradeAssignmentSet) *Teacher, error
-        +UpdateWithGrades(ctx, t *Teacher, set *GradeAssignmentSet) error
+        +UpdateWithGrades(ctx, t *Teacher, updateProfile bool, set *GradeAssignmentSet) error
     }
     class TeacherPermissionStore {
         +FindByUserID(ctx, userID uint) *TeacherPermission, error
@@ -364,6 +392,7 @@ classDiagram
         <<interface>>
         +ExistingGradeIDsForHighSchool(ctx, highSchoolID uint, gradeIDs []uint) []uint, error
         +AllGradeIDsForHighSchool(ctx, highSchoolID uint) []uint, error
+        +FindGradeViews(ctx, gradeIDs []uint) []GradeView, error
     }
     class TeacherAccountCreator {
         <<interface>>
@@ -374,7 +403,10 @@ classDiagram
         +UpdateByAdmin(ctx, in TeacherPermissionUpdateInput) error
     }
 
-    TeacherStore ..> Teacher : 永続化・取得する
+    TeacherStore ..> Teacher : 永続化する
+    TeacherStore ..> TeacherWithRelations : 一覧・1件取得で返す
+    TeacherWithRelations o-- Teacher
+    TeacherWithRelations o-- TeacherPermission
     TeacherStore ..> TeacherAccountOptions : 作成時の指定値として受け取る
     TeacherStore ..> TeacherAccountCreator : users の作成を委譲する
     TeacherStore ..> TeacherPermissionStore : 同一トランザクションで呼ぶ
@@ -422,24 +454,19 @@ sequenceDiagram
     participant H as TeacherHandler
     participant HC as HighSchoolExistenceChecker
     participant TS as TeacherStore
-    participant PS as TeacherPermissionStore
-    participant GS as TeacherGradeStore
+    participant GC as GradeReferenceChecker
 
     H->>H: current admin を取得、high_school_id をバインド
     H->>HC: Exists(ctx, highSchoolID)
     HC-->>H: true / false
     H->>TS: FindAllByHighSchool(ctx, highSchoolID)
-    TS-->>H: []*Teacher
-    loop 各教員
-        H->>PS: FindByUserID(ctx, teacher.ID)
-        PS-->>H: *TeacherPermission / ErrTeacherPermissionNotFound
-        H->>GS: FindGradeIDsByUserID(ctx, teacher.ID)
-        GS-->>H: []uint
-    end
+    TS-->>H: []*TeacherWithRelations（権限・担当学年を一括取得）
+    H->>GC: FindGradeViews(ctx, gradeIDs)
+    GC-->>H: []GradeView（学年の識別子と表示名）
     H-->>H: TeacherListResponse に変換して200
 ```
 
-`ErrTeacherPermissionNotFound`は、その教員の権限項目を`nil`（JSONの`null`）として扱い、エラーにしない（9章）。
+権限・担当学年は`FindAllByHighSchool`の1回の呼び出しで一括取得し、教員ごとに問い合わせない（Gorm規約「0. 本プロジェクトでの採用方針」の「リレーションの取得とN+1対策」）。`TeacherWithRelations.Permission`が`nil`の教員は、権限項目を`nil`（JSONの`null`）として扱い、エラーにしない（9章）。
 
 ### 招待（`InviteTeacher`）
 
@@ -471,7 +498,7 @@ sequenceDiagram
     TS->>PS: Create（初期権限）
     TS->>GS: ReplaceAll（担当学年）
     TS-->>H: *Teacher（コミット後）
-    H-->>H: TeacherResponse に変換して201
+    H-->>H: TeacherEnvelope に変換して201
 ```
 
 ### 更新（`UpdateTeacher`）
@@ -506,7 +533,7 @@ sequenceDiagram
     H->>TS: UpdateWithGrades(ctx, t, set)
     TS-->>H: nil
     T-->>H: コミット
-    H-->>H: TeacherResponse に変換して200
+    H-->>H: TeacherEnvelope に変換して200
 ```
 
 更新では、権限の更新（`teacher-permission` Context）と`UpdateWithGrades`を同一トランザクションに入れる必要があるため、トランザクションはHandler側で`transaction.TransactionManager`を用いて開始し、`ctx`で引き継ぐ（11章）。
@@ -565,11 +592,11 @@ func NewTeacherStore(db *gorm.DB, accountCreator TeacherAccountCreator) *Teacher
 
 |メソッド|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
-|`FindAllByHighSchool`|`(ctx context.Context, highSchoolID uint)`|`([]*Teacher, error)`|`high_school_id`一致かつ`users`と`user_roles`を結合し`user_roles.name`が教員を表す値であること（`users.user_role_id = user_roles.id`による結合）を条件に、論理削除されていない教員一覧を、ページングなしで全件、`id`昇順で取得する（②「11. Repository設計」`high_school_id`による絞り込み。Rails現行の管理者視点の一覧はページングせず、並び順を指定しないため、順序が不定にならないよう`id`昇順とする。②からの補足）。管理者視点の一覧取得で利用する|
+|`FindAllByHighSchool`|`(ctx context.Context, highSchoolID uint)`|`([]*TeacherWithRelations, error)`|`high_school_id`一致かつ`users`と`user_roles`を結合し`user_roles.name`が教員を表す値であること（`users.user_role_id = user_roles.id`による結合）を条件に、論理削除されていない教員一覧を、ページングなしで全件、`id`昇順で取得する（②「11. Repository設計」`high_school_id`による絞り込み。Rails現行の管理者視点の一覧はページングせず、並び順を指定しないため、順序が不定にならないよう`id`昇順とする。②からの補足）。管理者視点の一覧取得で利用する|
 |`FindPageByHighSchool`|`(ctx context.Context, highSchoolID uint, page, perPage int)`|`([]*Teacher, PageInfo, error)`|`high_school_id`一致かつ`users`と`user_roles`を結合し`user_roles.name`が教員を表す値であること（`users.user_role_id = user_roles.id`による結合）を条件に、論理削除されていない教員を対象として、`name_kana`昇順でソートし、ページ番号（`page`）と1ページあたり件数（`perPage`）に応じたオフセット・件数制限を適用して取得する（`page` / `perPage`は、呼び出し側のHandlerが、既定値・上限を適用して正規化した値を渡す。教師教員管理機能_Go実装仕様書「9. Presentation層設計」）。教師視点の一覧取得（教師教員管理機能②「9. Repository設計」TeacherStore：氏名カナ順・ページネーション）で利用する。`PageInfo`は`Page` / `PerPage` / `TotalPages` / `TotalCount`（いずれも`int`）を持つ本packageの型である|
-|`FindByIDForHighSchool`|`(ctx context.Context, id, highSchoolID uint)`|`(*Teacher, error)`|`id`と`high_school_id`の一致かつ`users`と`user_roles`を結合し`user_roles.name`が教員を表す値であること（`users.user_role_id = user_roles.id`による結合）の条件で1件取得する所属高校スコープ検索（②「11. Repository設計」`id`による単一取得（所属高校スコープ付き））。該当なしは`ErrTeacherNotFound`を返す。管理者視点の更新対象取得・教師視点の詳細取得の双方で利用する|
+|`FindByIDForHighSchool`|`(ctx context.Context, id, highSchoolID uint)`|`(*TeacherWithRelations, error)`|`id`と`high_school_id`の一致かつ`users`と`user_roles`を結合し`user_roles.name`が教員を表す値であること（`users.user_role_id = user_roles.id`による結合）の条件で1件取得する所属高校スコープ検索（②「11. Repository設計」`id`による単一取得（所属高校スコープ付き））。該当なしは`ErrTeacherNotFound`を返す。管理者視点の更新対象取得・教師視点の詳細取得の双方で利用する|
 |`CreateWithPermissionAndGrades`|`(ctx context.Context, t *Teacher, options TeacherAccountOptions, permission *TeacherPermission, gradeAssignmentSet *GradeAssignmentSet)`|`(*Teacher, error)`|1トランザクションで、次を順に実行する。(1) `TeacherAccountCreator.CreateTeacherAccount`を、`t`（氏名・氏名カナ・メールアドレス・所属校ID）と`options`（学年ID・招待待ち状態で作成するか・作成時に招待メールを送信するか）から組み立てた`TeacherAccountInput`で呼び出し、`users`の1行の作成（教員ロールの解決を含む）と、指定に応じた招待メール送信依頼の登録を`user` Contextに任せる。トランザクション用の`*gorm.DB`を保持する`ctx`を渡し、`user` Contextの作成操作を同一トランザクションに参加させる。(2) 返された教員のIDを`permission.UserID`に設定し、初期TeacherPermissionを作成する。(3) `gradeAssignmentSet`の担当学年を作成する。(4) 作成した教員を、同一トランザクション内で`users`から取得して返す（`user`②の作成結果には作成日時・更新日時が含まれないため）。管理者視点の招待（②「12. UseCase設計」InviteTeacher）・教師視点の新規作成（教師教員管理機能②「10. UseCase設計」CreateTeacher）の双方で利用する。「11. Transaction実装方針」参照|
-|`UpdateWithGrades`|`(ctx context.Context, t *Teacher, gradeAssignmentSet *GradeAssignmentSet)`|`error`|Teacherのプロフィール更新と、（`gradeAssignmentSet`が非nilの場合のみ）担当学年の全置換を1トランザクションで実行する（②「12. UseCase設計」UpdateTeacherのトランザクション範囲。「11. Transaction実装方針」参照）。権限の更新は含まない（`teacher-permission` Contextの更新操作の責務）|
+|`UpdateWithGrades`|`(ctx context.Context, t *Teacher, updateProfile bool, gradeAssignmentSet *GradeAssignmentSet)`|`error`|（`updateProfile`が真の場合のみ）Teacherのプロフィール更新と、（`gradeAssignmentSet`が非nilの場合のみ）担当学年の全置換を1トランザクションで実行する。`name` / `email`のいずれも送信されない更新では教員本体を更新しない（①「5. API / 処理詳細」`#update`の業務ルール）（②「12. UseCase設計」UpdateTeacherのトランザクション範囲。「11. Transaction実装方針」参照）。権限の更新は含まない（`teacher-permission` Contextの更新操作の責務）|
 
 保持しない責務（②「11. Repository設計」保持しない責務を踏襲）: 権限の妥当性判定・学年の所属確認はStoreに持たせない。
 
@@ -663,9 +690,9 @@ Active Record採用のためUseCase層を経由しない。以下、②「12. Us
 2. パスパラメータ`high_school_id`をバインドする
 3. 操作する管理者と`high_school_id`の対応は確認しない（②「16. Authorization設計」Middleware。Rails現行がこの確認を行っていないため、本設計でも追加しない）。対象範囲は`high_school_id`によって決まる
 4. `HighSchoolExistenceChecker.Exists`で対象高校の存在を確認する。存在しない場合は`ErrHighSchoolNotFound`（②「12. UseCase設計」ListTeachers 呼び出すStore：HighSchoolStore）
-5. `TeacherStore.FindAllByHighSchool`を呼び出す（②「12. UseCase設計」ListTeachers 呼び出すStore：TeacherStore）
-6. 取得した各教員について`TeacherPermissionStore.FindByUserID`・`TeacherGradeStore.FindGradeIDsByUserID`で権限・担当学年を取得する。`ErrTeacherPermissionNotFound`の場合は、その教員の`grade_scope` / `manage_other_teachers`を値なし（`null`）として扱い、エラーにしない（Rails現行の`Admin::TeacherSerializer`が権限レコードなしを`null`で返すことに合わせる）
-7. 取得結果をResponse DTOへ変換して返す
+5. `TeacherStore.FindAllByHighSchool`を呼び出す。権限・担当学年は教員ごとに問い合わせず、この1回の呼び出しで一括取得する（②「12. UseCase設計」ListTeachers 呼び出すStore：TeacherStore、②「21. DB操作仕様」）。権限レコードが存在しない教員では権限が未取得となり、その教員の`grade_scope` / `manage_other_teachers`を値なし（`null`）として扱い、エラーにしない（Rails現行の`Admin::TeacherSerializer`が権限レコードなしを`null`で返すことに合わせる）
+6. `GradeReferenceChecker.FindGradeViews`で、取得した担当学年の識別子に対応する表示名を一括取得する（レスポンスの担当学年は識別子と表示名の組であるため。①「5. API / 処理詳細」`#index`）
+7. 取得結果を`TeacherListResponse`へ変換し、200で返す
 
 #### InviteTeacher 処理順序
 
@@ -677,7 +704,7 @@ Active Record採用のためUseCase層を経由しない。以下、②「12. Us
 6. `teachermanagement.NewTeacherPermission`で初期TeacherPermissionを生成する。`grade_scope`が許容範囲外の場合は`ErrInvalidGradeScope`（`UserID`は作成後に`TeacherStore.CreateWithPermissionAndGrades`が設定するため、生成時は未設定とする）
 7. 担当学年の集合を決める。`grade_scope`が全学年（`all_grades`）の場合は、`GradeReferenceChecker.AllGradeIDsForHighSchool`で取得した対象高校の全学年（指定された`grade_ids`は使わない）とする。それ以外の場合は、指定された`grade_ids`を`teachermanagement.NewGradeAssignmentSet`で重複排除し、`GradeReferenceChecker.ExistingGradeIDsForHighSchool`が返した「対象高校に属するID」だけを担当学年とする。対象高校に属さないIDは除外するだけで、エラーにしない（UpdateTeacherの手順8と同じ扱い。Rails現行の`Admin::CreateTeacherService#grade_ids_for`と同じ）
 8. `TeacherStore.CreateWithPermissionAndGrades`を、Teacher・`TeacherAccountOptions`（学年ID=未設定（0）・招待待ち=`false`・作成時に招待メールを送信=`true`）・初期TeacherPermission・GradeAssignmentSetで呼び出す（②「12. UseCase設計」InviteTeacher。`users`の行の作成と招待メール送信依頼の登録は、Store内で`user` Contextの`CreateTeacherAccount`に任せる）。`user` Contextが返すValidationエラー（メールアドレスの形式不正・重複、氏名の必須・文字数）はそのまま422とする
-9. 作成結果をResponse DTOへ変換して返す
+9. 作成結果を`TeacherEnvelope`へ変換し、201で返す
 
 仮パスワードの発行・招待メールの内容とトークンの発行・送信は、`user` Contextの責務であり（`user`②「12. UseCase設計」RequestInvitationEmail）、本書では実装しない。招待メール送信依頼は、Store内のトランザクションのコミット後にのみ実行される。
 
@@ -688,12 +715,12 @@ Active Record採用のためUseCase層を経由しない。以下、②「12. Us
 3. 操作する管理者と`high_school_id`の対応は確認しない（②「16. Authorization設計」Middleware）
 4. `HighSchoolExistenceChecker.Exists`で対象高校の存在を確認する。存在しない場合は`ErrHighSchoolNotFound`
 5. `TeacherStore.FindByIDForHighSchool`で対象教員を取得する。存在しない、または対象高校に所属しない場合は`ErrTeacherNotFound`（②「15. Validation設計」整合性チェック：更新対象の教員が対象高校に所属しているかどうか）
-6. プロフィール項目（name・email）が指定されている場合、`Teacher.ApplyProfile`で差し替え・検証する
+6. プロフィール項目（name・email）のいずれかが指定されている場合、`Teacher.ApplyProfile`で差し替え・検証する。いずれも指定されていない場合は教員本体の更新を行わない（①「5. API / 処理詳細」`#update`の業務ルール、②「15. Validation設計」）
 7. 権限項目（grade_scope・manage_other_teachers）が指定されている場合、`TeacherPermissionUpdater.UpdateByAdmin`（`dependency.go`）に、対象教員IDと送信された項目のみを渡して更新を依頼する。`grade_scope`の許容値の検証は`teacher-permission` Context側で行われ、許容範囲外の場合は`ErrInvalidGradeScope`相当のエラーが返る。権限レコードが存在しない対象教員の場合は、権限レコードを新規作成せず、想定外の状態として500に変換する（Rails現行の`Admin::UpdateTeacherService`が、権限レコードが存在しない対象教員の権限項目・担当学年（`grade_ids`）の更新で例外となり500になることに合わせる）。権限項目も`grade_ids`も指定されない更新（氏名・メールアドレスのみ）では、権限レコードを参照しない
 8. `grade_ids`が指定されている場合、`teachermanagement.NewGradeAssignmentSet`で重複排除した集合を作成し、`GradeReferenceChecker.ExistingGradeIDsForHighSchool`が返した「対象高校に属するID」だけを担当学年とする。対象高校に属さないIDは除外するだけで、エラーにしない（②「8. Domain Service」TeacherGradeAssignmentPolicy、②「15. Validation設計」業務ルール：指定学年が対象高校に属するかどうか）
 9. `grade_scope`が全学年（`all_grades`）の場合は、指定された`grade_ids`に関わらず対象高校の全学年を担当学年とする。判定には**7.の更新後の`grade_scope`**を用いる（`TeacherPermissionStore.FindByUserID`で更新後の値を取得する。Rails現行の`Admin::UpdateTeacherService`が`update_permission_attributes`の後に`update_teacher_grades`を呼び、`valid_grade_ids`が更新後の`all_grades?`を参照することに合わせる）
-10. `TeacherStore.UpdateWithGrades`をTeacher・（`grade_ids`指定時のみ）GradeAssignmentSetで呼び出す（②「12. UseCase設計」UpdateTeacher 呼び出すStore・Context：HighSchoolStore→TeacherStore→`teacher-permission`→TeacherPermissionStore→TeacherGradeStore→GradeStoreの順に対応）
-11. 更新結果をResponse DTOへ変換して返す
+10. `TeacherStore.UpdateWithGrades`をTeacher・（`name` / `email`のいずれかが指定された場合のみ真とする）`updateProfile`・（`grade_ids`指定時のみ）GradeAssignmentSetで呼び出す（②「12. UseCase設計」UpdateTeacher 呼び出すStore・Context：HighSchoolStore→TeacherStore→`teacher-permission`→TeacherPermissionStore→TeacherGradeStore→GradeStoreの順に対応）
+11. 更新結果を`TeacherEnvelope`へ変換し、200で返す
 
 7.〜10.は1つのトランザクションで実行する。`TeacherPermissionUpdater.UpdateByAdmin`には、トランザクションを保持する`ctx`を渡し、同じトランザクションに参加させる（規約「11. Transaction実装パターン（TransactionManager）」）。
 
@@ -708,10 +735,24 @@ Active Record採用のためUseCase層を経由しない。以下、②「12. Us
 
 ### Response（`internal/teachermanagement/presentation/admin/response/teacher_response.go`）
 
-|struct名|フィールドと型|
-|-|-|
-|`TeacherResponse`|`ID uint`、`HighSchoolID uint`、`Name string`、`Email string`、`GradeScope *string`、`ManageOtherTeachers *bool`（権限レコードが存在しない教員では`nil`＝JSONの`null`）、`GradeIDs []uint`、`CreatedAt string`、`UpdatedAt string`|
-|`TeacherListResponse`|`Teachers []TeacherResponse`|
+|struct名|フィールド|型|JSONキー|
+|-|-|-|-|
+|`TeacherEnvelope`|`Teacher`|`TeacherResponse`|`teacher`|
+|`TeacherListResponse`|`Teachers`|`[]TeacherResponse`|`teachers`|
+|`TeacherResponse`|`ID`|`uint`|`id`|
+||`Name`|`string`|`name`|
+||`Email`|`string`|`email`|
+||`GradeScope`|`*string`|`grade_scope`|
+||`ManageOtherTeachers`|`*bool`|`manage_other_teachers`|
+||`Grades`|`[]GradeResponse`|`grades`|
+|`GradeResponse`|`ID`|`uint`|`id`|
+||`Name`|`string`|`name`|
+
+- 単体（招待・更新）は`TeacherEnvelope`で返す。一覧は`TeacherListResponse`で返す（①「5. API / 処理詳細」の各アクションのResponse、②「19. API仕様」）
+- `TeacherResponse`が返すのは上記6項目のみとする。所属校・作成日時・更新日時は返さない（①の`Admin::TeacherSerializer`が返さないため）
+- `GradeScope` / `ManageOtherTeachers`は、権限レコードが存在しない教員では`nil`（JSONの`null`）とする
+- `GradeScope`は`own_grade` / `all_grades`の文字列を入れる。Modelの`GradeScope`は整数の列挙型であるため、`String()`で文字列へ変換してから設定する（3章）
+- `Grades`の`Name`は学年の表示名であり、`GradeReferenceChecker.FindGradeViews`から受け取った値をそのまま入れる。表示名の決定規則は本Contextに持たせない（3章）
 
 EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのまま返さず、必ずResponse DTOへ変換する（規約「6. データフロー」）。
 
@@ -735,9 +776,9 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
-|GET|/api/v1/admin/high_schools/:high_school_id/teachers|ListTeachers|パスパラメータ`high_school_id`|`TeacherListResponse`|200|
-|POST|/api/v1/admin/high_schools/:high_school_id/teachers|InviteTeacher|パスパラメータ`high_school_id` + `InviteTeacherRequest`|`TeacherResponse`|201（Rails現行は201を返す。①Rails現行仕様書「5. API / 処理詳細」create）|
-|PATCH|/api/v1/admin/high_schools/:high_school_id/teachers/:id|UpdateTeacher|パスパラメータ`high_school_id`・`id` + `UpdateTeacherRequest`|`TeacherResponse`|200|
+|GET|/api/v1/admin/high_schools/:high_school_id/teachers|ListTeachers|パスパラメータ`high_school_id`|`TeacherListResponse`（`teachers`キーでラップした配列）|200|
+|POST|/api/v1/admin/high_schools/:high_school_id/teachers|InviteTeacher|パスパラメータ`high_school_id` + `InviteTeacherRequest`|`TeacherEnvelope`（`teacher`キーでラップ）|201（Rails現行は201を返す。①Rails現行仕様書「5. API / 処理詳細」create）|
+|PATCH|/api/v1/admin/high_schools/:high_school_id/teachers/:id|UpdateTeacher|パスパラメータ`high_school_id`・`id` + `UpdateTeacherRequest`|`TeacherEnvelope`（`teacher`キーでラップ）|200|
 
 ## Errorケース
 
@@ -844,6 +885,8 @@ Active Record採用のためDomain Error層は独立させず、「3. Domain層�
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
 
+レスポンスのボディは`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す（規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」、Gin規約「8. エラーハンドリングミドルウェア」）。Rails現行も`errors`の配列を返しており（①「5. API / 処理詳細」の各アクションのErrorケース）、外部仕様は変わらない。
+
 sentinel errorからの変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別し、`internal/shared/apperror`の`AppError`を実装した型を返す形で行う（規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」。Active Record採用のためStore側が`AppError`を直接返してもよい）。
 
 |Error種別|発生層|HTTP Status|
@@ -875,14 +918,14 @@ GORMが返すDB接続エラー等は、sentinel errorとして特別扱いせず
 |Goモデル|テーブル名|備考|
 |-|-|-|
 |`Teacher`|`users`|struct名のデフォルト複数形は`teachers`だが、②「20. DB設計方針」の記載どおり実際は`users`テーブルの教員としてのレコードであるため、`Tabler`インターフェース（`func (Teacher) TableName() string { return "users" }`）による明示的な上書きが必要（Gorm規約「テーブル名」。**②からの補足**：②はテーブル名を明記しているのみで、GoモデルとGORM命名規則の不一致には触れていないため、③側で気づいて反映した）|
-|`UserRole`|`user_roles`|`user_roles`テーブルを参照専用で読み取るための最小限のモデル（`ID` / `Name`のみ）。テーブルの所有はauthentication Contextであり、本Contextは教員判定の検索条件（`users`との結合）にのみ利用する。教員の作成時のロールの解決は`user` Contextが行う（管理者管理者ユーザー機能_Go実装仕様書「15. GORM / DBクエリ設計」の`UserRoleModel`と同じ扱い）。struct名のデフォルト複数形が実テーブル名と一致するため`TableName()`のオーバーライドは不要。`Name`はRailsの`enum name:`に対応し、DB上は整数（`admin: 0` / `student: 1` / `teacher: 2` / `guardian: 3`）である|
+|`UserRole`|`user_roles`|`internal/teachermanagement/user_role.go`に置く、`user_roles`テーブルを参照専用で読み取るための最小限のモデル（`ID` / `Name`のみ）。テーブルの所有はauthentication Contextであり、本Contextは教員判定の検索条件（`users`との結合）にのみ利用する。教員の作成時のロールの解決は`user` Contextが行う（管理者管理者ユーザー機能_Go実装仕様書「15. GORM / DBクエリ設計」の`UserRoleModel`と同じ扱い）。struct名のデフォルト複数形が実テーブル名と一致するため`TableName()`のオーバーライドは不要。`Name`はRailsの`enum name:`に対応し、DB上は整数（`admin: 0` / `student: 1` / `teacher: 2` / `guardian: 3`）である|
 |`TeacherPermission`|`teacher_permissions`|GORMのデフォルト命名規則（struct名の複数形snake_case）で一致するため、`TableName()`のオーバーライドは不要（Gorm規約「複数形のテーブル名」）。`GradeScope`は`type GradeScope int`であり、整数カラム`grade_scope`へそのまま対応する（①「6. データモデル」。Railsの`enum`で`own_grade`=0 / `all_grades`=1）|
 |`TeacherGradeAssignment`|`teacher_grades`|struct名のデフォルト複数形は`teacher_grade_assignments`だが、②「1. 機能概要」「17. DB設計方針」の記載どおり実際のテーブル名は`teacher_grades`であるため、`Tabler`インターフェース（`func (TeacherGradeAssignment) TableName() string { return "teacher_grades" }`）による明示的な上書きが必要（Gorm規約「テーブル名」。**②からの補足**）|
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
 - 教員判定の共通条件（`TeacherStore`の検索3メソッド共通）: `users`と`user_roles`を明示的な`Joins`（`users.user_role_id = user_roles.id`）で結合し、`user_roles.name`が教員を表す値（`teacher`=2）であること（①「6. データモデル」の教員の抽出）。`Teacher`に`user_roles`のアソシエーションフィールドは持たせない（Gorm規約「関連データの取得は`Preload`または明示的な`Joins`を用いる」）。論理削除は`users.deleted_at`が未設定であること（`gorm.DeletedAt`によるソフトデリートの既定の除外条件）
-- `TeacherStore.FindAllByHighSchool`: `high_school_id`一致必須、教員判定の共通条件、論理削除されていないこと（②「11. Repository設計」保持する検索機能）。ページネーションなし（全件）、`id`昇順（Rails現行の管理者視点の一覧はページングせず並び順を指定しない。順序が不定にならないよう`id`昇順とする。②からの補足）
+- `TeacherStore.FindAllByHighSchool`: `high_school_id`一致必須、教員判定の共通条件、論理削除されていないこと（②「11. Repository設計」保持する検索機能）。ページネーションなし（全件）、`id`昇順（Rails現行の管理者視点の一覧はページングせず並び順を指定しない。順序が不定にならないよう`id`昇順とする。②からの補足）。権限（`teacher_permissions`）と担当学年（`teacher_grades`）は`Preload`で一括取得し、教員ごとにクエリを発行しない（Gorm規約「0. 本プロジェクトでの採用方針」の「リレーションの取得とN+1対策」）。権限レコードが存在しない教員も一覧に残るよう、権限側の有無で教員を絞り込まない
 - `TeacherStore.FindPageByHighSchool`（教師視点）: `high_school_id`一致必須、教員判定の共通条件、論理削除されていないこと。`name_kana`昇順、`page` / `perPage`に基づくオフセット・件数制限（1ページあたり件数の既定値は20件・上限は100件。教師教員管理機能②「10. UseCase設計」ListTeachers、`教師教員管理機能_Rails現行仕様書.md`「5. API / 処理詳細」の`per_page`）
 - `TeacherStore.FindByIDForHighSchool`: `id`かつ`high_school_id`一致、教員判定の共通条件
 - `TeacherPermissionStore.FindByUserID`: `user_id`一致（該当なしは`ErrTeacherPermissionNotFound`）。`user_id`に一意制約があるため取得は0件または1件である（①「6. データモデル」）
@@ -921,6 +964,8 @@ SQL文そのものは本書に記載しない。
 |対象|テストケース|
 |-|-|
 |`TeacherStore.FindAllByHighSchool`|`high_school_id`一致の教員のみが、ページングなしで全件、`id`昇順で取得されること|
+|`TeacherStore.FindAllByHighSchool`|権限・担当学年が教員ごとの追加クエリなしで一括取得されること（発行クエリ数が教員数に比例しないこと）|
+|`TeacherStore.FindAllByHighSchool`|権限レコードが存在しない教員も結果に含まれ、その`Permission`が`nil`となること|
 |`TeacherStore.FindByIDForHighSchool`|所属高校が異なる教員は取得できず`ErrTeacherNotFound`となること|
 |`TeacherStore.CreateWithPermissionAndGrades`|`user` Contextの`CreateTeacherAccount`（テスト用のスタブ）を、管理者視点の指定（招待待ち=`false`・作成時に招待メールを送信=`true`・学年ID=未設定・氏名カナ=氏名）で呼び出すこと。返された教員IDでTeacherPermissionと担当学年が作成されること|
 |`TeacherStore.CreateWithPermissionAndGrades`|TeacherPermission作成または担当学年の作成が失敗した場合に、`user` Contextが作成した`users`の行と招待メール送信依頼の登録もロールバックされること／`user` Contextがエラー（メールアドレス重複等）を返した場合に、権限・担当学年が作成されないこと|
@@ -930,6 +975,7 @@ SQL文そのものは本書に記載しない。
 |`TeacherStore.CreateWithPermissionAndGrades`（教師視点の指定）|招待待ち=`true`・作成時に招待メールを送信=`false`・学年ID=指定した学年で`CreateTeacherAccount`を呼び出し、Teacher・TeacherPermission・担当学年の3レコードが同一トランザクションで全て作成されること|
 |`TeacherStore.UpdateWithGrades`|`grade_ids`指定時に既存担当学年が全置換されること|
 |`TeacherStore.UpdateWithGrades`|`grade_ids`未指定時に既存担当学年が変更されないこと|
+|`TeacherStore.UpdateWithGrades`|`updateProfile`が偽の場合に`users`が更新されないこと（`updated_at`が変化しないこと）|
 |`TeacherGradeStore.ReplaceAll`|既存紐付けの削除と新規紐付けの作成が一貫して行われること|
 
 ## Handler Test
@@ -937,11 +983,17 @@ SQL文そのものは本書に記載しない。
 |対象|テストケース|
 |-|-|
 |`ListTeachers`|存在しない`high_school_id`で404が返ること|
+|`ListTeachers`|レスポンスが`teachers`キーでラップされ、各要素が`id` / `name` / `email` / `grade_scope` / `manage_other_teachers` / `grades`の6項目のみであること（所属校・作成日時・更新日時を含まないこと）|
+|`ListTeachers`|`grades`の各要素が`id`と`name`（学年の表示名）を持つこと|
+|`ListTeachers`|権限レコードが存在しない教員の`grade_scope` / `manage_other_teachers`が`null`で返ること|
 |`InviteTeacher`|`email`欠落・不正フォーマットで422が返ること|
 |`InviteTeacher`|`grade_scope`が許容範囲外の場合に422が返ること／`name`・`grade_scope`・`manage_other_teachers`の欠落で422が返ること／`grade_ids`に他校の学年が含まれる場合も422とせず、該当IDを除外した残りの学年で担当学年が作成されること／`user` ContextがメールアドレスのValidationエラーを返した場合に422が返ること／`grade_scope`が全学年の場合に対象高校の全学年が担当学年として作成されること|
 |`UpdateTeacher`|存在しない教員idで404が返ること|
+|`UpdateTeacher`|レスポンスが`teacher`キーでラップされていること（招待も同様）|
+|`UpdateTeacher`|`name` / `email`のいずれも送信されない場合に、教員本体が更新されないこと|
 |`UpdateTeacher`|`grade_ids`に他校の学年が含まれる場合も422とせず、該当IDを除外した残りの学年で担当学年が全置換されること|
 |全Handler|未認証・非admin roleでのアクセスが401/403となること|
+|全Handler|エラーレスポンスが`{"errors": ["メッセージ", ...]}`の形式であること（規約「15. API規約」の「エラーレスポンス」）|
 
 ## Integration Test
 
