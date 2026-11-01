@@ -29,8 +29,6 @@ type Teacher struct {
 
 `gorm.DeletedAt`型を使うことで、`Delete`実行時に`deleted_at`が自動的に現在時刻へ設定され、`Find`系メソッドは標準で`deleted_at IS NULL`を自動的に条件へ付与する。物理削除が必要な場合のみ`Unscoped()`を明示的に呼び出す。
 
-> 補足: この方針が明記される以前は、③Go実装仕様書側（例：管理者管理者ユーザー機能、教師教員管理機能）が機能ごとに同じ結論を個別に「推測」として導出していた。今後はこの規約を正とし、③文書側での再導出は不要とする。
-
 ### カラム名の例外（連続大文字・略語）
 
 `JTI`のような連続大文字を含む略語など、GORMの標準snake_case変換では意図が曖昧になりうるフィールド名は、`column`タグで明示的にカラム名を指定する。
@@ -64,7 +62,7 @@ for _, c := range courses {
 
 ### 配置（ディレクトリ構成との対応）
 
-GORM用のモデルstruct・タグ定義は、Infrastructure層に置く（具体的な配置ディレクトリはアーキテクチャ規約のディレクトリ構成が確定次第定める）。Domain Modelパターン採用時、Domain層の`entity/`にはGORMタグを持つstructを直接置かず、Infrastructure層のGORMモデルとDomain Entityを分離する。Active Recordパターン採用時は、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の簡略構造（`model.go`にGORMタグ付きstructを直接定義）に従う。
+GORM用のモデルstruct・タグ定義は、Infrastructure層に置く（配置はアーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」のとおり、Domain Model採用時はContextディレクトリ配下の`infrastructure/gormrepo/`、Active Record採用時はContextディレクトリ直下の`model.go`）。Domain Modelパターン採用時、Domain層の`entity/`にはGORMタグを持つstructを直接置かず、Infrastructure層のGORMモデルとDomain Entityを分離する。Active Recordパターン採用時は、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の簡略構造（`model.go`にGORMタグ付きstructを直接定義）に従う。
 
 ---
 
@@ -175,6 +173,20 @@ type Animal struct {
 ```
 
 ## 4. タイムスタンプのトラッキング
+
+### 接続のタイムゾーン
+
+DSNに`parseTime=true`と`loc=UTC`を指定する。
+
+```
+user:pass@tcp(host:3306)/dbname?charset=utf8mb4&parseTime=true&loc=UTC
+```
+
+Railsが`config.active_record.default_timezone = :utc`でタイムスタンプをUTCで保存しているため、Go側もUTCとして読み書きする。`loc`を`Asia/Tokyo`にすると、タイムゾーンを持たない`datetime`列の値をJSTとして解釈し、9時間ずれる。
+
+`loc`は、DBから読んだ`datetime`を`time.Time`へ解釈するときと、`time.Time`をクエリのパラメータとして送るときの両方に効く。したがって`time.Now()`をそのまま条件に使っても、ドライバがUTCへ変換して送るため比較はずれない（例: アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」の`scheduled_at <= ?`）。
+
+アプリケーション内で保持する時刻もUTCに統一する（コーディング規約「17. `time.Time` とタイムゾーン」）。利用者向けの表示でJST（Railsの`config.time_zone = "Asia/Tokyo"`に相当）へ変換するのはPresentation層の責務とし、Domain・Repositoryでは変換しない。
 
 ### CreatedAt
 
@@ -291,8 +303,11 @@ GORMはデフォルトで書き込み操作をトランザクションでラッ�
 
 ### 本プロジェクトでの方針
 
-* Active Record採用機能: Storeメソッド内で`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`を直接使用する（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の適用範囲のとおり）
-* Domain Model採用機能: `TransactionManager`の実装（`infrastructure/repository`配下）が内部で`db.WithContext(ctx).Transaction(...)`をラップする。UseCase側がこのAPIを直接呼び出すことはない
+いずれのパターンでも、トランザクションを開始するか既に始まっているものに参加するかの判定は`internal/shared/transaction/gormtx`の`RunInTx`に集約する。`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`を直接呼ばない（呼び出し側が開始したトランザクションに参加せず、独立した2つ目を開始してしまうため）。詳細はアーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」に従う。
+
+* Active Record採用機能: Storeメソッド内で`gormtx.RunInTx`を直接使用する（依存関係の逆転を行わないため、インターフェースを経由しない）
+* Transaction Script採用機能: `infrastructure/`配下の関数内で`gormtx.RunInTx`を直接使用する
+* Domain Model採用機能: UseCaseが`internal/shared/transaction`の`TransactionManager`を受け取り、`WithinTransaction`のクロージャ内で処理を実行する。その実装は`internal/shared/transaction/gormtx`に置き、内部で`RunInTx`に委ねる。Repository実装は`gormtx.DBFromContext`で接続を取り出す。UseCase側がGORMのAPIを直接呼び出すことはない
 
 ---
 
