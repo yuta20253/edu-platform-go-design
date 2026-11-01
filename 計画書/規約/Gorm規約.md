@@ -303,8 +303,11 @@ GORMはデフォルトで書き込み操作をトランザクションでラッ�
 
 ### 本プロジェクトでの方針
 
-* Active Record採用機能: Storeメソッド内で`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`を直接使用する（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の適用範囲のとおり）
-* Domain Model採用機能: `TransactionManager`の実装（`infrastructure/repository`配下）が内部で`db.WithContext(ctx).Transaction(...)`をラップする。UseCase側がこのAPIを直接呼び出すことはない
+いずれのパターンでも、トランザクションを開始するか既に始まっているものに参加するかの判定は`internal/shared/transaction/gormtx`の`RunInTx`に集約する。`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`を直接呼ばない（呼び出し側が開始したトランザクションに参加せず、独立した2つ目を開始してしまうため）。詳細はアーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」に従う。
+
+* Active Record採用機能: Storeメソッド内で`gormtx.RunInTx`を直接使用する（依存関係の逆転を行わないため、インターフェースを経由しない）
+* Transaction Script採用機能: `infrastructure/`配下の関数内で`gormtx.RunInTx`を直接使用する
+* Domain Model採用機能: UseCaseが`internal/shared/transaction`の`TransactionManager`を受け取り、`WithinTransaction`のクロージャ内で処理を実行する。その実装は`internal/shared/transaction/gormtx`に置き、内部で`RunInTx`に委ねる。Repository実装は`gormtx.DBFromContext`で接続を取り出す。UseCase側がGORMのAPIを直接呼び出すことはない
 
 ---
 

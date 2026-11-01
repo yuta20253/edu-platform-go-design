@@ -485,7 +485,7 @@ func (h *Handler) CreateTask(c *gin.Context) {
 }
 ```
 
-エラーハンドリングミドルウェアは`c.Next()`の後で`c.Errors`を確認し、アーキテクチャ規約「12. Error変換パターン（AppError）」の`AppError`インターフェースを`errors.As`で判定して、ログ出力とレスポンスを1箇所にまとめる。`AppError`が同時に`FieldErrorer`（同12章「複数フィールドのバリデーションエラー」）を満たす場合は、レスポンスに`fields`を含める。ルーターの先頭（他のどのミドルウェアよりも先）に登録する。
+エラーハンドリングミドルウェアは`c.Next()`の後で`c.Errors`を確認し、アーキテクチャ規約「12. Error変換パターン（AppError）」の`AppError`インターフェースを`errors.As`で判定して、ログ出力とレスポンスを1箇所にまとめる。`AppError`が同時に`FieldErrorer`（同12章「複数フィールドのバリデーションエラー」）を満たす場合は、レスポンスに`fields`を含める。登録は`AccessLogger`の次とする（「0. 本プロジェクトでの採用方針」の「ミドルウェアの配置」）。
 
 ```go
 // Good
