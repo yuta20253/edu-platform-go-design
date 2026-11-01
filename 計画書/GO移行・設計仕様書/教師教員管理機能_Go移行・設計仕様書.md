@@ -199,7 +199,74 @@ Active Record
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
+
+「5. Aggregate設計」「6. Entity設計」「7. Value Object設計」「8. Domain Service」で整理した関係を次のとおり可視化する。Aggregateの構成は管理者教員管理機能と共通であり（「5. Aggregate設計」）、本機能が関与するのは参照と着任作成の範囲である。属性・操作は概要レベルで示し、Goのstruct定義は③Go実装仕様書で扱う。
+
+```mermaid
+classDiagram
+    class Teacher {
+        教員の識別子
+        氏名
+        氏名カナ
+        メールアドレス
+        所属校
+        学年
+        氏名カナの形式を検証する()
+    }
+    class TeacherPermission {
+        学年閲覧範囲（own_grade / all_grades）
+        他教員管理権限（true / false）
+        他教員を管理できるか()
+    }
+    class TeacherGradeAssignment {
+        教員の識別子
+        学年の識別子
+    }
+    class NameKana {
+        値（カタカナ・長音・中黒・空白のみ）
+    }
+    class Email {
+        値（一般的なメールアドレス形式）
+    }
+    class GradeScope {
+        値（own_grade / all_grades）
+    }
+    class TeacherGradeAssignmentPolicy {
+        指定学年が所属校と一致するか判定する()
+    }
+    class Grade {
+        学年の識別子
+        所属校
+    }
+
+    Teacher *-- NameKana : 保有
+    Teacher *-- Email : 保有
+    Teacher *-- TeacherPermission : 着任時に1件を保有
+    Teacher *-- TeacherGradeAssignment : 着任時に保有
+    TeacherPermission *-- GradeScope : 保有
+    TeacherGradeAssignmentPolicy ..> Grade : 所属校の判定に参照する
+    Teacher ..> Grade : 学年として参照する
+
+    note for Teacher "Aggregate Root。管理者教員管理機能と同一のAggregateを共有する（「5. Aggregate設計」）"
+    note for TeacherPermission "着任時に1度だけ作成する。以後の変更はteacher-permission Contextの責務（「6. Entity設計」）"
+```
+
+Gradeは`master-data` Contextが所有する外部参照であり、本Contextは参照のみを行う（「3. Bounded Context」）。
+
+---
+
+# 10. 状態遷移図
+
+本機能では状態遷移図を作成しない。
+
+理由: 「6. Entity設計」のとおり、本機能の範囲でTeacher・TeacherPermission・TeacherGradeAssignmentはいずれも状態変化を持たない。Teacherのライフサイクルは「作成 → 参照」であり、更新・削除は本機能の範囲外である。名前付きの状態や遷移条件として表現すべきものがないため、状態遷移図を設けない。
+
+なお、教員の招待状況（`invitation_status`）は一覧・詳細のレスポンスに現れるが、これは`teacher-notification` Contextが管理する招待通知の状態であり、本ContextのEntityの状態ではない（「3. Bounded Context」）。
+
+---
+
+# 11. Repository設計
 
 **実装上の位置づけ**: 本機能はActive Record採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はEntity相当のstructと同一packageに置くStore(例: `〇〇Store`)として直接実装する(規約: アーキテクチャ規約.md「3. 設計パターンごとの構造適用方針」)。
 
@@ -255,7 +322,7 @@ Active Record
 
 ---
 
-# 10. UseCase設計
+# 12. UseCase設計
 
 **実装上の位置づけ**: 本機能はActive Record採用のため、UseCase層(struct)を設けない。以下はHandlerが行う業務操作の設計意図であり、実装時はHandlerがStoreを直接呼び出す処理として実装する。
 
@@ -300,7 +367,83 @@ Active Record
 
 ---
 
-# 11. Transaction設計
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図
+
+Active Record採用のため、HandlerがStoreを直接呼び出す（「12. UseCase設計」）。
+
+### 一覧参照
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant TS as TeacherStore
+    participant TN as teacher-notification Context
+
+    H->>H: 操作者の所属校・ページ指定を受け取る
+    H->>TS: 同校の教員を氏名カナ順・ページ単位で取得（権限・学年を同時に取得）
+    TS-->>H: 教員（権限・学年を伴う）とページ情報
+    H->>TN: 取得した教員の招待通知の状態を一括で問い合わせる
+    TN-->>H: 教員ごとの最新の招待状況
+    H-->>H: レスポンスへ変換（操作者自身の情報・教員一覧・ページ情報）
+```
+
+詳細参照は、同校スコープで1件を取得するだけで、招待状況の問い合わせを行わない（Rails現行が招待通知をまとめた結果を渡していないため、既定値を返す。①「5. API / 処理詳細」）。
+
+### 新規作成（着任）
+
+```mermaid
+sequenceDiagram
+    participant H as Handler
+    participant P as TeacherPermissionStore
+    participant GS as GradeStore
+    participant POL as TeacherGradeAssignmentPolicy
+    participant TS as TeacherStore
+    participant UC as user Context
+    participant TG as TeacherGradeStore
+
+    H->>P: 操作者の権限を取得
+    P-->>H: 操作者の権限
+    H->>H: 他教員管理権限がなければ拒否
+    H->>GS: 指定学年の取得（所属校の判定用）
+    GS-->>H: 学年
+    H->>POL: 指定学年が操作者の所属校と一致するか判定
+    POL-->>H: 判定結果（一致しなければ拒否）
+    H->>TS: トランザクションを開始
+    TS->>UC: 教員アカウントの作成（招待待ち=する・作成時に招待メールを送る=しない）
+    UC-->>TS: 作成された教員アカウント
+    TS->>P: 初期権限を作成
+    TS->>TG: 担当学年を作成
+    TS-->>H: コミット
+    H-->>H: 処理結果のみを返す
+```
+
+`user` Context・`teacher-notification` Context・`master-data` Contextへの参照は、いずれも相手Contextが公開する手段の呼び出しである（「3. Bounded Context」、規約「5. Context間連携ルール」）。
+
+## 処理フロー図
+
+新規作成は権限確認と同校制約の判定を経るため、判断の流れを次のとおり整理する。
+
+```mermaid
+flowchart TD
+    A[新規作成要求] --> B{入力の形式が妥当か}
+    B -- いいえ --> B1[入力不正として拒否]
+    B -- はい --> C{操作者が他教員管理権限を持つか}
+    C -- いいえ --> C1[権限不足として拒否]
+    C -- はい --> D{指定学年が存在し、操作者の所属校に属するか}
+    D -- いいえ --> D1[同校でない学年として拒否]
+    D -- はい --> E[教員アカウント・初期権限・担当学年を同一トランザクションで作成]
+    E --> F{すべて成功したか}
+    F -- いいえ --> F1[ロールバックして失敗を返す]
+    F -- はい --> G[コミットして処理結果を返す]
+```
+
+操作者が権限レコードを持たない場合は、権限なしとして「権限不足」と同じ扱いになる（「17. Error設計」）。一覧・詳細の参照は所属校による絞り込みのみで分岐を持たないため、処理フロー図を設けない。
+
+---
+
+# 14. Transaction設計
 
 ## Transaction開始位置
 
@@ -318,7 +461,7 @@ Active Record
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
@@ -338,9 +481,29 @@ Active Record
 - Domainは「業務的に妥当か（同校の学年か、許容される権限値か）」を担当する
 - これにより、入力仕様の変更と業務ルールの変更を独立して扱える
 
+## バリデーション仕様
+
+|フィールド|検証層|ルール|エラーメッセージ方針|
+|-|-|-|-|
+|`id`（パス、詳細）|Presentation|必須・整数であること|入力形式の不正として扱う|
+|`page`|Presentation|整数であること。不正な形式・0以下は1ページ目として扱い、エラーとしない|Rails現行と同じ扱いを維持する|
+|`per_page`|Presentation|整数であること。既定値20・上限100。不正な形式・0以下は既定値として扱い、エラーとしない|Rails現行と同じ扱いを維持する|
+|`name`|Presentation|必須・文字列であること|入力形式の不正として扱う|
+|`name_kana`|Presentation|必須・文字列であること|入力形式の不正として扱う|
+|`name_kana`|Domain|カタカナ・長音・中黒・空白のみで構成されること（NameKana Value Object）|形式違反として扱う|
+|`email`|Presentation|必須・文字列であること|入力形式の不正として扱う|
+|`email`|Domain|一般的なメールアドレス形式であること（Email Value Object）|形式違反として扱う。既存アカウントとの重複は`user` Contextの作成操作が返すエラーに従う|
+|`grade_id`|Presentation|必須・整数であること|入力形式の不正として扱う|
+|`grade_id`|Domain|指定学年が存在し、操作者の所属校に属すること（TeacherGradeAssignmentPolicy）|同校でない学年として拒否する（管理者経路とは異なり、無視せず拒否する）|
+|`grade_scope`|Presentation|必須・文字列であること|入力形式の不正として扱う|
+|`grade_scope`|Domain|`own_grade` / `all_grades` のいずれかであること（GradeScope Value Object）|許容値以外は業務ルール違反として扱う|
+|`manage_other_teachers`|Presentation|必須・真偽値であること。未送信と`false`を区別する|入力形式の不正として扱う|
+|操作者の権限|Domain|新規作成時、操作者が`manage_other_teachers`を持つこと。権限レコード自体がない場合も権限なしとして扱う|「他職員操作権限がありません」を返す（①「5. API / 処理詳細」`#create`）|
+|対象教員（詳細）|Domain|対象教員が操作者と同校の教員であること|対象不存在として扱う|
+
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
 ## Middleware
 
@@ -365,11 +528,11 @@ Active Record
 
 「同校教員のみを対象とする」というスコープ制御はHandler側で一貫して適用し、学年割当という具体的な業務ルールはDomain（Policy）側に配置することで、認可のスコープ判定と業務ルール判定を分離する。
 
-新規教員作成における「他職員操作権限」の要否は、ロール（`teacher`であるか）のような粗い認可ではなく、教員個人が持つ業務権限（TeacherPermissionレコードの`manage_other_teachers`）に基づく判定であるため、Middlewareのロールチェックとは別に、UseCase相当の処理（CreateTeacherのHandler処理）内で確認する。これはアーキテクチャ規約7章「認可（所有権・業務権限）」の配置方針（UseCase/Domain、Active Record採用時はHandler/Store）に従った判断である。
+新規教員作成における「他職員操作権限」の要否は、ロール（`teacher`であるか）のような粗い認可ではなく、教員個人が持つ業務権限（TeacherPermissionレコードの`manage_other_teachers`）に基づく判定であるため、Middlewareのロールチェックとは別に、UseCase相当の処理（CreateTeacherのHandler処理）内で確認する。これはアーキテクチャ規約「7. 横断的関心事の置き場所」が認可（所有権・業務権限）について定める配置方針（UseCase/Domain、Active Record採用時はHandler/Store）に従った判断である。
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
@@ -408,7 +571,7 @@ Active Record
 
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
 本機能では現時点でDomain Eventを採用しない。
 
@@ -416,47 +579,58 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 
 ---
 
-# 16. API互換方針
+# 19. API仕様
 
-## URL
+## エンドポイント一覧
 
-- Rails現行仕様と同じエンドポイントを維持する
-  - GET /api/v1/teacher/colleagues
-  - GET /api/v1/teacher/colleagues/:id
-  - POST /api/v1/teacher/colleagues
+|エンドポイント|HTTP Method|概要|
+|-|-|-|
+|/api/v1/teacher/colleagues|GET|同校教員の一覧取得|
+|/api/v1/teacher/colleagues/:id|GET|同校教員の詳細取得|
+|/api/v1/teacher/colleagues|POST|教員の新規作成（着任）|
 
-## HTTP Method
+いずれもRails現行仕様と同じURL・HTTP Methodを維持する。
 
-- 既存仕様どおりに維持する
+## 各エンドポイントの仕様
 
-## Request
+### GET /api/v1/teacher/colleagues
 
-- `page` / `per_page` はクエリパラメータとして維持する。`per_page`の既定値は20件、上限は100件（Rails現行と同一。「10. UseCase設計」ListTeachers参照）
-- `name` / `name_kana` / `email` / `grade_id` / `grade_scope` / `manage_other_teachers` はGo側で入力DTOとして吸収する
+- Request: クエリパラメータ`page`（任意・整数）、`per_page`（任意・整数。既定値20、上限100）
+- Response: 最上位は`current_user`・`teachers`・`meta`の3キーとする。`current_user`と`teachers`の各要素は、教員の識別子・氏名・氏名カナ・学年・招待状況・権限の6項目である。学年は識別子・年次・表示名の組（`users.grade_id`に紐づく学年。設定がない場合は`null`）、権限は識別子・閲覧権限スコープ・他教員管理権限の組（権限レコードがない場合は`null`）とする。メールアドレスと担当学年（`teacher_grades`）は返さない。`meta`は`current_page` / `total_pages` / `total_count` / `per_page`の4項目とする（①「5. API / 処理詳細」`#index`）
+- 招待状況は、`teachers`の各要素では最新の招待通知の状態を、通知がない場合は`pending`を返す。`current_user`は招待通知をまとめた結果を受け取らないため常に`pending`を返す（①「5. API / 処理詳細」`#index`）
+- Status Code: 正常系200。異常系は未認証401、`teacher`ロール不一致403
+- Error Response方針: 既存の`errors`形式（`{"errors": ["メッセージ", ...]}`）を踏襲する。規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」と同じ形式である
 
-## Response
+### GET /api/v1/teacher/colleagues/:id
 
-- 一覧・詳細のレスポンス構造はRails現行仕様に近い意味を維持する。一覧のページ情報（`meta`）は、`current_page` / `total_pages` / `total_count` / `per_page`を維持する
-- 作成のレスポンスは、Rails現行仕様と同じく`message`（`教員の新規作成に成功しました。`）のみとし、作成された教員の情報は返さない
-- 一覧レスポンスには、各教員の直近の招待通知状況（`invitation_status`。Teacher Notification Contextからの参照結果。通知未送信の場合は「未送信」扱い）を含める
+- Request: パスパラメータ`id`（対象教員）
+- Response: 一覧の各要素と同じ6項目を、**ラップせずそのまま**返す（①「5. API / 処理詳細」`#show`）。招待状況は常に`pending`を返す
+- Status Code: 正常系200。異常系は対象教員不存在404（他校・教員以外を含む）、未認証401、`teacher`ロール不一致403
+- Error Response方針: 対象教員が見つからない場合、Rails現行は`ApplicationController`の共通ハンドラが`{ "message": "<モデル名>が見つかりません" }`を返す（①「5. API / 処理詳細」`#show`）。この1件のみ`errors`形式ではないため、互換を優先して現行の形式を維持する
 
-## Status Code
+### POST /api/v1/teacher/colleagues
 
-- 200: 取得成功
-- 201: 作成成功
-- 403: 他職員操作権限なし（新規教員作成時）
-- 500: DB障害等
-- 422: 入力・業務ルール違反
-- 404: 対象教員不存在
+- Request: ボディに`name`・`name_kana`・`email`・`grade_id`・`grade_scope`・`manage_other_teachers`
+- Response: `message`（`教員の新規作成に成功しました。`）のみとし、作成された教員の情報は返さない（①「5. API / 処理詳細」`#create`）
+- Status Code: 正常系201。異常系は他職員操作権限なし403、入力不正および業務ルール違反422、未認証401、`teacher`ロール不一致403
+- Error Response方針: 既存の`errors`形式を踏襲する。他職員操作権限がない場合は`他職員操作権限がありません`というメッセージとともに403を返す（①「5. API / 処理詳細」`#create`）
 
-## Error Response
+## Railsとの差分
 
-- 既存のerrors形式を踏襲し、フロントエンド互換性を優先する
-- 他職員操作権限がない場合は、Rails現行仕様と同様に「他職員操作権限がありません」に相当するメッセージとともに403を返す
+API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構造・ステータスコード・エラーメッセージ）はRails現行仕様から変更しない。詳細がラップされないこと、作成が`message`のみを返すこと、一覧の`current_user`の招待状況が常に`pending`であることも、Rails現行と同一である。
+
+規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」は単体の取得をenvelopeなしのJSONオブジェクトとしており、詳細の形式はこれに一致する。一覧は`current_user`・`teachers`・`meta`の3キーを持つため、同規約がページネーションのある一覧に定める形式（`{"<リソース名の複数形>": [...], "meta": {...}}`）に`current_user`が加わった形になるが、Rails現行の互換を優先して維持する。
+
+内部の呼び出し経路には次の差分がある。
+
+- Rails仕様: `Teacher::CreateTeacherForm`が教員アカウント・初期権限・担当学年の作成をまとめて行う。作成時に招待メールは送らない
+- Go設計での変更: 教員アカウント本体の作成を`user` Contextの作成操作に委ね、本Contextは初期権限と担当学年の作成を担う。招待待ち状態で作成し、作成時に招待メールを送らない指定とする
+- 変更理由: 仮パスワードの発行・メールアドレスの一意性・アカウント作成規則を`user` Contextに一本化し、本Contextを教員管理の業務ルールに限定するため
+- 影響範囲: 本機能の3エンドポイントの外部仕様に変更はない。招待メールは教員招待通知機能が後から送る経路のままである
 
 ---
 
-# 17. DB設計方針
+# 20. DB設計方針
 
 ## 現行DBを利用するか
 
@@ -469,10 +643,49 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 ## 変更理由
 
 - 現行の `users` / `teacher_permissions` / `teacher_grades` テーブルは、着任時のアカウント・権限・担当学年登録という業務要件を満たしており、追加のスキーマ変更は不要である
+- 既存カラムの型・制約もそのまま利用する。とくに次の3点は、現行DBを継続利用する以上、Go側の永続化がこれに合わせる必要がある（①「6. データモデル」）
+  - `teacher_permissions.grade_scope` はRailsの `enum` として**整数**で保持される（`own_grade`=0 / `all_grades`=1）。APIの入出力は文字列であり、永続化との間で相互変換が必要になる
+  - `teacher_permissions.user_id` に一意制約があり、権限レコードは教員1人につき1件である
+  - レスポンスの学年は `users.grade_id` に紐づく1件であり、担当学年（`teacher_grades`）ではない
 
 ---
 
-# 18. テスト戦略
+# 21. DB操作仕様
+
+## TeacherStore
+
+- 対象テーブル: `users`（教員レコード）
+- 操作種別: 参照（一覧・1件）。教員アカウント本体の作成は`user` Contextの作成操作が行うため、本Storeは`users`の行を作成しない（「11. Repository設計」）
+- 主な検索条件・絞り込み条件: 所属校が一致すること、教員のロールであること、論理削除されていないこと。1件取得では教員の識別子が一致すること（所属校スコープ付き）
+- 関連テーブルとの結合: 必要である。一覧・詳細のレスポンスは権限（`teacher_permissions`）と学年（`grades`）を含むため、あわせて取得する。権限レコードが存在しない教員もレスポンスに含めるため、権限側は存在しない場合でも教員が落ちない形で取得する。**教員ごとに権限・学年を個別に問い合わせる形にはしない**（Rails現行も一括で読み込んでいる。①「5. API / 処理詳細」`#index`の処理内容）
+- ページネーション・ソート: 一覧取得で必要である。氏名カナの昇順で並べ、ページ単位で取得するとともに、絞り込み条件に一致する総件数を取得する。1ページあたり件数の既定値は20、上限は100とする（①「5. API / 処理詳細」）
+
+## TeacherPermissionStore
+
+- 対象テーブル: `teacher_permissions`
+- 操作種別: 参照（操作者の権限確認、一覧・詳細の表示）、作成（着任時）。更新は行わない（`teacher-permission` Contextの更新操作の責務。「11. Repository設計」）
+- 主な検索条件・絞り込み条件: 対象教員の識別子が一致すること。`user_id`に一意制約があるため、取得結果は0件または1件である（①「6. データモデル」）
+- 関連テーブルとの結合: 不要
+- ページネーション・ソート: 不要
+
+## TeacherGradeStore
+
+- 対象テーブル: `teacher_grades`
+- 操作種別: 作成（着任時）。本機能の範囲では参照・全置換を行わない
+- 主な検索条件・絞り込み条件: 対象教員の識別子が一致すること
+- 関連テーブルとの結合: 不要
+- ページネーション・ソート: 不要
+- `(user_id, grade_id)`に一意制約があるため、同じ教員に同じ学年を二重に登録しない（①「6. データモデル」）
+
+## 他Contextの参照手段
+
+- 対象テーブル: なし。本Contextからはクエリを発行しない
+- 指定学年の存在確認と所属校の判定は`master-data` Contextに、招待通知の状態の取得は`teacher-notification` Contextに委ねる（「11. Repository設計」）
+- 判断根拠: 学年の所属校と招待通知の状態は、それぞれのContextが正として管理するためである
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
@@ -480,11 +693,11 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 
 ## UseCase Test
 
-- 目的: ListTeachersUseCase（招待状況の参照、`per_page`の既定値20件・上限100件、`page`が不正な場合に1ページ目として扱うことを含む）/ ShowTeacherUseCase / CreateTeacherUseCase（他職員操作権限がない場合に作成を拒否する分岐（403）、操作者の権限レコードが存在しない場合も403になること、`user` Contextの`CreateTeacherAccount`を「招待待ち=する・作成時に招待メールを送る=しない」の指定で、氏名カナ・学年IDを渡して呼ぶこと、権限・担当学年の作成に失敗した場合にアカウントも作成されないことを含む）の業務振る舞いを検証する
+- 目的: 一覧参照・詳細参照・新規作成の各Handler処理の業務振る舞いを検証する（Active Record採用のためUseCase層を設けないため、③では本区分を「対象外」とし、Handler Testに統合する。「12. UseCase設計」）。一覧参照（招待状況の参照、`per_page`の既定値20件・上限100件、`page`が不正な場合に1ページ目として扱うことを含む）／詳細参照／新規作成（他職員操作権限がない場合に作成を拒否する分岐（403）、操作者の権限レコードが存在しない場合も403になること、`user` Contextの`CreateTeacherAccount`を「招待待ち=する・作成時に招待メールを送る=しない」の指定で、氏名カナ・学年IDを渡して呼ぶこと、権限・担当学年の作成に失敗した場合にアカウントも作成されないことを含む）の業務振る舞いを検証する
 
 ## Repository Test
 
-- 目的: TeacherStoreによる同校絞り込み・ページネーション、TeacherPermissionStore・TeacherGradeStoreによる作成処理の正確性を検証する
+- 目的: TeacherStoreによる同校絞り込み・氏名カナ順のソート・ページネーション、TeacherPermissionStore・TeacherGradeStoreによる作成処理の正確性を検証する（Active Record採用のため、③では「Store Test」として扱う）
 
 ## Handler Test
 
@@ -492,11 +705,11 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 
 ## Integration Test
 
-- 目的: エンドポイント経由で教員一覧取得・詳細取得・新規作成が正しく連携して動作することを確認する。新規作成では、201のレスポンスが`message`のみであること、作成された教員が招待待ちで作成され（教員招待通知機能の招待未完了一覧に現れ、一覧の招待状況が「未送信」になる）、作成時に招待メールの送信依頼が登録されないことを確認する
+- 目的: エンドポイント経由で教員一覧取得・詳細取得・新規作成が正しく連携して動作することを確認する。新規作成では、201のレスポンスが`message`のみであること、作成された教員が招待待ちで作成され（教員招待通知機能の招待未完了一覧に現れ、一覧の招待状況が通知未送信を表す`pending`になる）、作成時に招待メールの送信依頼が登録されないことを確認する
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
 | Rails | Go | 設計方針 |
 |---|---|---|
@@ -511,7 +724,7 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 
 ---
 
-# 20. 採用しなかった設計
+# 24. 採用しなかった設計
 
 ## Domain Model
 
@@ -530,7 +743,7 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 
 ---
 
-# 21. 設計判断サマリー
+# 25. 設計判断サマリー
 
 | 項目 | 採用 | 判断理由 |
 |---|---|---|

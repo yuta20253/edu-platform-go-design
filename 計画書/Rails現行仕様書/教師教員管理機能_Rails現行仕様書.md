@@ -191,15 +191,73 @@
 
 # 6. データモデル
 
+## `users`
+
+- 役割: 全ロールのアカウントを格納するテーブル。本機能は同校の教員レコードを対象とする
+- 主なカラム（本機能が扱う範囲）:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`email`|string|不可|メールアドレス。一意インデックスを持つ|
+|`name`|string(100)|可|氏名|
+|`name_kana`|string(100)|可|氏名カナ。一覧の並び順に用いる|
+|`user_role_id`|bigint|可|`user_roles` への外部キー。ロール名そのものを保持するカラムはない|
+|`high_school_id`|bigint|可|所属校。一覧・詳細・作成の対象をこのカラムで絞り込む|
+|`grade_id`|bigint|可|学年。レスポンスの `grade` はこのカラムに紐づく学年である|
+|`password_reset_required`|boolean|不可|招待待ち状態（既定値 `false`）。本機能の作成では `true` にする|
+|`deleted_at`|datetime|可|論理削除日時|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- リレーション: `belongs_to :user_role` / `belongs_to :high_school` / `belongs_to :grade` / `has_one :teacher_permission` / `has_many :teacher_grades`
+- 教員の抽出: `user_roles` との結合でロールを判定する（`user_roles.name` は `admin`=0 / `student`=1 / `teacher`=2 / `guardian`=3 に対応する整数）
+
+## `grades`
+
+- 役割: 学年のマスタテーブル。レスポンスの `grade` として返す
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`high_school_id`|bigint|不可|所属校。指定学年が操作者の所属校に属するかの判定に用いる|
+|`year`|integer|不可|学年の年次。`(high_school_id, year)` の組で一意|
+
+- 表示名は `year` から導出され、`中３生`（0）/ `高１生`（1）/ `高２生`（2）/ `高３生`（3）/ `高卒生`（4）/ `新高１生`（5）/ `新高２生`（6）/ `新高３生`（7）。該当しない場合は `不明`
+- レスポンスの `grade` は `{ "id": 学年のID, "year": 年次, "display_name": 表示名 }` の3項目である
+
 ## `teacher_permissions`
 
-- 役割: 教師の閲覧権限を管理するテーブル
-- 主なカラム: `user_id`, `grade_scope`, `manage_other_teachers`
+- 役割: 教師の閲覧権限・他教員管理権限を管理するテーブル
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`user_id`|bigint|不可|教員（`users`）への外部キー。一意インデックスを持ち、教員1人につき1件|
+|`grade_scope`|integer|可|閲覧権限スコープ。Rails の `enum` で `own_grade: 0` / `all_grades: 1` に対応する整数。カラムは NULL 可だがモデルで必須検証がある|
+|`manage_other_teachers`|boolean|可|他教員管理権限。カラムは NULL 可だがモデルで `true` / `false` のいずれかであることを検証する|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- リレーション: `belongs_to :user`
+- モデルの検証: `user_id` の一意性、`grade_scope` の必須、`manage_other_teachers` が `true` / `false` のいずれかであること、対象ユーザーが教員であること
+- 権限レコードを持たない教員が存在しうる。操作者がこの状態の場合、他職員操作権限なしとして扱う（「7. 権限制御」）
 
 ## `teacher_grades`
 
 - 役割: 教師の担当学年を管理するテーブル
-- 主なカラム: `user_id`, `grade_id`
+- 主なカラム:
+
+|カラム|型|NULL|説明|
+|-|-|-|-|
+|`id`|bigint|不可|主キー|
+|`user_id`|bigint|不可|教員（`users`）への外部キー|
+|`grade_id`|bigint|不可|学年（`grades`）への外部キー|
+|`created_at` / `updated_at`|datetime|不可|作成・更新日時|
+
+- `(user_id, grade_id)` に一意インデックスを持つ
+- リレーション: `belongs_to :user` / `belongs_to :grade`
+- **本機能の一覧・詳細のレスポンスには担当学年（`teacher_grades`）を含めない。** レスポンスの `grade` は `users.grade_id` に紐づく学年である
 
 ---
 

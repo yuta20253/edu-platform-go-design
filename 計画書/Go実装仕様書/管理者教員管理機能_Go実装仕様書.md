@@ -115,12 +115,13 @@ internal/teachermanagement/presentation/admin/routes.go
 |Name|string|教員氏名|
 |NameKana|string|氏名カナ（`users.name_kana`。100文字以内。教師視点の一覧表示・新規作成で使用する。管理者視点の招待では、`NewTeacher`が氏名と同じ値を設定する（Rails現行の`Admin::CreateTeacherService`と同じ。`user`②の`CreateTeacherAccount`が氏名カナを必須とするため）。教師教員管理機能②「6. Entity設計」Teacher）|
 |Email|string|メールアドレス（②「15. Validation設計」フォーマットチェック対象）|
+|GradeID|uint|学年ID（`users.grade_id`。0は未設定）。教師視点の一覧・詳細は、この学年をレスポンスの`grade`として返す（教師教員管理機能①「5. API / 処理詳細」の`TeacherSerializer`）。管理者視点のレスポンスには含めず、招待でも設定しない（`TeacherAccountOptions.GradeID`が作成時の指定値を担う）|
 |UserRoleID|uint|ロールを示す識別子（`users.user_role_id`。`user_roles`テーブルへの外部キー。Gorm規約「外部キー列は`{関連モデル名}ID`のまま明示的に保持する」に従い、認証機能_Go実装仕様書のAccountと同じ命名・型とする）。`users`テーブルにロール名そのものを保持する列はなく、教員であることの判定は`user_roles`との結合（`user_roles.name`が教員を表す値であること）で行う。`NewTeacher`は`UserRoleID`を設定しない。教員の作成時のロールの解決は`user` Contextの`CreateTeacherAccount`が行うため、本Contextは`UserRoleID`を書き込まない（取得結果の値としてのみ保持する）|
 |CreatedAt|time.Time|作成日時（GORM自動設定。Gorm規約「タイムスタンプのトラッキング」）|
 |UpdatedAt|time.Time|更新日時（GORM自動設定）|
 |DeletedAt|gorm.DeletedAt|論理削除日時（`users.deleted_at`。GORMのソフトデリート対象とし、論理削除された教員は取得対象から除外する。教師教員管理機能②「9. Repository設計」`teacher`ロール・論理削除を除外する検索条件の根拠フィールド）|
 
-`users`テーブルにはteacher-management以外のContext（認証等）が管理するカラム（`encrypted_password` / `jti` / `reset_password_token`等）が存在するため、本structは教員管理（管理者視点・教師視点の双方）に必要な最小限のフィールドのみを保持する（詳細は「17. ②からの補足事項」参照）。
+`users`テーブルにはteacher-management以外のContext（認証等）が管理するカラム（`encrypted_password` / `jti` / `reset_password_token`等）が存在するため、本structは教員管理（管理者視点・教師視点の双方）に必要な最小限のフィールドのみを保持する（詳細は「17. ②からの補足事項」参照）。`GradeID`は管理者視点では使わないが、教師視点のレスポンスが`users.grade_id`に紐づく学年を返すため、共有するstructとして保持する。
 
 公開method一覧（シグネチャのみ。実装ロジックは記載しない）:
 
@@ -242,15 +243,19 @@ type GradeReferenceChecker interface {
     // AllGradeIDsForHighSchool は、指定高校の全学年のIDを返す
     // （管理者視点の招待で、grade_scopeが全学年の場合に用いる）。
     AllGradeIDsForHighSchool(ctx context.Context, highSchoolID uint) ([]uint, error)
-    // FindGradeViews は、指定 grade_ids の識別子と表示名を返す。
+    // FindGradeViews は、指定 grade_ids の識別子・年次・表示名を返す。
     // レスポンスの担当学年は識別子と表示名の組であるため（①「5. API / 処理詳細」）、
     // 表示名の決定規則を本Contextに持たせず master-data Context から受け取る。
     FindGradeViews(ctx context.Context, gradeIDs []uint) ([]GradeView, error)
 }
 
 // GradeView は、レスポンスに出す学年の表示用情報である。
+// Name は学年の表示名（中３生・高１生 等）、Year は学年の年次である。
+// 管理者視点のレスポンスは ID と Name を、教師視点は ID・Year・Name を使う
+// （①「5. API / 処理詳細」、教師教員管理機能①「5. API / 処理詳細」の GradeSerializer）。
 type GradeView struct {
     ID   uint
+    Year int
     Name string
 }
 ```
@@ -766,7 +771,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 |POST|/api/v1/admin/high_schools/:high_school_id/teachers|TeacherHandler.InviteTeacher|
 |PATCH|/api/v1/admin/high_schools/:high_school_id/teachers/:id|TeacherHandler.UpdateTeacher|
 
-いずれのルートも認証Middleware（本人確認）・認可Middleware（admin roleチェック）を経由する。`POST` / `PATCH`はCSRF検証Middlewareの対象にも含める（Gin規約「7. CSRF対策」の「適用範囲」）。（②「16. Authorization設計」Middleware、「13. Authorization実装方針」参照）
+いずれのルートも認証Middleware（本人確認）・認可Middleware（admin roleチェック）を経由する。`POST` / `PATCH`はCSRF検証Middlewareの対象にも含める（Gin規約「5. CSRF対策」の「適用範囲」）。（②「16. Authorization設計」Middleware、「13. Authorization実装方針」参照）
 
 ---
 
@@ -854,7 +859,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 - JWT等の検証を行い、current userをcontextに格納する（規約「7. 横断的関心事の置き場所」認証）
 - ロールがadminであることを確認する（②「16. Authorization設計」Middleware）
-- `POST` / `PATCH`はCookieで認可される状態変更であるため、CSRF検証の対象に含める（Gin規約「7. CSRF対策」の「適用範囲」）。一覧取得はGETのため対象外である
+- `POST` / `PATCH`はCookieで認可される状態変更であるため、CSRF検証の対象に含める（Gin規約「5. CSRF対策」の「適用範囲」）。一覧取得はGETのため対象外である
 
 ## Handler
 
@@ -917,7 +922,7 @@ GORMが返すDB接続エラー等は、sentinel errorとして特別扱いせず
 
 |Goモデル|テーブル名|備考|
 |-|-|-|
-|`Teacher`|`users`|struct名のデフォルト複数形は`teachers`だが、②「20. DB設計方針」の記載どおり実際は`users`テーブルの教員としてのレコードであるため、`Tabler`インターフェース（`func (Teacher) TableName() string { return "users" }`）による明示的な上書きが必要（Gorm規約「テーブル名」。**②からの補足**：②はテーブル名を明記しているのみで、GoモデルとGORM命名規則の不一致には触れていないため、③側で気づいて反映した）|
+|`Teacher`|`users`|`GradeID`は`users.grade_id`（NULL可）に対応するため、未設定を0として扱う。struct名のデフォルト複数形は`teachers`だが、②「20. DB設計方針」の記載どおり実際は`users`テーブルの教員としてのレコードであるため、`Tabler`インターフェース（`func (Teacher) TableName() string { return "users" }`）による明示的な上書きが必要（Gorm規約「テーブル名」。**②からの補足**：②はテーブル名を明記しているのみで、GoモデルとGORM命名規則の不一致には触れていないため、③側で気づいて反映した）|
 |`UserRole`|`user_roles`|`internal/teachermanagement/user_role.go`に置く、`user_roles`テーブルを参照専用で読み取るための最小限のモデル（`ID` / `Name`のみ）。テーブルの所有はauthentication Contextであり、本Contextは教員判定の検索条件（`users`との結合）にのみ利用する。教員の作成時のロールの解決は`user` Contextが行う（管理者管理者ユーザー機能_Go実装仕様書「15. GORM / DBクエリ設計」の`UserRoleModel`と同じ扱い）。struct名のデフォルト複数形が実テーブル名と一致するため`TableName()`のオーバーライドは不要。`Name`はRailsの`enum name:`に対応し、DB上は整数（`admin: 0` / `student: 1` / `teacher: 2` / `guardian: 3`）である|
 |`TeacherPermission`|`teacher_permissions`|GORMのデフォルト命名規則（struct名の複数形snake_case）で一致するため、`TableName()`のオーバーライドは不要（Gorm規約「複数形のテーブル名」）。`GradeScope`は`type GradeScope int`であり、整数カラム`grade_scope`へそのまま対応する（①「6. データモデル」。Railsの`enum`で`own_grade`=0 / `all_grades`=1）|
 |`TeacherGradeAssignment`|`teacher_grades`|struct名のデフォルト複数形は`teacher_grade_assignments`だが、②「1. 機能概要」「17. DB設計方針」の記載どおり実際のテーブル名は`teacher_grades`であるため、`Tabler`インターフェース（`func (TeacherGradeAssignment) TableName() string { return "teacher_grades" }`）による明示的な上書きが必要（Gorm規約「テーブル名」。**②からの補足**）|
@@ -993,7 +998,7 @@ SQL文そのものは本書に記載しない。
 |`UpdateTeacher`|`name` / `email`のいずれも送信されない場合に、教員本体が更新されないこと|
 |`UpdateTeacher`|`grade_ids`に他校の学年が含まれる場合も422とせず、該当IDを除外した残りの学年で担当学年が全置換されること|
 |全Handler|未認証・非admin roleでのアクセスが401/403となること|
-|全Handler|エラーレスポンスが`{"errors": ["メッセージ", ...]}`の形式であること（規約「15. API規約」の「エラーレスポンス」）|
+|全Handler|エラーレスポンスが`{"errors": ["メッセージ", ...]}`の形式であること（規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）|
 
 ## Integration Test
 
@@ -1019,7 +1024,7 @@ SQL文そのものは本書に記載しない。
 |②「8. Domain Service」TeacherGradeAssignmentPolicyを、独立したstruct/interfaceではなく`internal/teachermanagement`パッケージ内のpackageレベル関数`ValidateGradeAssignment`として実装した|`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節により、Domain Serviceに相当する独立層は原則「対象外」とされているため。判定内容そのものは②の記載を変更していない|補足（規約適用）|
 |②「7. Value Object設計」TeacherPermission・GradeAssignmentSetを、独立層としてではなくstruct・メソッドとして`internal/teachermanagement`パッケージ内に実装した|同上、規約4章Active Record節により、Value Objectは原則「対象外」とされているため|補足（規約適用）|
 |`Teacher`のGORMテーブル名を`users`として`TableName()`で明示的に上書きする必要がある点、および`TeacherGradeAssignment`のGORMテーブル名を`teacher_grades`として同様に上書きする必要がある点|②「20. DB設計方針」はテーブル名`users`・`teacher_grades`を利用する旨のみ記載しており、Go構造体名のデフォルト複数形との不一致には触れていない。Gorm規約「テーブル名」に基づき③側で明示した|補足（Gorm規約の適用によりテーブル不一致を検出したもの）|
-|`Teacher`structが`users`テーブルの一部カラム（管理者視点・教師視点の教員管理に必要な最小限のフィールド）のみを保持し、パスワードハッシュ等他Contextが管理するカラムを含めていない点|①「6. データモデル」の`users`は、`encrypted_password` / `jti` / `reset_password_token` / `address_id` / `activated_at` / `school_class_id` / `student_number`等、教員管理の対象外であるカラムを持つ（同節の「本機能の対象外のカラム」）。教員管理の業務範囲（②「6. Entity設計」Teacher、教師教員管理機能②「6. Entity設計」Teacher）に必要な範囲（`id` / `high_school_id` / `name` / `name_kana` / `email` / `user_role_id` / `deleted_at` / `created_at` / `updated_at`）のみをフィールド化した。`name` / `name_kana`は100文字以内でNULL許容、`high_school_id` / `user_role_id`もNULL許容である（①「6. データモデル」）|①に基づく（推測ではない）|
+|`Teacher`structが`users`テーブルの一部カラム（管理者視点・教師視点の教員管理に必要な最小限のフィールド）のみを保持し、パスワードハッシュ等他Contextが管理するカラムを含めていない点|①「6. データモデル」の`users`は、`encrypted_password` / `jti` / `reset_password_token` / `address_id` / `activated_at` / `school_class_id` / `student_number`等、教員管理の対象外であるカラムを持つ（同節の「本機能の対象外のカラム」）。教員管理の業務範囲（②「6. Entity設計」Teacher、教師教員管理機能②「6. Entity設計」Teacher）に必要な範囲（`id` / `high_school_id` / `name` / `name_kana` / `email` / `user_role_id` / `grade_id` / `deleted_at` / `created_at` / `updated_at`）のみをフィールド化した。`grade_id`は教師視点のレスポンスが`users.grade_id`に紐づく学年を返すために含める。`name` / `name_kana`は100文字以内でNULL許容、`high_school_id` / `user_role_id`もNULL許容である（①「6. データモデル」）|①に基づく（推測ではない）|
 |`grade_scope`を`type GradeScope int`の列挙型とし、許容値を`own_grade`（0）/ `all_grades`（1）とした|②「7. Value Object設計」は「許容される範囲値のみを受け付ける」とのみ記載し、具体的な値集合を明記していない。①「6. データモデル」が、カラムが整数であることとRailsの`enum`の対応（`own_grade`=0 / `all_grades`=1）を定めている。APIの入出力は文字列であるため、DTOは`string`で受け取りモデルで列挙型へ変換する（コーディング規約「3. 命名規則」）|①・規約に基づく（推測ではない）|
 |`InviteTeacherRequest`の`GradeScope`・`ManageOtherTeachers`を必須とし、デフォルト値を持たせない|①Rails現行仕様書「5. API / 処理詳細」createのとおり、Rails現行は`grade_scope` / `manage_other_teachers`の未指定を422とする（権限レコードの作成で必須検証に失敗する）|補足（①に基づく）|
 |作成時（InviteTeacher）のHTTP Status Codeを201とした|②「19. API仕様」Status Codeの記載は「201」であり、Rails現行も201を返す（①Rails現行仕様書 createのResponse）|補足（①に基づく）|

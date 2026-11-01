@@ -633,7 +633,7 @@ Response DTO（`internal/teacherpermission/presentation/response/teacher_permiss
 |GET|`/api/v1/teacher/permissions/:id`|`TeacherPermissionHandler.Show`|
 |PATCH|`/api/v1/teacher/permissions/:id`|`TeacherPermissionHandler.Update`|
 
-いずれのルートも、認証Middleware・teacherロール確認Middlewareを経由する（②16章「Middleware」）。加えて`PATCH /api/v1/teacher/permissions/:id`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象に含める（Gin規約「7. CSRF対策」の「適用範囲」）。当該Middlewareはいずれも本機能内で新規実装せず、既存の共通Middlewareを利用する。Rails現行では`Api::V1::Teacher::BaseController`がPunditの`authorize :teacher_service, :access?`でロールを確認している（①「7. 権限制御」）。
+いずれのルートも、認証Middleware・teacherロール確認Middlewareを経由する（②16章「Middleware」）。加えて`PATCH /api/v1/teacher/permissions/:id`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象に含める（Gin規約「5. CSRF対策」の「適用範囲」）。当該Middlewareはいずれも本機能内で新規実装せず、既存の共通Middlewareを利用する。Rails現行では`Api::V1::Teacher::BaseController`がPunditの`authorize :teacher_service, :access?`でロールを確認している（①「7. 権限制御」）。
 
 ---
 
@@ -659,7 +659,7 @@ Errorケース:
 |`id`パラメータが不正な形式|404|対象教員が特定できないため`ErrTargetTeacherNotFound`と同じ扱いとする|
 |未認証|401|認証エラー（②「17. Error設計」の「エラー仕様」）|
 |teacherロールでない|403|権限エラー（②「17. Error設計」の「エラー仕様」）|
-|CSRFトークンが不正（PATCH）|403|CSRF検証エラー（Gin規約「7. CSRF対策」）|
+|CSRFトークンが不正（PATCH）|403|CSRF検証エラー（Gin規約「5. CSRF対策」）|
 
 権限不足（403）と保護ルール違反（422）を区別する。対象教員の特定は権限判定より先に行うため、存在しないIDを指定した場合は権限の有無によらず404を返す（①「5. API / 処理詳細」の処理順）。
 
@@ -713,7 +713,7 @@ Domain Model採用のため、Entity／Value Object生成時とUseCase内で以�
 ## Middleware
 
 - 認証済みユーザーを特定し、`teacher`ロールであることを確認する（②16章「Middleware」）
-- `PATCH /api/v1/teacher/permissions/:id`はCookieで認可される状態変更であるため、CSRF検証の対象に含める（Gin規約「7. CSRF対策」の「適用範囲」）。一覧・詳細はGETのため対象外である
+- `PATCH /api/v1/teacher/permissions/:id`はCookieで認可される状態変更であるため、CSRF検証の対象に含める（Gin規約「5. CSRF対策」の「適用範囲」）。一覧・詳細はGETのため対象外である
 
 ## Handler
 
@@ -912,7 +912,7 @@ Domain Model採用のため、②22章の区分をそのまま使用する。
 |9|`teacher_permissions`テーブルが`high_school_id`列を持たず、`users`テーブルとの結合で所属校・有効性・氏名を判定する前提とした|②「21. DB操作仕様」が結合の必要性とその理由（`teacher_permissions`が`user_id`・`grade_scope`・`manage_other_teachers`のみを持つこと）を定めている|②に基づく（推測ではない）|
 |10|一覧・詳細の表示に使う氏名・氏名カナは、`users`テーブルの必要列のみを射影する読み取り専用structを本Context内に定義して取得し、`user` Context側のGORMモデルを直接importしない方針とした|規約「5. Context間連携ルール」の「相手Contextの内部Entity・Infrastructure実装に直接依存しない」に配慮した実装判断。画面向けの一覧を各Contextが自前の参照モデルとして持つのは`user`②「3. Bounded Context」の方針による|実装判断（②・`user`②に基づく）|
 |11|`CountActiveTeachers`の判定条件に「教員ロールであること」を含めた|②11章の「同校の有効教員集合」という記載から、生徒・管理者を含まない教員のみを対象とすべきと判断した。役割による絞り込みと除外IDの指定は`user`②の`CountUsers`が入力に持つため、本Contextで`user_roles`を結合しない|推測|
-|12|CSRF検証を`PATCH /api/v1/teacher/permissions/:id`に適用する方針|②16章「Middleware」はCSRFに言及していないが、Gin規約「7. CSRF対策」の「適用範囲」が、Cookieで認可される状態変更をすべて検証対象に含めると定めている|規約に基づく（推測ではない）|
+|12|CSRF検証を`PATCH /api/v1/teacher/permissions/:id`に適用する方針|②16章「Middleware」はCSRFに言及していないが、Gin規約「5. CSRF対策」の「適用範囲」が、Cookieで認可される状態変更をすべて検証対象に含めると定めている|規約に基づく（推測ではない）|
 |13|Domain ErrorをUseCaseで`AppError`へ変換し、ステータスコードの決定をエラーハンドリングミドルウェアに集約する方針|②「17. Error設計」の「層間の変換」に従い、具体的な実装パターンは規約「12. Error変換パターン（AppError）」・Gin規約「8. エラーハンドリングミドルウェア」が定めている|規約に基づく（推測ではない）|
 |14|トランザクションの抽象化に`internal/shared/transaction`の`TransactionManager`（`WithinTransaction`）を用い、Repository実装では`gormtx.DBFromContext`で接続を取り出す|②14章はトランザクション境界（開始・終了位置）のみを定めるが、その実装パターンは規約「11. Transaction実装パターン（TransactionManager）」が定めている|規約に基づく（推測ではない）|
 |15|更新の入力に操作者の種別（教師／管理者）を持たせ、管理者の場合は`TeacherPermissionUpdateGuard`が保護ルールを適用しない構成とした|②8章・12章に従う。Rails現行では教師の権限管理画面にのみ保護ルール（①「7. 権限制御」）があり、管理者の教員更新には保護ルールに相当する定めがない（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」）ため、挙動を変えずに更新経路を一本化するための設計である|②・管理者教員管理機能①に基づく（推測ではない）|

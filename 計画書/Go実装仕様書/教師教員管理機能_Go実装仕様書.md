@@ -8,7 +8,7 @@
 
 教師が同校の教員一覧・詳細を確認し、新規教員アカウントを作成（招待）できる機能である。教員一覧には、各教員への直近の招待通知状況（`invitation_status`）を教員招待通知機能（`teacher-notification` Context）から参照して含める。新規教員作成時は、`User`（アカウント本体）・`TeacherPermission`（初期権限）・`TeacherGrade`（担当学年）の3レコードを1つの業務操作として整合性を保ちながら作成する。`users`の1行の作成は`user` Contextの`CreateTeacherAccount`（招待待ち=する・作成時に招待メールを送る=しない）に任せ、`TeacherStore`は権限・担当学年の作成とトランザクションの管理を担う。作成時にメールは送らない（招待メールは教員招待通知機能が後から送る）。作成の実行には、操作者自身が「他職員操作権限（`manage_other_teachers`）」を保持していることが前提条件となる。
 
-**本書の特別な位置づけ**: 本機能（教師教員管理機能）と管理者教員管理機能は、同一のBounded Context（`teacher-management`）・同一のAggregate（Teacher）を扱う一体の業務領域である。同じ3テーブル（`users`の教員レコード / `teacher_permissions` / `teacher_grades`）に対するEntity・Repository（Store）は、実際のGoコードでは同じpackage（`internal/teacher_management`）に1セットのみ存在する。そのModel（`Teacher` / `TeacherPermission` / `TeacherGradeAssignment`）とStore（`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`）は**管理者教員管理機能_Go実装仕様書が正の文書として完全に定義済み**であり、本書はそれを再利用する。本書が新規に定義するのは、教師視点固有の処理（同校スコープの一覧・詳細参照、他職員操作権限の確認、`TeacherNotificationStatusProvider`による招待通知状況の付与、新規作成時の氏名カナ・メール形式検証）と、教師向けのpresentation層（Handler/Request/Response/Routing）のみである。
+**本書の特別な位置づけ**: 本機能（教師教員管理機能）と管理者教員管理機能は、同一のBounded Context（`teacher-management`）・同一のAggregate（Teacher）を扱う一体の業務領域である。同じ3テーブル（`users`の教員レコード / `teacher_permissions` / `teacher_grades`）に対するEntity・Repository（Store）は、実際のGoコードでは同じpackage（`internal/teachermanagement`）に1セットのみ存在する。そのModel（`Teacher` / `TeacherPermission` / `TeacherGradeAssignment`）とStore（`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`）は**管理者教員管理機能_Go実装仕様書が正の文書として完全に定義済み**であり、本書はそれを再利用する。本書が新規に定義するのは、教師視点固有の処理（同校スコープの一覧・詳細参照、他職員操作権限の確認、`TeacherNotificationStatusProvider`による招待通知状況の付与、新規作成時の氏名カナ・メール形式検証）と、教師向けのpresentation層（Handler/Request/Response/Routing）のみである。
 
 ## 採用設計パターンとその理由（②からの要約）
 
@@ -37,7 +37,7 @@
 
 ## 対象Bounded Context名
 
-`teacher-management`（管理者教員管理機能_Go実装仕様書と共通。実装ディレクトリ名は`internal/teacher_management`。管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」②からの補足を参照）
+`teacher-management`（管理者教員管理機能_Go実装仕様書と共通。実装ディレクトリ名は`internal/teachermanagement`。管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」②からの補足を参照）
 
 ## ②で採用した設計パターン
 
@@ -47,14 +47,14 @@
 
 アーキテクチャ規約「3. 設計パターンごとの構造適用方針」のActive Record構造に従う。domain層・infrastructure層のレイヤー分離、usecase層は設けない。
 
-**Model・Storeは本書では新規作成しない。** ②「6. Entity設計」のTeacher・TeacherPermission・TeacherGradeAssignment、および②「9. Repository設計」のTeacherStore・TeacherPermissionStore・TeacherGradeStoreは、管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」「3. Domain層設計」「5. Infrastructure層設計」で定義済みの`Teacher` / `TeacherPermission` / `TeacherGradeAssignment` / `TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`をそのまま再利用する。
+**Model・Storeは本書では新規作成しない。** ②「6. Entity設計」のTeacher・TeacherPermission・TeacherGradeAssignment、および②「11. Repository設計」のTeacherStore・TeacherPermissionStore・TeacherGradeStoreは、管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」「3. Domain層設計」「5. Infrastructure層設計」で定義済みの`Teacher` / `TeacherPermission` / `TeacherGradeAssignment` / `TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`をそのまま再利用する。
 
-本書が実際に追加作成するのは、教師視点固有の処理を担うファイルと、教師向けのpresentation層（`internal/teacher_management/presentation/teacher/`）のみである。管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」の**②からの補足（本書固有の構造判断）**のとおり、同一Aggregateを管理者視点・教師視点の2つのHandler群が操作し、`TeacherHandler`等の名前が衝突するため、presentation層は`admin`/`teacher`サブパッケージへ分割されている。本書はそのうち`teacher`サブパッケージを担当する。
+本書が実際に追加作成するのは、教師視点固有の処理を担うファイルと、教師向けのpresentation層（`internal/teachermanagement/presentation/teacher/`）のみである。管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」の**②からの補足（本書固有の構造判断）**のとおり、同一Aggregateを管理者視点・教師視点の2つのHandler群が操作し、`TeacherHandler`等の名前が衝突するため、presentation層は`admin`/`teacher`サブパッケージへ分割されている。本書はそのうち`teacher`サブパッケージを担当する。
 
 ## 作成するディレクトリ一覧
 
 ```
-internal/teacher_management/
+internal/teachermanagement/
 └── presentation/
     └── teacher/
         ├── handler/
@@ -67,24 +67,24 @@ internal/teacher_management/
 
 |パス|内容|
 |-|-|
-|`internal/teacher_management/teacher_onboarding.go`|教師視点の新規作成に固有のModel検証（`NewTeacherForOnboarding` / `Teacher.ValidateOnboarding`。「3. Domain層設計」参照）。共有するpackage（`internal/teacher_management`）に配置する|
-|`internal/teacher_management/teacher_notification_status_provider.go`|`TeacherNotificationStatusProvider`（teacher-notification Contextの参照用interface。「8. Infrastructure層設計」参照）|
-|`internal/teacher_management/presentation/teacher/handler/teacher_handler.go`|`TeacherHandler`（List/Show/Create）|
-|`internal/teacher_management/presentation/teacher/request/teacher_request.go`|Request DTO|
-|`internal/teacher_management/presentation/teacher/response/teacher_response.go`|Response DTO（招待通知状況フィールドを含む）|
-|`internal/teacher_management/presentation/teacher/routes.go`|ルーティング登録|
+|`internal/teachermanagement/teacher_onboarding.go`|教師視点の新規作成に固有のModel検証（`NewTeacherForOnboarding` / `Teacher.ValidateOnboarding`。「3. Domain層設計」参照）。共有するpackage（`internal/teachermanagement`）に配置する|
+|`internal/teachermanagement/teacher_notification_status_provider.go`|`TeacherNotificationStatusProvider`（teacher-notification Contextの参照用interface。「8. Infrastructure層設計」参照）|
+|`internal/teachermanagement/presentation/teacher/handler/teacher_handler.go`|`TeacherHandler`（List/Show/Create）|
+|`internal/teachermanagement/presentation/teacher/request/teacher_request.go`|Request DTO|
+|`internal/teachermanagement/presentation/teacher/response/teacher_response.go`|Response DTO（招待通知状況フィールドを含む）|
+|`internal/teachermanagement/presentation/teacher/routes.go`|ルーティング登録|
 
-**対象外**: `domain/`, `application/usecase/`, `infrastructure/repository/`（Active Record採用のため設けない）。`Teacher` / `TeacherPermission` / `TeacherGradeAssignment`のstruct定義、`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`の実装、`errors.go`、`dependency.go`（`GradeReferenceChecker`等）は管理者教員管理機能_Go実装仕様書が定義済みであり、本書では作成しない。
+**対象外**: `domain/`, `application/`, `infrastructure/`（Active Record採用のため設けない。規約「3. 設計パターンごとの構造適用方針」のActive Record構造）。`Teacher` / `TeacherPermission` / `TeacherGradeAssignment`のstruct定義、`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`の実装、`errors.go`、`dependency.go`（`GradeReferenceChecker`等）は管理者教員管理機能_Go実装仕様書が定義済みであり、本書では作成しない。
 
 本書のHandlerは、管理者教員管理機能_Go実装仕様書が定義した以下の共有コンポーネントに依存する（新規作成しない）。
 
-- `internal/teacher_management`の`Teacher` / `TeacherPermission` / `TeacherGradeAssignment` / `GradeAssignmentSet`
-- `internal/teacher_management`の`NewTeacher` / `NewTeacherPermission` / `NewGradeAssignmentSet` / `ValidateGradeAssignment`
-- `internal/teacher_management`の`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`
-- `internal/teacher_management`の`GradeReferenceChecker`・`TeacherAccountCreator`・`TeacherAccountInput`（`dependency.go`）、`TeacherAccountOptions`（`teacher.go`）
-- `internal/teacher_management`の各エラー変数（`errors.go`）
+- `internal/teachermanagement`の`Teacher` / `TeacherPermission` / `TeacherGradeAssignment` / `GradeAssignmentSet`
+- `internal/teachermanagement`の`NewTeacher` / `NewTeacherPermission` / `NewGradeAssignmentSet` / `ValidateGradeAssignment`
+- `internal/teachermanagement`の`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`
+- `internal/teachermanagement`の`GradeReferenceChecker`・`TeacherAccountCreator`・`TeacherAccountInput`（`dependency.go`）、`TeacherAccountOptions`（`teacher.go`）
+- `internal/teachermanagement`の各エラー変数（`errors.go`）
 
-**②からの補足**: `GradeStore`（学年の存在確認・所属校取得）は②「9. Repository設計」に「`master-data` Context提供・参照専用」と明記されており、管理者教員管理機能_Go実装仕様書が`GradeReferenceChecker`として消費者側interfaceを定義済みである。`TeacherNotificationStatusStore`（招待通知状況の参照）は②「3. Bounded Context」「10. UseCase設計」に teacher-notification Context提供・参照専用と明記されている。いずれも別Bounded Contextが公開する参照専用の手段を、アーキテクチャ規約「5. Context間連携ルール」に従って呼び出す。`master-data` Contextの②/③文書は未整備であり、正確なpackage pathは実装時に確認が必要。teacher-notification Context側は「教員招待通知機能_Go実装仕様書」を正とする。
+**②からの補足**: `GradeStore`（学年の存在確認・所属校取得）は②「11. Repository設計」に「`master-data` Context提供・参照専用」と明記されており、管理者教員管理機能_Go実装仕様書が`GradeReferenceChecker`として消費者側interfaceを定義済みである。`TeacherNotificationStatusStore`（招待通知状況の参照）は②「3. Bounded Context」「10. UseCase設計」に teacher-notification Context提供・参照専用と明記されている。いずれも別Bounded Contextが公開する参照専用の手段を、アーキテクチャ規約「5. Context間連携ルール」に従って呼び出す。`master-data` Contextの②/③文書は未整備であり、正確なpackage pathは実装時に確認が必要。teacher-notification Context側は「教員招待通知機能_Go実装仕様書」を正とする。
 
 ---
 
@@ -101,7 +101,7 @@ internal/teacher_management/
 |`GradeReferenceChecker`|同上（`dependency.go`）|`ValidateGradeAssignment`へ渡す「対象高校に属する学年ID」を取得する|
 |`TeacherAccountOptions`|同上（`teacher.go`）|`TeacherStore.CreateWithPermissionAndGrades`へ渡す、`user` Contextの`CreateTeacherAccount`への指定値。教師視点は、学年ID=指定した`grade_id`・招待待ち=`true`・作成時に招待メールを送信=`false`|
 
-## 教師視点固有のModel検証（本書が定義。`internal/teacher_management/teacher_onboarding.go`）
+## 教師視点固有のModel検証（本書が定義。`internal/teachermanagement/teacher_onboarding.go`）
 
 ②「7. Value Object設計」のNameKana・Emailの検証ルールと、②「6. Entity設計」Teacherの「氏名カナがカタカナ形式であること」の保持・検証を、Active Record構造に従いModelのメソッドとして実現する（Value Objectは独立して設けない）。管理者視点の招待は氏名カナ・メール形式の検証を本書と同じ形では要求しないため、教師視点の新規作成にのみ適用する検証として`Teacher`のメソッドを共有packageに定義する。
 
@@ -124,7 +124,7 @@ internal/teacher_management/
 
 ## Domain Event
 
-②「15. Domain Event」のとおり、本機能ではDomain Eventを採用しない。教師による教員作成は、作成時にメールを送らない（Rails現行と同じ。招待メールは教員招待通知機能が後から送る）ため、メール送信のアダプタを設けず、非同期化・イベント化を要する後続処理は存在しない。よって対象外。
+②「18. Domain Event」のとおり、本機能ではDomain Eventを採用しない。教師による教員作成は、作成時にメールを送らない（Rails現行と同じ。招待メールは教員招待通知機能が後から送る）ため、メール送信のアダプタを設けず、非同期化・イベント化を要する後続処理は存在しない。よって対象外。
 
 ## Domain Error（struct/Storeが返すエラー）
 
@@ -229,7 +229,7 @@ classDiagram
 
 # 6. Application層設計
 
-**対象外（Active Record採用のため、usecase層を設けない）。** ②「10. UseCase設計」の`ListTeachers`／`ShowTeacher`／`CreateTeacher`は、Handlerが`Store`を直接呼び出す処理として「9. Presentation層設計」のHandler処理順序に統合して記載する。DTO（Command/Query）は独立したapplication層のDTOとして設けず、「9. Presentation層設計」のRequest/Response DTOがその役割を兼ねる。
+**対象外（Active Record採用のため、usecase層を設けない）。** ②「12. UseCase設計」の`ListTeachers`／`ShowTeacher`／`CreateTeacher`は、Handlerが`Store`を直接呼び出す処理として「9. Presentation層設計」のHandler処理順序に統合して記載する。DTO（Command/Query）は独立したapplication層のDTOとして設けず、「9. Presentation層設計」のRequest/Response DTOがその役割を兼ねる。
 
 ---
 
@@ -301,7 +301,7 @@ flowchart TD
 
 ## Store実装
 
-**対象外**。`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`は、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」に従いModelと同一package（`internal/teacher_management`）に置かれ、管理者教員管理機能_Go実装仕様書「5. Infrastructure層設計」で定義済みである。本書では新規実装しない。②「9. Repository設計」で教師視点として必要とされる責務（同校教員の一覧取得［氏名カナ順・ページネーション］・詳細取得・新規作成、権限の取得、担当学年の取得）は、いずれも同書のStoreメソッドで満たされる。本書のHandlerが教師視点で利用するメソッドは以下のとおりである。
+**対象外**。`TeacherStore` / `TeacherPermissionStore` / `TeacherGradeStore`は、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」に従いModelと同一package（`internal/teachermanagement`）に置かれ、管理者教員管理機能_Go実装仕様書「8. Infrastructure層設計」で定義済みである。本書では新規実装しない。②「11. Repository設計」で教師視点として必要とされる責務（同校教員の一覧取得［氏名カナ順・ページネーション］・詳細取得・新規作成、権限の取得、担当学年の取得）は、いずれも同書のStoreメソッドで満たされる。本書のHandlerが教師視点で利用するメソッドは以下のとおりである。
 
 |Store|メソッド|本書での用途|
 |-|-|-|
@@ -317,8 +317,8 @@ flowchart TD
 
 |実装対象|呼び出し元|実装方針|
 |-|-|-|
-|`GradeReferenceChecker`（`master-data` Context提供・参照専用。②「9. Repository設計」のGradeStoreに相当）|`TeacherHandler.Create`（作成時、指定学年が操作者の所属校に属するかの確認）|本Context内では実装しない。`GradeReferenceChecker`は管理者教員管理機能_Go実装仕様書「3. Domain層設計」（`dependency.go`）で定義済みであり、実装は`master-data` Context側が提供する|
-|`TeacherNotificationStatusProvider`（teacher-notificationコンテキスト提供・参照専用。②「10. UseCase設計」の`TeacherNotificationStatusStore`に相当）|`TeacherHandler.List`（一覧取得時、各教員の招待通知状況取得）|コーディング規約「7. インターフェース」の方針に従い、利用側（`teacher_management`パッケージ）が最小限のinterfaceを`teacher_notification_status_provider.go`内に定義する: `type TeacherNotificationStatusProvider interface { LatestStatuses(ctx context.Context, highSchoolID uint, teacherIDs []uint) (map[uint]string, error) }`。実装は教員招待通知機能（`teacher-notification` Context）の`TeacherNotificationStore`が本interfaceを構造的に満たす形で提供する（詳細は教員招待通知機能_Go実装仕様書を参照）。招待通知状況の付与は教師視点のみの処理であり、管理者視点と共有する`TeacherStore`に`teacher-notification` Contextへの依存を持ち込まないため、`TeacherHandler`が取得結果を組み合わせる。DI配線はアーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従い、`teacher_management`のContext組み立て関数が`teacher-notification` Contextの組み立て結果から受け取る|
+|`GradeReferenceChecker`（`master-data` Context提供・参照専用。②「11. Repository設計」のGradeStoreに相当）|`TeacherHandler.Create`（作成時、指定学年が操作者の所属校に属するかの確認）|本Context内では実装しない。`GradeReferenceChecker`は管理者教員管理機能_Go実装仕様書「3. Domain層設計」（`dependency.go`）で定義済みであり、実装は`master-data` Context側が提供する|
+|`TeacherNotificationStatusProvider`（teacher-notificationコンテキスト提供・参照専用。②「12. UseCase設計」の`TeacherNotificationStatusStore`に相当）|`TeacherHandler.List`（一覧取得時、各教員の招待通知状況取得）|コーディング規約「7. インターフェース」の方針に従い、利用側（`teachermanagement`パッケージ）が最小限のinterfaceを`teacher_notification_status_provider.go`内に定義する: `type TeacherNotificationStatusProvider interface { LatestStatuses(ctx context.Context, highSchoolID uint, teacherIDs []uint) (map[uint]string, error) }`。実装は教員招待通知機能（`teacher-notification` Context）の`TeacherNotificationStore`が本interfaceを構造的に満たす形で提供する（詳細は教員招待通知機能_Go実装仕様書を参照）。招待通知状況の付与は教師視点のみの処理であり、管理者視点と共有する`TeacherStore`に`teacher-notification` Contextへの依存を持ち込まないため、`TeacherHandler`が取得結果を組み合わせる。DI配線はアーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従い、`teachermanagement`のContext組み立て関数（`context.go`の`NewContext`）が`teacher-notification` Contextの組み立て結果から受け取る|
 
 Mail・Cache・Queueは対象外（作成時にメールを送らない。招待メールは教員招待通知機能が、`user` Contextの`RequestInvitationEmail`を呼んで送る）。
 
@@ -326,16 +326,16 @@ Mail・Cache・Queueは対象外（作成時にメールを送らない。招待
 
 # 9. Presentation層設計
 
-本書のpresentation層は教師視点として`internal/teacher_management/presentation/teacher/`配下に置く。管理者視点のpresentation層は`internal/teacher_management/presentation/admin/`（管理者教員管理機能_Go実装仕様書）に分割されており、同名のstruct（`TeacherHandler`・`TeacherResponse`・`TeacherListResponse`等）はそれぞれ別packageに属するため衝突しない。
+本書のpresentation層は教師視点として`internal/teachermanagement/presentation/teacher/`配下に置く。管理者視点のpresentation層は`internal/teachermanagement/presentation/admin/`（管理者教員管理機能_Go実装仕様書）に分割されており、同名のstruct（`TeacherHandler`・`TeacherResponse`・`TeacherListResponse`等）はそれぞれ別packageに属するため衝突しない。
 
 ## Handler
 
-### TeacherHandler（`internal/teacher_management/presentation/teacher/handler/teacher_handler.go`）
+### TeacherHandler（`internal/teachermanagement/presentation/teacher/handler/teacher_handler.go`）
 
 |項目|内容|
 |-|-|
-|struct名|`TeacherHandler`（package: `internal/teacher_management/presentation/teacher/handler`）|
-|コンストラクタが受け取る依存|`*teacher_management.TeacherStore`／`*teacher_management.TeacherPermissionStore`／`*teacher_management.TeacherGradeStore`／`teacher_management.GradeReferenceChecker`／`teacher_management.TeacherNotificationStatusProvider`|
+|struct名|`TeacherHandler`（package: `internal/teachermanagement/presentation/teacher/handler`）|
+|コンストラクタが受け取る依存|`*teachermanagement.TeacherStore`／`*teachermanagement.TeacherPermissionStore`／`*teachermanagement.TeacherGradeStore`／`teachermanagement.GradeReferenceChecker`／`teachermanagement.TeacherNotificationStatusProvider`|
 |対応する呼び出し先|Store（Active Record採用のためUseCase層を経由しない）|
 
 メソッド一覧:
@@ -349,7 +349,7 @@ Mail・Cache・Queueは対象外（作成時にメールを送らない。招待
 ### `List` 処理順序（②10節`ListTeachers`に対応）
 
 1. Middlewareが設定したcurrent user（`teacher`ロール、所属校ID）をcontextから取得する
-2. クエリパラメータ`page` / `per_page`をRequest DTOにバインドする。`per_page`は、未指定・数値でない値・0以下の場合は既定値20件、100を超える場合は100件に丸める（上限100件）。`page`は、未指定・数値でない値・0以下の場合は1ページ目として扱う。いずれもエラー（422）にしない（Rails現行の`sanitized_per_page` / `sanitized_page`と同一。②「10. UseCase設計」ListTeachers）
+2. クエリパラメータ`page` / `per_page`をRequest DTOにバインドする。`per_page`は、未指定・数値でない値・0以下の場合は既定値20件、100を超える場合は100件に丸める（上限100件）。`page`は、未指定・数値でない値・0以下の場合は1ページ目として扱う。いずれもエラー（422）にしない（Rails現行の`sanitized_per_page` / `sanitized_page`と同一。②「12. UseCase設計」ListTeachers）
 3. `TeacherStore.FindPageByHighSchool(ctx, currentUser.HighSchoolID, page, perPage)`を呼び出し、同校の教員を氏名カナ順・ページネーション付きで取得する
 4. 取得した教員ID一覧を`TeacherNotificationStatusProvider.LatestStatuses(ctx, currentUser.HighSchoolID, teacherIDs)`へ渡し、各教員の直近の招待通知状況を取得する。通知が存在しない教員は「未送信」として扱う（②「3. Bounded Context」「16. API互換方針」）
 5. 取得結果と招待通知状況を組み合わせてResponse DTO（`invitation_status`を含む）へ変換して返す
@@ -363,24 +363,24 @@ Mail・Cache・Queueは対象外（作成時にメールを送らない。招待
 5. `TeacherPermissionStore.FindByUserID(ctx, id)`を呼び出し、権限情報を取得する（②からの補足：下記参照）。`ErrTeacherPermissionNotFound`の場合は、権限情報を値なし（`null`）として扱い、エラーにしない（Rails現行の`TeacherSerializer`が、権限レコードが存在しない教員の`teacher_permission`を`null`で返すことに合わせる）
 6. 取得結果をResponse DTOへ変換して返す
 
-**②からの補足（推測）**: ②「10. UseCase設計」ShowTeacherの出力は「権限・担当学年を含む」だが、「呼び出すStore」には権限を扱うStoreが含まれない。本書では、同一Context内で共有する`TeacherPermissionStore.FindByUserID`で取得する構成とした。
+**②からの補足（推測）**: ②「12. UseCase設計」ShowTeacherの出力は「権限・担当学年を含む」だが、「呼び出すStore」には権限を扱うStoreが含まれない。本書では、同一Context内で共有する`TeacherPermissionStore.FindByUserID`で取得する構成とした。
 
 ### `Create` 処理順序（②10節`CreateTeacher`に対応）
 
 1. current user（`teacher`ロール、所属校ID）をcontextから取得する
-2. `TeacherPermissionStore.FindByUserID(ctx, currentUser.ID)`を呼び出し、操作者自身の`TeacherPermission`を取得する。`ManageOtherTeachers`が`false`の場合、または`ErrTeacherPermissionNotFound`（操作者の権限レコードが存在しない）の場合は、以降の処理を中断し`ErrManageOtherTeachersRequired`（403）を返す（Rails現行の`RequireManageOtherTeachers` concernが`current_user.teacher_permission&.manage_other_teachers?`と安全参照で判定し、権限レコードがない操作者を権限なしとして扱うことに合わせる。②「10. UseCase設計」CreateTeacher）（②「10. UseCase設計」「13. Authorization設計」：ロール確認とは別の業務権限確認として、最初のステップに配置する）
+2. `TeacherPermissionStore.FindByUserID(ctx, currentUser.ID)`を呼び出し、操作者自身の`TeacherPermission`を取得する。`ManageOtherTeachers`が`false`の場合、または`ErrTeacherPermissionNotFound`（操作者の権限レコードが存在しない）の場合は、以降の処理を中断し`ErrManageOtherTeachersRequired`（403）を返す（Rails現行の`RequireManageOtherTeachers` concernが`current_user.teacher_permission&.manage_other_teachers?`と安全参照で判定し、権限レコードがない操作者を権限なしとして扱うことに合わせる。②「12. UseCase設計」CreateTeacher）（②「12. UseCase設計」「13. Authorization設計」：ロール確認とは別の業務権限確認として、最初のステップに配置する）
 3. Request Bodyを`CreateTeacherRequest`にバインドし、型・必須・フォーマットを検証する（Presentation Validation）
-4. `teacher_management.NewTeacherForOnboarding(currentUser.HighSchoolID, name, nameKana, email)`でTeacherを生成し、氏名カナ形式・メール形式を検証する（違反は`ErrInvalidNameKana` / `ErrInvalidEmail`）
-5. `teacher_management.NewTeacherPermission`で初期TeacherPermissionを生成し、`grade_scope`許容値を検証する（違反は`ErrInvalidGradeScope`。`UserID`は、`user` Contextが作成した教員のIDを`TeacherStore.CreateWithPermissionAndGrades`が設定するため、生成時は未設定とする）
-6. `teacher_management.NewGradeAssignmentSet`で、指定`grade_id`を要素とする担当学年の集合を生成する
+4. `teachermanagement.NewTeacherForOnboarding(currentUser.HighSchoolID, name, nameKana, email)`でTeacherを生成し、氏名カナ形式・メール形式を検証する（違反は`ErrInvalidNameKana` / `ErrInvalidEmail`）
+5. `teachermanagement.NewTeacherPermission`で初期TeacherPermissionを生成し、`grade_scope`許容値を検証する（違反は`ErrInvalidGradeScope`。`UserID`は、`user` Contextが作成した教員のIDを`TeacherStore.CreateWithPermissionAndGrades`が設定するため、生成時は未設定とする）
+6. `teachermanagement.NewGradeAssignmentSet`で、指定`grade_id`を要素とする担当学年の集合を生成する
 7. `GradeReferenceChecker.ExistingGradeIDsForHighSchool(ctx, currentUser.HighSchoolID, gradeSet.IDs())`で、操作者の所属校に属する学年IDを取得する
-8. `teacher_management.ValidateGradeAssignment`で指定学年が操作者の所属校に属するかを判定する。属さない（または存在しない）場合は`ErrGradeNotInHighSchool`
+8. `teachermanagement.ValidateGradeAssignment`で指定学年が操作者の所属校に属するかを判定する。属さない（または存在しない）場合は`ErrGradeNotInHighSchool`
 9. `TeacherStore.CreateWithPermissionAndGrades(ctx, teacher, options, permission, &gradeSet)`を呼び出す。`options`（`TeacherAccountOptions`）には、学年ID=`grade_id`・招待待ち=`true`・作成時に招待メールを送信=`false`を指定する。Store内で、`user` Contextの`CreateTeacherAccount`による`users`の作成・権限・担当学年の作成を1トランザクションで行う。`user` Contextが返すValidationエラー（メールアドレスの重複等）は422とする。作成時にメールは送らない
-10. `CreateTeacherResponse`（`message`のみ）を組み立て、201を返す。作成された教員の情報は返さない（②「16. API互換方針」Response）
+10. `CreateTeacherResponse`（`message`のみ）を組み立て、201を返す。作成された教員の情報は返さない（②「19. API仕様」Response）
 
 ## Request / Response DTO
 
-### Request DTO（`internal/teacher_management/presentation/teacher/request/teacher_request.go`）
+### Request DTO（`internal/teachermanagement/presentation/teacher/request/teacher_request.go`）
 
 |struct名|フィールドと型|バリデーションタグ／チェック内容|
 |-|-|-|
@@ -388,25 +388,30 @@ Mail・Cache・Queueは対象外（作成時にメールを送らない。招待
 |`ShowTeacherRequest`|`ID uint`（パスパラメータ`id`）|必須、正の整数であること|
 |`CreateTeacherRequest`|`Name string`／`NameKana string`／`Email string`／`GradeID uint`／`GradeScope string`／`ManageOtherTeachers bool`|全フィールド必須。`Email`はメールアドレス形式チェック、`NameKana`はカタカナ形式チェック|
 
-### Response DTO（`internal/teacher_management/presentation/teacher/response/teacher_response.go`）
+### Response DTO（`internal/teachermanagement/presentation/teacher/response/teacher_response.go`）
 
 |struct名|フィールドと型|
 |-|-|
 |`TeacherResponse`|`ID uint`（JSON: `id`）／`Name string`（`name`）／`NameKana string`（`name_kana`）／`Grade *GradeResponse`（`grade`。`users.grade_id`に紐づく学年。設定がない場合は`null`）／`InvitationStatus string`（`invitation_status`）／`TeacherPermission *TeacherPermissionResponse`（`teacher_permission`。権限レコードが存在しない教員では`null`）|
 |`TeacherPermissionResponse`|`ID uint`（`id`）／`GradeScope string`（`grade_scope`）／`ManageOtherTeachers bool`（`manage_other_teachers`）|
+|`GradeResponse`|`ID uint`（`id`）／`Year int`（`year`）／`DisplayName string`（`display_name`）。①「5. API / 処理詳細」の`GradeSerializer`の3項目に対応する|
 |`TeacherListResponse`|`CurrentUser TeacherResponse`（`current_user`）／`Teachers []TeacherResponse`（`teachers`）／`Meta MetaResponse`（`meta`）|
 |`MetaResponse`|`CurrentPage int`（`current_page`）／`TotalPages int`（`total_pages`）／`TotalCount int`（`total_count`）／`PerPage int`（`per_page`）（`TeacherStore.FindPageByHighSchool`が返す`PageInfo`から変換する）|
-|`CreateTeacherResponse`|`Message string`（JSON: `message`。値は`教員の新規作成に成功しました。`）のみ。作成された教員の情報は含めない（Rails現行の`Api::V1::Teacher::TeachersController#create`のレスポンスに合わせる。②「16. API互換方針」）|
+|`CreateTeacherResponse`|`Message string`（JSON: `message`。値は`教員の新規作成に成功しました。`）のみ。作成された教員の情報は含めない（Rails現行の`Api::V1::Teacher::TeachersController#create`のレスポンスに合わせる。②「19. API仕様」）|
 
 一覧・詳細はいずれも同じ`TeacherResponse`を用いる。①「5. API / 処理詳細」のとおり、Rails現行は一覧・詳細の双方で`TeacherSerializer`を使っており、メールアドレス・担当学年（`teacher_grades`）はレスポンスに含まれない。
 
+`TeacherPermissionResponse.GradeScope`は`own_grade` / `all_grades`の文字列を入れる。共有Modelの`TeacherPermission.GradeScope`は整数の列挙型であるため（管理者教員管理機能_Go実装仕様書「3. Domain層設計」）、`String()`で文字列へ変換してから設定する。
+
+`GradeResponse`の3項目は、`master-data` Contextの参照手段（管理者教員管理機能_Go実装仕様書「3. Domain層設計」の`GradeReferenceChecker.FindGradeViews`が返す`GradeView`）から受け取る。学年の表示名の決定規則は本Contextに持たせない。対象は共有Modelの`Teacher.GradeID`に紐づく1件であり、担当学年（`teacher_grades`）ではない（②「19. API仕様」）。
+
 `InvitationStatus`は、一覧の`teachers`の各要素では`TeacherNotificationStatusProvider`から取得した最新の招待通知の状態を、通知がない場合は`pending`を入れる。一覧の`current_user`と詳細では、Rails現行が招待通知をまとめた結果を渡していないため、常に`pending`とする（①「5. API / 処理詳細」）。
 
-EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのまま返さず、必ずResponse DTOへ変換する（規約「7. データフロー」）。
+EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのまま返さず、必ずResponse DTOへ変換する（規約「6. データフロー」）。
 
 ## Routing
 
-`internal/teacher_management/presentation/teacher/routes.go`
+`internal/teachermanagement/presentation/teacher/routes.go`
 
 |Method|Path|Handler|
 |-|-|-|
@@ -414,7 +419,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 |GET|`/api/v1/teacher/colleagues/:id`|`TeacherHandler.Show`|
 |POST|`/api/v1/teacher/colleagues`|`TeacherHandler.Create`|
 
-`routes.go`にて、`teacher`ロールを要求する認証Middlewareを経由した上でこれらのルートを登録する。
+`routes.go`にて、`teacher`ロールを要求する認証Middlewareを経由した上でこれらのルートを登録する。`POST /api/v1/teacher/colleagues`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象にも含める（Gin規約「5. CSRF対策」の「適用範囲」）。一覧・詳細はGETのため対象外である。
 
 ---
 
@@ -447,18 +452,18 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 ## Transaction開始箇所
 
-- `TeacherStore.CreateWithPermissionAndGrades`メソッド内で、GORMのトランザクション（`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`）を開始する。トランザクションの実装は管理者教員管理機能_Go実装仕様書「8. Transaction実装方針」で定義済みのものを利用する
+- `TeacherStore.CreateWithPermissionAndGrades`メソッド内で、GORMのトランザクション（`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`）を開始する。トランザクションの実装は管理者教員管理機能_Go実装仕様書「11. Transaction実装方針」で定義済みのものを利用する
 - `TeacherPermissionStore.FindByUserID`による操作者自身の権限確認は、この書き込みトランザクションの外（Handler側、`Create`処理順序の手順2の時点）で読み取り専用として実行する
 
 ## Transaction終了箇所
 
-- メソッド内で`user` Contextの`CreateTeacherAccount`（`users`の作成。`tx`を保持する`ctx`を渡して同一トランザクションに参加させる。引き継ぎ方式は管理者教員管理機能_Go実装仕様書「8. Transaction実装方針」のとおり`user`②の未解決の論点9に従う） → `TeacherPermission`の作成 → 担当学年（`TeacherGradeAssignment`）の作成が全て成功した時点でコミットする
+- メソッド内で`user` Contextの`CreateTeacherAccount`（`users`の作成。`tx`を保持する`ctx`を渡して同一トランザクションに参加させる。引き継ぎ方式は管理者教員管理機能_Go実装仕様書「11. Transaction実装方針」のとおり`user`②の未解決の論点9に従う） → `TeacherPermission`の作成 → 担当学年（`TeacherGradeAssignment`）の作成が全て成功した時点でコミットする
 - いずれか1つでも失敗した場合は、`user` Contextが作成した`users`の行も含めてロールバックする
 - `List`・`Show`の処理ではトランザクションを使用しない
 
 ## 複数Store（関数）にまたがる場合の扱い
 
-- `TeacherPermissionStore`・`TeacherGradeStore`への書き込みは、`TeacherStore.CreateWithPermissionAndGrades`が保持するトランザクション用の`*gorm.DB`を用いて同一トランザクション内で実行される（管理者教員管理機能_Go実装仕様書「8. Transaction実装方針」「複数Storeにまたがる場合の扱い」）
+- `TeacherPermissionStore`・`TeacherGradeStore`への書き込みは、`TeacherStore.CreateWithPermissionAndGrades`が保持するトランザクション用の`*gorm.DB`を用いて同一トランザクション内で実行される（管理者教員管理機能_Go実装仕様書「11. Transaction実装方針」「複数Storeにまたがる場合の扱い」）
 - `GradeReferenceChecker`（`master-data` Context）・`TeacherNotificationStatusProvider`（`teacher-notification` Context）への問い合わせはいずれも読み取り専用アクセスであり、書き込みトランザクションの外で実行する
 
 ---
@@ -485,13 +490,14 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 ## Middleware
 
 - JWT等により認証済みユーザーを特定し、`teacher`ロールであることを確認する
+- `POST /api/v1/teacher/colleagues`はCookieで認可される状態変更であるため、CSRF検証の対象に含める（Gin規約「5. CSRF対策」の「適用範囲」）。一覧・詳細はGETのため対象外である
 
 ## Handler
 
 - ルーティングとHTTP入出力の変換のみを担当する
 - Active Record採用によりUseCase層を経由しないため、以下の手順をHandlerが行う:
   - current userの所属校IDを用いて、`List`／`Show`の取得範囲を同校にスコープする
-  - `Create`時、操作者自身の「他職員操作権限（`manage_other_teachers`）」を`TeacherPermissionStore.FindByUserID`で確認し、保持していない場合は以降のStore呼び出しに進まず403を返す。権限レコード自体が存在しない場合も、権限なしとして403を返す（②「13. Authorization設計」）
+  - `Create`時、操作者自身の「他職員操作権限（`manage_other_teachers`）」を`TeacherPermissionStore.FindByUserID`で確認し、保持していない場合は以降のStore呼び出しに進まず403を返す。権限レコード自体が存在しない場合も、権限なしとして403を返す（②「16. Authorization設計」）
   - `Create`時、指定学年が同校かどうかの判定材料としてcurrent userの所属校を`GradeReferenceChecker`・`ValidateGradeAssignment`に渡す
 
 ## Store／Model
@@ -501,13 +507,21 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 ## 判断理由
 
-「他職員操作権限」の要否は、ロール（`teacher`であるか）のような粗い認可ではなく、教員個人が持つ業務権限（`TeacherPermission.ManageOtherTeachers`）に基づく判定であるため、Middlewareのロールチェックとは別に、Handler処理内（`TeacherPermissionStore`経由）で確認する（アーキテクチャ規約7章「認可（所有権・業務権限）」の配置方針、Active Record採用時はHandler/Storeに従う）。
+「他職員操作権限」の要否は、ロール（`teacher`であるか）のような粗い認可ではなく、教員個人が持つ業務権限（`TeacherPermission.ManageOtherTeachers`）に基づく判定であるため、Middlewareのロールチェックとは別に、Handler処理内（`TeacherPermissionStore`経由）で確認する（アーキテクチャ規約「7. 横断的関心事の置き場所」が認可（所有権・業務権限）について定める配置方針。Active Record採用時はHandler/Store）。
 
 ---
 
 # 14. Error実装方針
 
-アーキテクチャ規約8章の指示に従い、本機能ではModel/Storeが返すエラーをそのままHandlerでHTTPレスポンスへ変換する2段階構成とする。エラー変数は管理者教員管理機能_Go実装仕様書「3. Domain層設計」Domain Errorの`errors.go`で定義済みのものを利用する。
+エラー変数は管理者教員管理機能_Go実装仕様書「3. Domain層設計」Domain Errorの`errors.go`で定義済みのものを利用する。
+
+Active Record採用のためDomain Errorに相当する層がなく、Model/Storeが返すsentinel errorをそのままApplication Error相当として扱う（規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。sentinel errorから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
+
+ステータスコードの決定は、Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
+
+レスポンスのボディは`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す（規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）。ただし詳細取得で対象教員が見つからない場合は、Rails現行が`{ "message": "<モデル名>が見つかりません" }`を返すため、互換を優先してこの形式を維持する（②「19. API仕様」、①「5. API / 処理詳細」`#show`）。
+
+以下の「Handlerで○○に変換する」は、`AppError`へ変換した結果としてミドルウェアがそのステータスを返すことを指す。
 
 ## Model/Storeが返すエラー → HTTPレスポンスへの変換方針
 
@@ -516,7 +530,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 - `TeacherPermissionStore.FindByUserID`が`ErrTeacherPermissionNotFound`（操作者の権限レコードが存在しない）を返した場合も、Handlerで403に変換する（Rails現行の`RequireManageOtherTeachers` concernが安全参照で判定することに合わせる）
 - `TeacherStore.FindByIDForHighSchool`が該当なしを表す`ErrTeacherNotFound`を返した場合、Handlerで404に変換する
 - `TeacherStore.CreateWithPermissionAndGrades`のトランザクション内で一部レコードのみ作成に失敗した場合は、ロールバックの上でエラーを返し、Handlerで422または500（原因に応じて）に変換する。`user` Contextの作成操作が返すValidationエラー（メールアドレスの形式不正・重複、氏名・氏名カナの必須・文字数）は422、内部エラーは500に変換する
-- DB接続失敗等は、Handlerで500に変換する
+- DB接続失敗等は、`fmt.Errorf`でラップして返す（コーディング規約「18. エラーハンドリング」）。`AppError`へ変換されずにミドルウェアへ到達した場合も、未分類のエラーとして500で扱う
 
 ## Status Code対応表
 
@@ -537,11 +551,11 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 # 15. GORM / DBクエリ設計
 
-②「17. DB設計方針」（既存Rails DBを継続利用、スキーマ変更なし）をもとに整理する。SQL文そのものは記載しない。
+②「20. DB設計方針」（既存Rails DBを継続利用、スキーマ変更なし）をもとに整理する。SQL文そのものは記載しない。
 
 ## 利用するGORMモデルとテーブルの対応
 
-**対象外（大部分）**。GORMモデル（`Teacher`：`users`、`TeacherPermission`：`teacher_permissions`、`TeacherGradeAssignment`：`teacher_grades`）とテーブル名の対応（`TableName()`の上書き含む）は、管理者教員管理機能_Go実装仕様書「12. GORM / DBクエリ設計」で定義済みのものをそのまま利用する（教員判定に用いる`user_roles`との結合条件も同書の「教員判定の共通条件」に従う）。本書では新規のGORMモデルを作成しない。
+**対象外（大部分）**。GORMモデル（`Teacher`：`users`、`TeacherPermission`：`teacher_permissions`、`TeacherGradeAssignment`：`teacher_grades`）とテーブル名の対応（`TableName()`の上書き含む）は、管理者教員管理機能_Go実装仕様書「15. GORM / DBクエリ設計」で定義済みのものをそのまま利用する（教員判定に用いる`user_roles`との結合条件も同書の「教員判定の共通条件」に従う）。本書では新規のGORMモデルを作成しない。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -549,7 +563,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 |Store／メソッド|条件|ソート|ページネーション|
 |-|-|-|-|
-|`TeacherStore.FindPageByHighSchool`|所属高校（`high_school_id`）一致、`users`と`user_roles`の結合により`user_roles.name`が教員（teacher）であること、論理削除されていないこと。取得後、教員ID一覧を`TeacherNotificationStatusProvider`へ渡し`invitation_status`をHandlerが付与する|`name_kana`昇順|`page` / `per_page`パラメータに基づくオフセット・件数制限（1ページあたり件数は既定値20件・上限100件。②「10. UseCase設計」ListTeachers）|
+|`TeacherStore.FindPageByHighSchool`|所属高校（`high_school_id`）一致、`users`と`user_roles`の結合により`user_roles.name`が教員（teacher）であること、論理削除されていないこと。取得後、教員ID一覧を`TeacherNotificationStatusProvider`へ渡し`invitation_status`をHandlerが付与する|`name_kana`昇順|`page` / `per_page`パラメータに基づくオフセット・件数制限（1ページあたり件数は既定値20件・上限100件。②「12. UseCase設計」ListTeachers）|
 |`TeacherStore.FindByIDForHighSchool`|`id`一致、所属高校一致、`users`と`user_roles`の結合により`user_roles.name`が教員（teacher）であること|-|-|
 |`TeacherStore.CreateWithPermissionAndGrades`|-（`users`の挿入は`user` Contextが行う。本書のStoreの挿入処理は`teacher_permissions`・`teacher_grades`で、`user_id`は`user` Contextが作成した教員のID）|-|-|
 |`TeacherPermissionStore.FindByUserID`|`user_id`一致（該当なしは`ErrTeacherPermissionNotFound`）|-|-|
@@ -557,7 +571,7 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 ## 既存Schemaへの変更
 
-②「17. DB設計方針」の「変更なし」のとおり、本機能によるスキーマ変更は行わない。
+②「20. DB設計方針」の「変更なし」のとおり、本機能によるスキーマ変更は行わない。
 
 ---
 
@@ -578,9 +592,9 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 ## Store Test（②「Repository Test」相当）
 
-管理者教員管理機能_Go実装仕様書「13. テストケース設計」Store Testを参照する（教師視点で利用する`TeacherStore.FindPageByHighSchool`の同校スコープ・`name_kana`昇順・ページネーション、`TeacherStore.CreateWithPermissionAndGrades`の3レコード同時作成（`users`は`user` Contextのスタブ）・ロールバック、`TeacherStore.FindByIDForHighSchool`の同校スコープ、`TeacherPermissionStore.FindByUserID`・`TeacherGradeStore.FindGradeIDsByUserID`の取得のテストケースを含む）。
+管理者教員管理機能_Go実装仕様書「16. テストケース設計」Store Testを参照する（教師視点で利用する`TeacherStore.FindPageByHighSchool`の同校スコープ・`name_kana`昇順・ページネーション、`TeacherStore.CreateWithPermissionAndGrades`の3レコード同時作成（`users`は`user` Contextのスタブ）・ロールバック、`TeacherStore.FindByIDForHighSchool`の同校スコープ、`TeacherPermissionStore.FindByUserID`・`TeacherGradeStore.FindGradeIDsByUserID`の取得のテストケースを含む）。
 
-本書固有の観点として、教師視点の指定（招待待ち=`true`・作成時に招待メールを送信=`false`・氏名カナ・学年IDを渡す）で`CreateTeacherAccount`が呼ばれること、招待メール送信依頼が登録されないことを、`Create`のHandler Test・Integration Testで確認する。`TeacherPermissionStore.FindByUserID`が対象レコードを取得できない場合（操作者の権限レコードが存在しない場合）は、`Create`のHandler Testで403になることを確認する（Store Testは管理者教員管理機能_Go実装仕様書「13. テストケース設計」の`TeacherPermissionStore.FindByUserID`を参照）。
+本書固有の観点として、教師視点の指定（招待待ち=`true`・作成時に招待メールを送信=`false`・氏名カナ・学年IDを渡す）で`CreateTeacherAccount`が呼ばれること、招待メール送信依頼が登録されないことを、`Create`のHandler Test・Integration Testで確認する。`TeacherPermissionStore.FindByUserID`が対象レコードを取得できない場合（操作者の権限レコードが存在しない場合）は、`Create`のHandler Testで403になることを確認する（Store Testは管理者教員管理機能_Go実装仕様書「16. テストケース設計」の`TeacherPermissionStore.FindByUserID`を参照）。
 
 ## Handler Test
 
@@ -607,18 +621,18 @@ EntityであるTeacher／TeacherPermission／TeacherGradeAssignmentをそのま�
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|presentation層を`teacher`サブパッケージ（`internal/teacher_management/presentation/teacher/`）として、管理者教員管理機能_Go実装仕様書の`admin`サブパッケージと分離した|管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」の②からの補足のとおり、同一Aggregateを2つのHandler群が操作する構成で、`TeacherHandler`・`teacher_handler.go`・`TeacherListResponse`・`routes.go`等の名前が衝突するため。両書で一貫した構造とする必要があるため、本書でも踏襲した（面談機能・教師面談機能の`student`/`teacher`分割と同じ方針）|補足（管理者教員管理機能_Go実装仕様書の構造判断を踏襲したものであり、②の設計方針自体は変更していない）|
+|presentation層を`teacher`サブパッケージ（`internal/teachermanagement/presentation/teacher/`）として、管理者教員管理機能_Go実装仕様書の`admin`サブパッケージと分離した|管理者教員管理機能_Go実装仕様書「2. ディレクトリ構成」の②からの補足のとおり、同一Aggregateを2つのHandler群が操作する構成で、`TeacherHandler`・`teacher_handler.go`・`TeacherListResponse`・`routes.go`等の名前が衝突するため。両書で一貫した構造とする必要があるため、本書でも踏襲した（面談機能・教師面談機能の`student`/`teacher`分割と同じ方針）|補足（管理者教員管理機能_Go実装仕様書の構造判断を踏襲したものであり、②の設計方針自体は変更していない）|
 |Model・Storeを管理者教員管理機能_Go実装仕様書で定義済みのものに一本化し、本書では新規作成しない構成とした|両機能は同一Bounded Context（`teacher-management`）・同一Aggregate（Teacher）で、同じ3テーブルに対するEntity・Storeを扱うため。二重定義を避ける|補足（アーキテクチャ規約4章「Context分割基準」に基づく構成）|
 |教員の所属校を表すフィールド・カラム名を`HighSchoolID`／`high_school_id`、権限・担当学年の教員参照を`UserID`／`user_id`とした|管理者教員管理機能_Go実装仕様書のModel・Storeの命名に合わせた。`users.high_school_id`・`teacher_permissions.user_id`・`teacher_grades.user_id`はRails `db/schema.rb`で確認済みのカラム名である|補足（管理者教員管理機能_Go実装仕様書の命名を踏襲したもの。カラム名はRails `db/schema.rb`で確認済み）|
-|`TeacherNotificationStatusProvider`を`teacher_management`パッケージ側で定義する消費者側interfaceとし、招待通知状況の付与を`TeacherStore`ではなく`TeacherHandler`で行う構成とした|②「3. Bounded Context」「10. UseCase設計」は`TeacherNotificationStatusStore`を参照専用で利用するとのみ記載し、具体的な呼び出し方式（DIの形）までは明記がない。`TeacherStore`は管理者視点と共有するため、教師視点のみが必要とする`teacher-notification` Contextへの依存を持たせない|推測|
+|`TeacherNotificationStatusProvider`を`teachermanagement`パッケージ側で定義する消費者側interfaceとし、招待通知状況の付与を`TeacherStore`ではなく`TeacherHandler`で行う構成とした|②「3. Bounded Context」「10. UseCase設計」は`TeacherNotificationStatusStore`を参照専用で利用するとのみ記載し、具体的な呼び出し方式（DIの形）までは明記がない。`TeacherStore`は管理者視点と共有するため、教師視点のみが必要とする`teacher-notification` Contextへの依存を持たせない|推測|
 |教師視点の新規作成における氏名カナ・メール形式の検証を、`teacher_onboarding.go`の`NewTeacherForOnboarding` / `Teacher.ValidateOnboarding`として本書が定義した|②「7. Value Object設計」のNameKana・Emailの検証は教師教員管理機能側の設計であり、管理者視点の招待（氏名カナに氏名と同じ値を設定し、カタカナ形式を検証しない）には適用されないため、共有するModelのうち教師視点でのみ呼び出すメソッドとして分離した|推測|
 |新規作成時の同校学年判定を、管理者教員管理機能_Go実装仕様書の`GradeReferenceChecker`と`ValidateGradeAssignment`（要素1つの`GradeAssignmentSet`）で行い、`ErrGradeNotInHighSchool`（422）とした|②「8. Domain Service」のTeacherGradeAssignmentPolicyは両機能で共通の概念であり、判定ロジックを二重に持たない。②は「指定学年が同校でない」のみを挙げており、「学年が存在しない」場合の扱いは明記がないため、存在しない場合も同校制約違反と同様に422とした|推測|
 |`GradeReferenceChecker`の実装側（`master-data` Context）の正確なpackage path|②は「`master-data` Context提供・参照専用」とのみ記載。`master-data` Contextの②/③文書は未整備である|実装時に確認が必要|
 |`TeacherPermissionStore.FindByUserID`が対象レコードを取得できない場合、`Create`では権限なしとして403とし、`Show`では権限情報を`null`として返す|①「5. API / 処理詳細」のとおり、Rails現行の`RequireManageOtherTeachers` concernは`current_user.teacher_permission&.manage_other_teachers?`と安全参照で判定するため、権限レコードがない操作者は権限なしとして403になる。詳細では`TeacherSerializer`が権限を`null`で返す。`ErrTeacherPermissionNotFound`を、管理者教員管理機能_Go実装仕様書「3. Domain層設計」の`errors.go`に定義している|①に基づく（推測ではない）|
 |`Show`における権限情報の取得を、共有する`TeacherPermissionStore.FindByUserID`で行う構成とした|②の出力仕様は「権限・担当学年を含む」だが、「呼び出すStore」に権限を扱うStoreが含まれない|推測|
-|`users`・`teacher_permissions`・`teacher_grades`テーブルの詳細カラム名|Rails `db/schema.rb`で確認済み（`users`: `name_kana`〔100文字以内〕・`deleted_at`・`high_school_id`・`user_role_id`等、`teacher_permissions`: `user_id`・`grade_scope`・`manage_other_teachers`、`teacher_grades`: `user_id`・`grade_id`）。教員であることの判定は`users.user_role_id`から`user_roles.name`を参照する形であり、`users`にロール名の列はない（管理者教員管理機能_Go実装仕様書「14. ②からの補足事項」参照）|確認済み（Rails `db/schema.rb`）|
+|`users`・`teacher_permissions`・`teacher_grades`テーブルの詳細カラム名|Rails `db/schema.rb`で確認済み（`users`: `name_kana`〔100文字以内〕・`deleted_at`・`high_school_id`・`user_role_id`等、`teacher_permissions`: `user_id`・`grade_scope`・`manage_other_teachers`、`teacher_grades`: `user_id`・`grade_id`）。教員であることの判定は`users.user_role_id`から`user_roles.name`を参照する形であり、`users`にロール名の列はない（管理者教員管理機能_Go実装仕様書「17. ②からの補足事項」参照）|確認済み（Rails `db/schema.rb`）|
 |Response DTOの詳細フィールド構成（一覧・詳細）|Rails側のSerializer実装（①）が未提供|推測|
-|`page`が不正な場合は1ページ目、`per_page`が不正な場合は既定値20件（上限100件）として扱い、エラー（422）にしない|②「10. UseCase設計」ListTeachers・「16. API互換方針」に記載のとおり、Rails現行の`ApplicationController`の共通設定（`DEFAULT_PER_PAGE` = 20、`MAX_PER_PAGE` = 100、`sanitized_page` / `sanitized_per_page`）に合わせる|Rails現行の挙動の反映（推測ではない）|
+|`page`が不正な場合は1ページ目、`per_page`が不正な場合は既定値20件（上限100件）として扱い、エラー（422）にしない|②「12. UseCase設計」ListTeachers・「16. API互換方針」に記載のとおり、Rails現行の`ApplicationController`の共通設定（`DEFAULT_PER_PAGE` = 20、`MAX_PER_PAGE` = 100、`sanitized_page` / `sanitized_per_page`）に合わせる|Rails現行の挙動の反映（推測ではない）|
 |新規教員作成時のパスワード・招待フローはCreateTeacherの入力・処理から除外した（仮パスワードの発行は`user` Contextの`CreateTeacherAccount`が行い、作成時にメールは送らない）|Rails現行の`Teacher::CreateTeacherForm`は作成時にメールを送らず、招待待ちで作成する。招待メールは教員招待通知機能（teacher-notification Context）が`user` Contextの`RequestInvitationEmail`を呼んで後から送る（②「3. Bounded Context」「15. Domain Event」、`user`②「12. UseCase設計」経路ごとの指定値）|②に準拠（新規の推測ではない）|
 
 ---
