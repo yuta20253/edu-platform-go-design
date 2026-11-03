@@ -95,7 +95,9 @@
 
 ### Response
 
-- 学年一覧（`id`, `year`, 表示名）
+- 最上位は**配列**である。キーでラップしない
+- 各要素は `id`・`year`・`display_name`（表示名）の3項目（`GradeSerializer`）。表示名は `year` から導出され、`中３生`（0）/ `高１生`（1）/ `高２生`（2）/ `高３生`（3）/ `高卒生`（4）/ `新高１生`（5）/ `新高２生`（6）/ `新高３生`（7）。該当しない場合は `不明`
+- ページネーションは行わない
 
 ### Errorケース
 
@@ -126,7 +128,10 @@
 
 ### Response
 
-- 学年一覧。各学年は `id`, `year`, 表示名, 所属クラス一覧（`id`, `name`）を含む
+- 最上位は**配列**である。キーでラップしない
+- 各要素は `Teacher::TeacherSchoolClassGradeSerializer` の4項目。学年の属性（`id`・`year`・`display_name`）を**フラットに**持ち、所属クラス一覧を `school_classes` キーの配列として持つ。学年の属性とクラス一覧が入れ子にならない点に注意する
+- `school_classes` の各要素は `id`・`name`（`SchoolClassSerializer`）
+- ページネーションは行わない
 
 ### Errorケース
 
@@ -161,8 +166,9 @@
 
 ### Response
 
+- 最上位は**ラップしないオブジェクト**である
 - `id`, `name`
-- `grade`: `GradeSerializer`
+- `grade`: `GradeSerializer`（`id`・`year`・`display_name`）
 - `teachers`: 担当教員の配列（各要素は `id`, `name`, `role`）
 - `students`: 在籍生徒の配列（各要素は `id`, `name`, `name_kana`。氏名カナ昇順）
 
@@ -208,7 +214,9 @@
 
 ### Response
 
+- 最上位は `school_class_requests` と `meta` の2キーである
 - `school_class_requests`: `Teacher::SchoolClassRequestSerializer` 一覧
+- `meta`: `current_page` / `total_pages` / `total_count` / `per_page` の4項目
 - `meta`
   - `current_page`
   - `total_pages`
