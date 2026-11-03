@@ -48,11 +48,11 @@
 
 - `user` Context: 教員としてのユーザーアカウント本体（氏名・氏名カナ・メールアドレス・ロール・所属校・学年）の作成は、`user` Contextの`CreateTeacherAccount`に依存する。教師による教員作成では、次のとおり指定する（`user`②「12. UseCase設計」の経路ごとの指定値）
   - 招待待ち状態で作成するか: する（Rails現行の`Teacher::CreateTeacherForm`は`password_reset_required`を真にして作成する）
-  - 作成時に招待メールを送るか: しない（Rails現行は作成時にメールを送らない。招待メールは、教員招待通知機能（teacher-notification）が後から送る。教員一覧の招待状況は「未送信」から始まる）
+  - 作成時に招待メールを送るか: しない（Rails現行は作成時にメールを送らない。招待メールは、教員招待通知機能（teacher-notification）が後から送る。教員一覧の招待状況は、通知が1件もない状態を表す`pending`から始まる）
   - 氏名・氏名カナ・メールアドレス・所属校ID・学年ID: 入力値（氏名カナ・学年IDを含む）を設定する。所属校IDは操作者の所属校とする
 - `master-data` Context: 担当学年の存在確認、同校判定に依存する
 - Teacher Permission Context: 着任時に初期権限（`grade_scope` / `manage_other_teachers`）を設定する。ただし作成後の権限変更ライフサイクルはTeacher Permission Contextが所有する。また、新規教員作成の実行可否そのものを判定する「他職員操作権限」の参照元でもある
-- Teacher Notification Context（teacher-notification）: 教員一覧取得時に、各教員への直近の招待通知状況（招待未送信／送信成功／送信失敗）を参照するために依存する（参照専用）
+- Teacher Notification Context（teacher-notification）: 教員一覧取得時に、各教員への直近の招待通知状況（`pending` / `sent` / `failed`。通知が1件もない場合も`pending`）を参照するために依存する（参照専用）
 
 ## 依存する理由
 
