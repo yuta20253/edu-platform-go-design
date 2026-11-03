@@ -351,7 +351,7 @@ Mail・Cache・Queueは対象外（作成時にメールを送らない。招待
 1. Middlewareが設定したcurrent user（`teacher`ロール、所属校ID）をcontextから取得する
 2. クエリパラメータ`page` / `per_page`をRequest DTOにバインドする。`per_page`は、未指定・数値でない値・0以下の場合は既定値20件、100を超える場合は100件に丸める（上限100件）。`page`は、未指定・数値でない値・0以下の場合は1ページ目として扱う。いずれもエラー（422）にしない（Rails現行の`sanitized_per_page` / `sanitized_page`と同一。②「12. UseCase設計」ListTeachers）
 3. `TeacherStore.FindPageByHighSchool(ctx, currentUser.HighSchoolID, page, perPage)`を呼び出し、同校の教員を氏名カナ順・ページネーション付きで取得する
-4. 取得した教員ID一覧を`TeacherNotificationStatusProvider.LatestStatuses(ctx, currentUser.HighSchoolID, teacherIDs)`へ渡し、各教員の直近の招待通知状況を取得する。通知が存在しない教員は「未送信」として扱う（②「3. Bounded Context」「16. API互換方針」）
+4. 取得した教員ID一覧を`TeacherNotificationStatusProvider.LatestStatuses(ctx, currentUser.HighSchoolID, teacherIDs)`へ渡し、各教員の直近の招待通知状況を取得する。`LatestStatuses`の戻り値に含まれない教員（通知が1件もない教員）は`pending`として扱う（①「5. API / 処理詳細」`#index`のとおり、Rails現行も通知がない場合は`pending`を返す）
 5. 取得結果と招待通知状況を組み合わせてResponse DTO（`invitation_status`を含む）へ変換して返す
 
 ### `Show` 処理順序（②10節`ShowTeacher`に対応）
@@ -600,7 +600,7 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 
 |対象|テストケース|
 |-|-|
-|`TeacherHandler.List`|正常系：200で教員一覧・ページ情報・招待通知状況（`invitation_status`）が返ること（通知が存在しない教員は「未送信」となること）／`page` / `per_page`が不正な場合にエラーにならず、それぞれ1ページ目・既定値20件として扱われること／`per_page`が100を超える場合に100件に丸められること／`meta`相当のページ情報に`current_page` / `total_pages` / `total_count` / `per_page`が含まれること|
+|`TeacherHandler.List`|正常系：200で教員一覧・ページ情報・招待通知状況（`invitation_status`）が返ること（通知が1件もない教員は`pending`となること）／`page` / `per_page`が不正な場合にエラーにならず、それぞれ1ページ目・既定値20件として扱われること／`per_page`が100を超える場合に100件に丸められること／`meta`相当のページ情報に`current_page` / `total_pages` / `total_count` / `per_page`が含まれること|
 |`TeacherHandler.Show`|正常系：200で教員詳細（権限・担当学年を含む）が返ること／存在しない・同校でないIDの場合に404が返ること|
 |`TeacherHandler.Create`|正常系：201で`message`のみが返り、作成された教員の情報が含まれないこと／`manage_other_teachers`権限がない操作者の場合に403が返ること／操作者の権限レコードが存在しない場合も403が返ること／必須項目欠落・フォーマット不正の場合に422が返ること／氏名カナ形式不正の場合に422が返ること／メール形式不正の場合に422が返ること／`grade_scope`不正の場合に422が返ること／指定学年が同校でない場合に422が返ること|
 

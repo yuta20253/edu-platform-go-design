@@ -206,18 +206,29 @@ classDiagram
 - 管理対象: TeacherNotification
 - 責務:
   - 送信結果の一括作成
-  - 同校の招待未完了教員一覧の取得（`user` Context参照を含む）
   - 送信結果履歴の取得（送信者が同校、日付絞り込み任意）
+  - 教員ごとの直近の送信結果の取得（`teacher-management` Contextへの参照提供）
 - 保持する検索機能:
-  - high_school_idによる絞り込み（招待未完了教員一覧・履歴の双方）
-  - 招待未完了（パスワード未設定）による絞り込み
+  - high_school_idによる絞り込み（履歴取得。送信者の所属校で判定する）
   - sent_atの日付絞り込み（履歴取得時）
   - 送信日時降順のソート
 - 保持しない責務:
+  - **招待未完了教員一覧の取得**。`users`を本Contextから直接引かず、`user` Contextの`SearchUsers`（役割・所属校・招待完了状態・無効化の扱いを指定）を呼ぶ（下記「他Contextの参照手段」）
   - 送信対象の絞り込み判定そのもの（InvitationEligibilityFilterが担う）
   - 教員アカウント自体の作成・更新
   - 招待メールの組み立て・パスワード設定用トークンの発行・メール送信（`user` Contextの`RequestInvitationEmail`が担う）
 - 判断根拠: 送信結果の永続化・検索に責務を限定し、絞り込みロジックはInvitationEligibilityFilter、教員アカウントの真正な管理は`user` Contextに委ねるため
+
+## 他Contextの参照手段
+
+- 取得元: `user` Context（`SearchUsers`）
+- 責務:
+  - 同校の招待未完了教員の一覧を取得する（絞り込み条件に役割`teacher`・所属校・招待完了状態「招待待ち」を指定し、無効化の扱いは「無効化済みを含む」とする）
+  - 送信対象として指定された教員IDのうち、上記の条件を満たすものに絞り込む（同じ`SearchUsers`に除外前のIDを指定する）
+- 保持しない責務:
+  - 送信対象として妥当かどうかの最終判断（InvitationEligibilityFilterの責務）
+- 判断根拠: 「招待未完了とは何か」の判断を`user` Contextに集約するためである。本Contextが`users`を独自に解釈すると判断が2箇所に分かれる。`user`②「3. Bounded Context」の依存表も、本Contextの参照手段を`SearchUsers`と定めている。規約「5. Context間連携ルール」に従い、そのためのインターフェースは本Contextの`dependency.go`に置く
+- 無効化の扱い: 「無効化済みを含む」を指定する。Rails現行の絞り込みが論理削除を判定していないため（①「5. API / 処理詳細」`#index`の業務ルール）、現行の挙動を変えない
 
 ---
 
@@ -241,7 +252,7 @@ classDiagram
 - 出力: 受付結果（送信処理を開始した旨）
 - トランザクション範囲: 使用しない（各教員への送信・記録は独立した処理であり、全体を1トランザクションにまとめる必要がない）。招待メールの送信依頼は、トランザクションの外から呼ぶ（`user`②「12. UseCase設計」の`RequestInvitationEmail`（即時）の規定）
 - 呼び出すStore: TeacherNotificationStore（current teacherの「他職員操作権限」確認、InvitationEligibilityFilterによる送信対象確定後、対象教員ごとに送信・記録）
-- 呼び出す他Contextの操作: `user` Contextの`RequestInvitationEmail`（実行方式「即時」）。対象教員ごとのgoroutine内で、教員のIDを渡して呼び、結果（送信成功／送信失敗／送信対象外）を受け取る。結果は次のとおり`TeacherNotification`として記録する（6章）
+- 呼び出す他Contextの操作: `user` Contextの`RequestInvitationEmail`（実行方式「即時」）。1リクエストにつき1つのgoroutineを起動し、その中で対象教員を順に処理する。教員のIDを渡して呼び、結果（送信成功／送信失敗／送信対象外）を受け取る。結果は次のとおり`TeacherNotification`として記録する（6章）。1人の送信失敗は他の対象教員の処理を止めない
   - 送信成功→`sent`＋`sent_at`
   - 送信失敗→`failed`（`sent_at`なし）
   - 送信対象外→`failed`（`sent_at`なし）
@@ -282,7 +293,7 @@ sequenceDiagram
         S->>F: teacher_idsを同校・招待未完了で絞り込み
         F-->>S: 送信対象の教員一覧
         S-->>H: 202 Accepted（受付完了）
-        par 対象教員ごとに独立して実行（goroutine。トランザクションの外）
+        loop 対象教員ごとに順に実行（1リクエストに1つのgoroutine。トランザクションの外）
             S->>R: 招待メールの送信を依頼（教員ID・実行方式=即時）
             Note over R: トークン発行・メール組み立て・送信はuserが行う
             R-->>S: 送信成功 / 送信失敗 / 送信対象外
@@ -410,7 +421,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 
 実装上は、対象教員ごとの送信処理をアーキテクチャ規約13章（非同期ジョブ実行パターン）の「ベストエフォートで良い処理」として扱う。招待メールの送信は、失敗しても操作者が再度対象教員を選択して送信し直せる（Rails現行仕様「業務ルール」節: `teacher_ids`が空でもエラーにならない）ため、パスワードリセットメール送信と同様、確実な再試行（`jobs`テーブル）までは必須としない。
 
-対象教員ごとのgoroutine内では、`user` Contextの`RequestInvitationEmail`を実行方式「即時」で呼ぶ。`jobs`へ登録する実行方式（「登録」）は使わない。本Contextは送信の結果を`TeacherNotification`として作成時に一度だけ確定させる構造であり、結果が呼び出しの戻り値として得られる「即時」であれば、記録の更新や、`jobs`の状態の参照・完了の通知（依存の向きの逆転や、`teacher_notifications`と`jobs`の対応付けを要する）が不要になるためである（`user`②「12. UseCase設計」「24. 採用しなかった設計」）。
+起動した1つのgoroutine内で対象教員を順に処理し、教員ごとに`user` Contextの`RequestInvitationEmail`を実行方式「即時」で呼ぶ。`jobs`へ登録する実行方式（「登録」）は使わない。本Contextは送信の結果を`TeacherNotification`として作成時に一度だけ確定させる構造であり、結果が呼び出しの戻り値として得られる「即時」であれば、記録の更新や、`jobs`の状態の参照・完了の通知（依存の向きの逆転や、`teacher_notifications`と`jobs`の対応付けを要する）が不要になるためである（`user`②「12. UseCase設計」「24. 採用しなかった設計」）。
 
 ---
 
@@ -530,7 +541,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 | Controller（TeacherNotificationsController, TeacherNotificationResultsController） | Handler | HTTP入出力のみを担当する |
 | Controller内の他職員操作権限チェック | Handler処理内の権限確認（TeacherNotificationStore経由） | ロール確認（Middleware）とは別に、業務権限の判定として明示的に配置する |
 | Service（Teacher::TeacherNotificationSenderService） | SendInvitationNotifications（Handler処理）+ InvitationEligibilityFilter | 送信対象の絞り込みロジックを独立させ、一覧取得・一括送信の双方から再利用する |
-| Job（Teacher::TeacherNotificationJob）の対象教員ごとのループ・記録 | ベストエフォート非同期処理（規約13章。対象教員ごとのgoroutine） | 対象教員ごとの独立した送信依頼・記録処理として実装する。結果は戻り値で受け取り、`TeacherNotification`を作成時に一度だけ確定させる |
+| Job（Teacher::TeacherNotificationJob）の対象教員ごとのループ・記録 | ベストエフォート非同期処理（規約13章。1リクエストに1つのgoroutineで順に処理する） | 対象教員ごとの独立した送信依頼・記録処理として実装する。結果は戻り値で受け取り、`TeacherNotification`を作成時に一度だけ確定させる |
 | Job（Teacher::TeacherNotificationJob）の送信部分（トークン発行 + `AuthMailer#invite_user` + `deliver_now`） | `user` Contextの`RequestInvitationEmail`（実行方式「即時」） | 送信手順とメールの内容を、アカウント作成時の送信と共通の1箇所（`user`）に集約する。本Contextはメール送信基盤を直接呼ばず、トークン発行とメール組み立てを持たない |
 | Model（TeacherNotification） | TeacherNotification（struct）+ TeacherNotificationStore（同一package） | 送信結果の保持と永続化をstruct/Storeに整理する |
 | Serializer（Teacher::UnsentTeacherSerializer, Teacher::TeacherNotificationSerializer） | Presenter / Response DTO | レスポンス整形を分離する |
@@ -576,7 +587,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 |Domain Event|未採用|対象教員1人につき送信→記録という1対1の処理であり、複数宛先への波及的な非同期通知に該当しないため|
 |Value Object|採用（InvitationStatus）|許容される送信結果の値を型として明示するため|
 |Domain Service|InvitationEligibilityFilter|送信対象の絞り込みがTeacherNotification単体の責務に収まらないため|
-|招待メールの送信|`user` Contextの`RequestInvitationEmail`（実行方式「即時」）を、対象教員ごとのgoroutine内で、トランザクションの外から呼ぶ|メールの内容・トークン発行・送信手順をアカウント作成時の送信と1箇所に集約し、再送の結果を戻り値で受け取って作成時に一度だけ確定させる構造を保つため|
+|招待メールの送信|`user` Contextの`RequestInvitationEmail`（実行方式「即時」）を、1リクエストにつき1つ起動したgoroutine内で対象教員ごとに順に、トランザクションの外から呼ぶ|メールの内容・トークン発行・送信手順をアカウント作成時の送信と1箇所に集約し、再送の結果を戻り値で受け取って作成時に一度だけ確定させる構造を保つため|
 |送信結果の記録|送信成功→`sent`＋`sent_at`、送信失敗・送信対象外→`failed`（`sent_at`なし）|Rails現行の記録（成功は`sent`と`sent_at`、例外は`failed`で`sent_at`なし）を維持するため|
 |Authorization|Middleware + Handler|ロール確認と、送信結果履歴参照には課さない非対称な業務権限確認を分離して管理しやすくするため|
 
@@ -594,9 +605,9 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 ## Go設計での変更内容
 
 - 送信対象の絞り込みロジックをInvitationEligibilityFilter（Domain Service相当）として独立させ、一覧取得・一括送信の双方から再利用する
-- 対象教員ごとの送信・記録を、規約13章のベストエフォート非同期処理（対象教員ごとのgoroutine）として明確化する
+- 対象教員ごとの送信・記録を、規約13章のベストエフォート非同期処理（1リクエストに1つのgoroutineで順に処理する）として明確化する
 - 他職員操作権限の確認をHandler処理内の明示的なステップとして位置づける
-- 招待メールの送信（トークン発行・メール組み立て・メール送信基盤の呼び出し）を本Contextから外し、`user` Contextの`RequestInvitationEmail`（実行方式「即時」）の呼び出しに置き換える。呼び出しは、対象教員ごとのgoroutine内で、トランザクションの外から行い、結果（送信成功／送信失敗／送信対象外）を戻り値として受け取る
+- 招待メールの送信（トークン発行・メール組み立て・メール送信基盤の呼び出し）を本Contextから外し、`user` Contextの`RequestInvitationEmail`（実行方式「即時」）の呼び出しに置き換える。呼び出しは、1リクエストにつき1つ起動したgoroutine内で対象教員ごとに順に、トランザクションの外から行い、結果（送信成功／送信失敗／送信対象外）を戻り値として受け取る
 - 結果を、送信成功→`sent`＋`sent_at`、送信失敗・送信対象外→`failed`（`sent_at`なし）として`TeacherNotification`へ記録する（Rails現行の記録と同じ。送信対象外は、Rails現行にない結果であり、`failed`に含める）
 
 ## 変更理由

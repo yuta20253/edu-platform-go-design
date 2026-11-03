@@ -22,7 +22,7 @@ Transaction Script・Domain Model・Event Sourcingは②「4. 設計パターン
 
 - Bounded Context: `teacher-notification`
 - 対象操作: 招待未完了教員一覧取得（ListUnsentTeachers）、招待通知一括送信（SendInvitationNotifications）、送信結果履歴取得（ListNotificationResults）
-- 招待メールの送信は、`user` Contextの`RequestInvitationEmail`（実行方式「即時」。`user`②「12. UseCase設計」）を、対象教員ごとのgoroutine内でトランザクションの外から呼ぶ形で行う。本Contextは、メール送信基盤の直接呼び出し・パスワード設定用トークンの発行・メールの組み立てを実装しない。結果（送信成功／送信失敗／送信対象外）は戻り値として受け取り、送信成功→`sent`＋`sent_at`、送信失敗・送信対象外→`failed`（`sent_at`なし）として記録する（②「6. Entity設計」）
+- 招待メールの送信は、`user` Contextの`RequestInvitationEmail`（実行方式「即時」。`user`②「12. UseCase設計」）を、1リクエストにつき1つ起動したgoroutine内で対象教員ごとに順に、トランザクションの外から呼ぶ形で行う（②「12. UseCase設計」）。本Contextは、メール送信基盤の直接呼び出し・パスワード設定用トークンの発行・メールの組み立てを実装しない。結果（送信成功／送信失敗／送信対象外）は戻り値として受け取り、送信成功→`sent`＋`sent_at`、送信失敗・送信対象外→`failed`（`sent_at`なし）として記録する（②「6. Entity設計」）
 - 規約「3. 設計パターンごとの構造適用方針」のActive Record構造（domain層・infrastructure層のレイヤー分離、usecase層を設けない）で実装する
 - ①Rails現行仕様書（教員招待通知機能_Rails現行仕様書）の記載を、各APIの入力項目・処理内容・業務ルール・権限制御・Errorケースの根拠とする
 
@@ -65,6 +65,8 @@ internal/teachernotification/
 |`internal/teachernotification/store.go`|`TeacherNotificationStore`の定義とメソッド|
 |`internal/teachernotification/invitation_email.go`|`InvitationEmailRequester`（`user`の`RequestInvitationEmail`を実行方式「即時」で呼ぶための、利用側が定義するinterface）と`InvitationEmailOutcome`型（結果の3値）|
 |`internal/teachernotification/errors.go`|Model/Storeが返すエラー変数の定義|
+|`internal/teachernotification/dependency.go`|`UserDirectory`（`user` Contextの`SearchUsers`を呼ぶ参照用インターフェース）・`TeacherIdentity`|
+|`internal/teachernotification/infrastructure/contextadapter/user_directory.go`|`UserDirectory`の実装（`user` Contextの`SearchUsers`へ委譲する。規約「4. Bounded Context構成」）|
 |`internal/teachernotification/presentation/handler/teacher_notification_handler.go`|`TeacherNotificationHandler`（ListUnsentTeachers/SendInvitationNotifications/ListNotificationResults）|
 |`internal/teachernotification/presentation/request/teacher_notification_request.go`|Request DTO|
 |`internal/teachernotification/presentation/response/teacher_notification_response.go`|Response DTO|
@@ -102,7 +104,7 @@ internal/teachernotification/
 
 ## Domain Service
 
-**対象外**。②「8. Domain Service」の`InvitationEligibilityFilter`は、アーキテクチャ規約4章の指示（Active Record採用時、検証ルールはModelのメソッドとして記載。ただし本判定は送信対象一覧という複数レコードを扱うDB参照を要するため、Modelのメソッドではなく`TeacherNotificationStore.FilterEligibleTeacherIDs`として実装する）に従い、Storeのメソッドとして統合した（詳細は「5. Infrastructure層設計」参照）。
+**対象外**。②「8. Domain Service」の`InvitationEligibilityFilter`は、アーキテクチャ規約4章の指示（Active Record採用時、検証ルールはModelのメソッドとして記載。ただし本判定は送信対象一覧という複数レコードを扱う他Contextの参照を要するため、Modelのメソッドではなく`dependency.go`の`UserDirectory.ListInvitationPendingTeachers`（`user` Contextの`SearchUsers`へ委譲する）として実装する）に従い、他Contextの参照手段として統合した（詳細は「8. Infrastructure層設計」参照）。
 
 ## Domain Error（struct/Storeが返すエラー）
 
@@ -146,12 +148,15 @@ classDiagram
       +RequestInvitationEmail(ctx, userID) InvitationEmailOutcome, error
     }
     class TeacherNotificationStore {
-      +ListUnsentTeachers(ctx, highSchoolID) []TeacherIdentity, error
-      +FilterEligibleTeacherIDs(ctx, highSchoolID, teacherIDs) []TeacherIdentity, error
+      +Create(ctx, n *TeacherNotification) error
       +Create(ctx, n) error
       +ListNotificationResults(ctx, highSchoolID, sentAtDate) []TeacherNotificationResult, error
       +HasManageOtherTeachersPermission(ctx, teacherID) bool, error
       +LatestStatuses(ctx, highSchoolID, teacherIDs) map, error
+    }
+    class UserDirectory {
+      <<interface>>
+      +ListInvitationPendingTeachers(ctx, highSchoolID uint, onlyTeacherIDs []uint) []TeacherIdentity, error
     }
 
     TeacherNotification --> InvitationStatus : 保持
@@ -188,6 +193,7 @@ classDiagram
 sequenceDiagram
     participant H as TeacherNotificationHandler
     participant S as TeacherNotificationStore
+    participant D as UserDirectory（user: SearchUsers）
     participant R as InvitationEmailRequester（user: RequestInvitationEmail・即時）
 
     H->>S: HasManageOtherTeachersPermission(ctx, currentTeacherID)
@@ -195,8 +201,8 @@ sequenceDiagram
         S-->>H: false
         H-->>H: 403 ErrManageOtherTeachersRequired
     else 権限あり
-        H->>S: FilterEligibleTeacherIDs(ctx, highSchoolID, teacherIDs)
-        S-->>H: 送信対象の教員一覧
+        H->>D: ListInvitationPendingTeachers(ctx, highSchoolID, teacherIDs)
+        D-->>H: 送信対象の教員一覧
         H-->>H: 202 Accepted（受付完了）
         H--)H: goroutine起動（ベストエフォート。トランザクションの外）
         loop 対象教員ごとに順に実行
@@ -245,8 +251,8 @@ sequenceDiagram
 
 |メソッド|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
-|`ListUnsentTeachers`|`ctx context.Context, highSchoolID uint`|`[]TeacherIdentity, error`|`users`テーブルを対象に、`high_school_id = highSchoolID`かつ教員ロールかつパスワード未設定（招待未完了。②「6. Entity設計」の「Teacher（外部参照）」に対応するフィールドを参照。②からの補足：`password_reset_required`相当のフィールドと仮定する）の条件で取得する。無効化済み（`deleted_at`あり）の教員は除外しない（Rails現行の絞り込みと同じ。②「設計差分管理」の「Rails現行との差」）|
-|`FilterEligibleTeacherIDs`|`ctx context.Context, highSchoolID uint, teacherIDs []uint`|`[]TeacherIdentity, error`|`ListUnsentTeachers`と同条件に加え、`id IN (teacherIDs)`で絞り込む。同校でない教員・招待完了済みの教員が指定されてもエラーとせず単に結果から除外する（②8章`InvitationEligibilityFilter`のルール）|
+|~~`ListUnsentTeachers`~~|—|—|**本Storeには置かない。** `users`は`user` Contextが所有するため、`dependency.go`の`UserDirectory.ListInvitationPendingTeachers`経由で`user` Contextの`SearchUsers`を呼ぶ（②「11. Repository設計」の「他Contextの参照手段」）。Rails現行の絞り込みと同じ。②「設計差分管理」の「Rails現行との差」）|
+|~~`FilterEligibleTeacherIDs`~~|—|—|**本Storeには置かない。** `UserDirectory.ListInvitationPendingTeachers`に対象IDを渡して絞り込む。同校でない教員・招待完了済みの教員が指定されてもエラーとせず単に結果から除外する（②8章`InvitationEligibilityFilter`のルール）|
 |`Create`|`ctx context.Context, n *TeacherNotification`|`error`|`teacher_notifications`へ1件挿入する。`SentAt`が未設定（`failed`）の場合は、`sent_at`列をNULLで挿入する。トランザクションは使わない単発のINSERTである（11章）|
 |`ListNotificationResults`|`ctx context.Context, highSchoolID uint, sentAtDate *time.Time`|`[]TeacherNotificationResult, error`|`teacher_notifications`と`users`（送信者・送信先教員の氏名取得のため）を結合し、送信者が同校であることで絞り込む。`sentAtDate`が指定されている場合、その日付の0時〜24時で`sent_at`を絞り込む（`sent_at`がNULLの`failed`は、指定時の結果に含まれない）。送信日時降順でソートする（②16章・21章。`sent_at`がNULLの行は、MySQLの降順では末尾になる。Rails現行の同じ並び順と同じ動作。推測）|
 |`HasManageOtherTeachersPermission`|`ctx context.Context, teacherID uint`|`(bool, error)`|`teacher_permissions`テーブルを`user_id = teacherID`で1件取得し、`manage_other_teachers`列を返す。レコードが存在しない場合は`false`を返す（権限なしとして扱う。①「8. 権限制御」）。`teacher-permission` Contextが所有するテーブルの参照専用読み取りであり、クラス編成機能の`TeacherPermissionRepository`と同様の役割だが、Active Record採用のためStoreメソッドとして直接実装する|
@@ -293,7 +299,7 @@ sequenceDiagram
 
 1. Middlewareが設定したcurrent user（`teacher`ロール、所属校ID）をcontextから取得する
 2. 一覧の取得に他職員操作権限は不要である（①「8. 権限制御」。Rails現行の`before_action`の対象は`create`のみ）。同校スコープのみを適用する
-3. `TeacherNotificationStore.ListUnsentTeachers(ctx, currentUser.SchoolID)`を呼び出す
+3. `UserDirectory.ListInvitationPendingTeachers(ctx, currentUser.SchoolID, nil)`を呼び出す（`user` Contextの`SearchUsers`へ委譲する。②「11. Repository設計」の「他Contextの参照手段」）
 4. 取得結果を`[]response.UnsentTeacherResponse`へ変換し、最上位を配列として200を返す
 
 ### `SendInvitationNotifications` 処理順序（②12節`SendInvitationNotifications`に対応）
@@ -301,7 +307,7 @@ sequenceDiagram
 1. current userをcontextから取得する
 2. `TeacherNotificationStore.HasManageOtherTeachersPermission`を確認する。`false`の場合、および操作者の権限レコードが存在しない場合は、`ErrManageOtherTeachersRequired`を返し403とする（②13章：Handler処理内で明示的に確認する）
 3. Request Bodyを`request.SendInvitationNotificationsRequest`にバインドする（`teacher_ids`は任意・空でもエラーとしない。②15章）
-4. `TeacherNotificationStore.FilterEligibleTeacherIDs(ctx, currentUser.SchoolID, req.TeacherIDs)`を呼び出し、送信対象を確定する
+4. `UserDirectory.ListInvitationPendingTeachers(ctx, currentUser.SchoolID, req.TeacherIDs)`を呼び出し、送信対象を確定する
 5. `response.MessageResponse`を202で返す
 6. レスポンス返却後、goroutineを起動し、対象教員ごとに次を行う（1人の送信失敗が他の対象教員への送信処理に影響しない。②「14. Transaction設計」）
    1. `NewTeacherNotification(currentUser.ID, teacher.ID, teacher.Email)`でインスタンスを生成する
@@ -398,7 +404,7 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 ## 業務ルール検証（Active Record: Storeのメソッド）
 
 - `TeacherNotificationHandler`（Store経由）: 操作者が「他職員操作権限」を持つこと（一括送信時のみ）
-- `TeacherNotificationStore.FilterEligibleTeacherIDs`: 送信対象が同校かつ招待未完了であること。同校でない・招待完了済みの教員はエラーとせず対象から除外する（②12章・15章の責務分離方針どおり）。無効化済みの教員は除外しない
+- `UserDirectory.ListInvitationPendingTeachers`: 送信対象が同校かつ招待未完了であること。同校でない・招待完了済みの教員はエラーとせず対象から除外する（②12章・15章の責務分離方針どおり）。無効化済みの教員は除外しない
 - `user`の`RequestInvitationEmail`: 対象の教員が存在し、無効化されていないか（招待メールを実際に送ってよいか）の最終判定は、本Contextではなく`user`が行う。該当しない場合は`InvitationEmailOutcomeNotApplicable`として返り、`failed`（`sent_at`なし）として記録する（②15章）
 
 ---
@@ -415,11 +421,11 @@ Rails現行仕様書は「1人の教員へのメール送信が失敗しても�
 
 - 一括送信の実行前に、current teacherが「他職員操作権限（`manage_other_teachers`）」を保持しているかを`TeacherNotificationStore.HasManageOtherTeachersPermission`で確認し、保持していない場合は処理を中断する。招待未完了教員一覧の取得ではこの確認を行わない（①「8. 権限制御」）
 - 送信結果履歴の参照には、この権限確認を行わない（同校の教師であれば誰でも閲覧できる）
-- `user`の`RequestInvitationEmail`は認可を行わない（`user`②「16. Authorization設計」）。「その教員へ送ってよいか」（他職員操作権限・同校・招待未完了）は、上記の権限確認と`FilterEligibleTeacherIDs`で判定済みの教員に限って呼ぶ
+- `user`の`RequestInvitationEmail`は認可を行わない（`user`②「16. Authorization設計」）。「その教員へ送ってよいか」（他職員操作権限・同校・招待未完了）は、上記の権限確認と`ListInvitationPendingTeachers`で判定済みの教員に限って呼ぶ
 
 ## Store／Model
 
-- `TeacherNotificationStore.FilterEligibleTeacherIDs`が、同校でない教員・招待完了済みの教員を送信対象から除外する
+- `UserDirectory.ListInvitationPendingTeachers`が、同校でない教員・招待完了済みの教員を送信対象から除外する
 
 ## 判断理由
 
@@ -472,8 +478,7 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 
 |Store／メソッド|条件|ソート|ページネーション|
 |-|-|-|-|
-|`ListUnsentTeachers`|`high_school_id`一致、教員ロール、パスワード未設定（無効化済みは除外しない）|-（推測。②に明記なし）|なし（全件返却。②21章）|
-|`FilterEligibleTeacherIDs`|`ListUnsentTeachers`と同条件 ＋ `id IN (teacherIDs)`|-|なし|
+|（`UserDirectory`経由）|本Contextからは`users`へクエリを発行しない。絞り込み（所属校・教員ロール・招待待ち・対象IDの指定・無効化済みを含む）は`user` Contextの`SearchUsers`が行う|`SearchUsers`はID昇順（`user`②「11. Repository設計」）|なし（全件返却。②21章）|
 |`Create`|-（挿入処理。`failed`は`sent_at`をNULLで挿入する）|-|-|
 |`ListNotificationResults`|`sender_user_id`が同校、`sent_at`の日付範囲（任意。指定時は`sent_at`がNULLの`failed`は含まれない）|送信日時降順（`sent_at`がNULLの行は末尾。推測）|なし（全件返却。②21章「推測：対象件数が少数であることを前提とした設計」）|
 |`HasManageOtherTeachersPermission`|`teacher_id`一致|-|-|
@@ -506,8 +511,8 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 
 |対象|テストケース|
 |-|-|
-|`ListUnsentTeachers`|同校かつ招待未完了の教員のみが取得されること／無効化済み（`deleted_at`あり）の同校・招待未完了の教員も除外されず取得されること（Rails現行と同じ）|
-|`FilterEligibleTeacherIDs`|指定IDのうち同校・招待未完了の教員のみが返ること／同校でない・招待完了済みの教員が指定されてもエラーとならず除外されること（②の重点検証項目）／無効化済みの同校・招待未完了の教員が除外されないこと|
+|`UserDirectory`の実装|`user` Contextの`SearchUsers`を、役割`teacher`・所属校・招待完了状態「招待待ち」・無効化の扱い「無効化済みを含む」の指定で呼ぶこと（Rails現行と同じ絞り込みになること）|
+|`UserDirectory`の実装|対象IDを指定した場合、そのうち同校・招待未完了の教員のみが返ること／同校でない・招待完了済みの教員が指定されてもエラーとならず除外されること（②の重点検証項目）／無効化済みの同校・招待未完了の教員が除外されないこと|
 |`Create`|送信結果が正しく作成されること（`sent`は`sent_at`あり、`failed`は`sent_at`がNULLで作成されること）|
 |`ListNotificationResults`|送信者が同校の結果のみ取得されること／`sent_at`指定時に日付範囲で絞り込まれること（`sent_at`がNULLの`failed`は含まれないこと）／送信日時降順でソートされること／`sent_at`がNULLの`failed`が`SentAt = nil`で返ること|
 |`HasManageOtherTeachersPermission`|権限あり・なしのそれぞれで正しい真偽値が返ること|
@@ -538,6 +543,7 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 |-|-|-|
 |ディレクトリ名を`internal/teachernotification`とした|②のContext名`teacher-notification`とディレクトリ名の対応関係が②に明記がない|推測|
 |招待未完了判定を`users`テーブルのパスワード未設定フィールド（`password_reset_required`相当）で行う構成とした|②「6. Entity設計」が「推測: 教師生徒参照機能・教師教員管理機能のデータモデルに記載された`password_reset_required`フィールドと同一の仕組みを、招待完了判定に用いると仮定する」と明記している内容をそのまま踏襲した|②に準拠（②自身が「推測」と明記）|
+|招待未完了教員の取得を本Storeに持たせず、`dependency.go`の`UserDirectory`経由で`user` Contextの`SearchUsers`を呼ぶ構成とした|`user`②「3. Bounded Context」の依存表が、本Contextの参照手段を`SearchUsers`と定めている。規約「5. Context間連携ルール」により、他Contextが所有する`users`を本Contextから直接引かない|`user`②・規約に基づく（推測ではない）|
 |`TeacherNotificationStore.LatestStatuses`を新設し、教師教員管理機能側の`TeacherNotificationStatusProvider`インターフェースを構造的に満たす形で提供する構成とした|②「3. Bounded Context」「12. UseCase設計」（教師教員管理機能側②文書）が参照専用での利用を明記しているが、具体的なメソッドシグネチャは②のいずれにも記載がない|推測|
 |`teacher_ids`が空配列で送信された場合、送信対象が0件（実質何も送信しない）として扱う方針とした|①「5. API / 処理詳細」の「`teacher_ids` が空、または対象が0件でも、送信処理自体はエラーにはならず受け付けられる（実際に送信される教員が0人になるのみ）」に従う|①に基づく（推測ではない）|
 |`InvitationEmailRequester`（利用側のinterface）と`InvitationEmailOutcome`型を`teacher_notification`パッケージに定義し、`user`の`RequestInvitationEmail`（即時）を呼ぶアダプタで実装する構成とした。アダプタの詳細（公開関数の具体的なシグネチャ・配置）は、`user`③の作成後に確定する|②「3. Bounded Context」は`user`の`RequestInvitationEmail`（即時）を呼ぶと定めるが、Goのinterface・型名は②に記載がない。コーディング規約「7. インターフェース」（利用側で定義）に従った。`user`の③が未作成のため、公開関数のシグネチャは確定できない|推測|
@@ -545,8 +551,8 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 |`TeacherNotification.SentAt`と`TeacherNotificationResult.SentAt`をポインタ（`*time.Time`）、`MarkFailed`を引数なしとし、`NotificationResultResponse.FormattedSentAt`を`*string`とした|②「6. Entity設計」が、`failed`を`sent_at`なしで記録すると定めている（Rails現行の`Teacher::TeacherNotificationJob`は、失敗時に`sent_at`を設定せず、`Teacher::TeacherNotificationSerializer#formatted_sent_at`は`sent_at`が空なら`nil`を返す）。`sent_at`列のNULLを表現するためにポインタとした|①Railsの実装を参照（`app/jobs/teacher/teacher_notification_job.rb`、`app/serializers/teacher/teacher_notification_serializer.rb`）|
 |`RequestInvitationEmail`の呼び出しが`error`を返した場合は、原因をログに出力し、その教員を`failed`（`sent_at`なし）として記録し、次の教員へ進む|`user`②に、即時方式で`error`が返る場合の扱いの規定がない。Rails現行の再送は、例外の種類を問わず`failed`を記録する（②「17. Error設計」の判断理由と同じ）|推測|
 |`InvitationEmailRequester`を、`TeacherNotificationStore`ではなく`TeacherNotificationHandler`のコンストラクタが受け取る構成とし、`NewTeacherNotificationStore`は招待メールの送信依頼に関する依存を持たない|対象教員ごとの送信依頼・記録の手順は、9章のとおりHandlerの処理として実装している（Storeは記録・参照に限る）ため、送信依頼の依存をHandlerが持つ形に揃えた|推測|
-|`ListUnsentTeachers` / `FilterEligibleTeacherIDs`で、無効化済み（`deleted_at`あり）の教員を除外しない|Rails現行の絞り込み（`base_teachers_scope`）が有効なユーザーへの絞り込みを持たず、②が絞り込みの対象を変えない方針であるため。②「設計差分管理」の「Rails現行との差」を参照|①Railsの実装を参照（`app/controllers/api/v1/teacher/teacher_notifications_controller.rb`）|
+|`UserDirectory.ListInvitationPendingTeachers`で、無効化済み（`deleted_at`あり）の教員を除外しない（`SearchUsers`の無効化の扱いに「無効化済みを含む」を指定する）|Rails現行の絞り込み（`base_teachers_scope`）が有効なユーザーへの絞り込みを持たず、②が絞り込みの対象を変えない方針であるため。②「設計差分管理」の「Rails現行との差」を参照|①Railsの実装を参照（`app/controllers/api/v1/teacher/teacher_notifications_controller.rb`）|
 |`sent_at`不正形式時のHTTP Statusを422とした|②「17. Error設計」のエラー仕様表に本ケースの明示的な記載がない|推測|
-|`ListUnsentTeachers`・`ListNotificationResults`の並び順（招待未完了教員一覧側）を確定しなかった|②21章は送信結果履歴の並び順（送信日時降順）のみ明記し、招待未完了教員一覧側の並び順の記載がない|推測|
+|招待未完了教員一覧の並び順は`user` Contextの`SearchUsers`に従う（ID昇順）|②21章は送信結果履歴の並び順（送信日時降順）のみ明記し、招待未完了教員一覧側の並び順の記載がない。`user`②「11. Repository設計」が`SearchUsers`をID昇順と定めているため、それに従う|`user`②に基づく（推測ではない）|
 
 上記以外の設計判断（Bounded Context・設計パターン・Repository/Store設計・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の基本方針）はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。
