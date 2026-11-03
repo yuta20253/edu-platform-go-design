@@ -312,7 +312,7 @@ sequenceDiagram
 6. レスポンス返却後、goroutineを起動し、対象教員ごとに次を行う（1人の送信失敗が他の対象教員への送信処理に影響しない。②「14. Transaction設計」）
    1. `NewTeacherNotification(currentUser.ID, teacher.ID, teacher.Email)`でインスタンスを生成する
    2. `InvitationEmailRequester.RequestInvitationEmail(ctx, teacher.ID)`を呼び出す（トランザクションの外。`user`の実行方式「即時」）
-   3. 返された結果を`TeacherNotification.ApplyInvitationOutcome(outcome, now)`で状態へ対応づける（送信成功→`sent`＋`sent_at`、送信失敗・送信対象外→`failed`（`sent_at`なし））。呼び出しが`error`を返した場合は、原因をログに出力し、`MarkFailed()`を呼ぶ（②「17. Error設計」の判断理由。推測）
+   3. 返された結果を`TeacherNotification.ApplyInvitationOutcome(outcome, now)`で状態へ対応づける（送信成功→`sent`＋`sent_at`、送信失敗・送信対象外→`failed`（`sent_at`なし））。呼び出しが`error`を返した場合は、原因をログに出力し、`MarkFailed()`を呼ぶ（①「5. API / 処理詳細」`#create`の「ジョブ内の処理」4のとおり、Rails現行も対象教員ごとに例外を捕捉してログ出力し`failed`を記録する）
    4. `TeacherNotificationStore.Create`で記録する。記録に失敗した場合は、ログに出力して次の教員へ進む
 
 ### `ListNotificationResults` 処理順序（②12節`ListNotificationResults`に対応）
@@ -458,7 +458,7 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 
 ## Infrastructure Errorのハンドリング方針
 
-招待メールの送信失敗（トークン発行の失敗・メール送信基盤の失敗）は、`user`の`RequestInvitationEmail`が結果「送信失敗」として返すため、業務結果（`status=failed`）として記録し、HTTPエラーとしては扱わない。`RequestInvitationEmail`の呼び出し自体が`error`を返した場合（`user`②が誤用として定める内部エラー等）は、原因をログに出力し、その教員を`failed`（`sent_at`なし）として記録した上で、次の教員の処理を継続する（Rails現行の再送が例外の種類を問わず`failed`を記録することに合わせた扱い。②「17. Error設計」。推測）。DB接続失敗等の技術的障害はHandlerで500に変換する（goroutine内では、ログ出力のみ）。goroutine内で発生したエラー・panicは、コーディング規約「21. 並行プログラミング」の`recover`方針に従い、goroutine内で捕捉しログ出力する（1件の処理の失敗でプロセス全体を落とさない）。
+招待メールの送信失敗（トークン発行の失敗・メール送信基盤の失敗）は、`user`の`RequestInvitationEmail`が結果「送信失敗」として返すため、業務結果（`status=failed`）として記録し、HTTPエラーとしては扱わない。`RequestInvitationEmail`の呼び出し自体が`error`を返した場合（`user`②が誤用として定める内部エラー等）は、原因をログに出力し、その教員を`failed`（`sent_at`なし）として記録した上で、次の教員の処理を継続する（①「5. API / 処理詳細」`#create`の「ジョブ内の処理」4。Rails現行も対象教員ごとに`rescue StandardError`で捕捉し、ログ出力のうえ`failed`を記録して次の対象教員へ進む。捕捉の範囲はトークン発行・メール送信・レコード作成のすべてを含む扱い。②「17. Error設計」。推測）。DB接続失敗等の技術的障害はHandlerで500に変換する（goroutine内では、ログ出力のみ）。goroutine内で発生したエラー・panicは、コーディング規約「21. 並行プログラミング」の`recover`方針に従い、goroutine内で捕捉しログ出力する（1件の処理の失敗でプロセス全体を落とさない）。
 
 ---
 
@@ -549,7 +549,7 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 |`InvitationEmailRequester`（利用側のinterface）と`InvitationEmailOutcome`型を`teacher_notification`パッケージに定義し、`user`の`RequestInvitationEmail`（即時）を呼ぶアダプタで実装する構成とした。アダプタの詳細（公開関数の具体的なシグネチャ・配置）は、`user`③の作成後に確定する|②「3. Bounded Context」は`user`の`RequestInvitationEmail`（即時）を呼ぶと定めるが、Goのinterface・型名は②に記載がない。コーディング規約「7. インターフェース」（利用側で定義）に従った。`user`の③が未作成のため、公開関数のシグネチャは確定できない|推測|
 |結果の対応づけを、`TeacherNotification.ApplyInvitationOutcome`として`model.go`に置いた|②「6. Entity設計」の対応づけ（送信成功→`sent`＋`sent_at`、送信失敗・送信対象外→`failed`（`sent_at`なし））を1箇所に集約し、Model Testで検証できるようにするため。メソッド名・配置は②に記載がない|推測|
 |`TeacherNotification.SentAt`と`TeacherNotificationResult.SentAt`をポインタ（`*time.Time`）、`MarkFailed`を引数なしとし、`NotificationResultResponse.FormattedSentAt`を`*string`とした|②「6. Entity設計」が、`failed`を`sent_at`なしで記録すると定めている（Rails現行の`Teacher::TeacherNotificationJob`は、失敗時に`sent_at`を設定せず、`Teacher::TeacherNotificationSerializer#formatted_sent_at`は`sent_at`が空なら`nil`を返す）。`sent_at`列のNULLを表現するためにポインタとした|①Railsの実装を参照（`app/jobs/teacher/teacher_notification_job.rb`、`app/serializers/teacher/teacher_notification_serializer.rb`）|
-|`RequestInvitationEmail`の呼び出しが`error`を返した場合は、原因をログに出力し、その教員を`failed`（`sent_at`なし）として記録し、次の教員へ進む|`user`②に、即時方式で`error`が返る場合の扱いの規定がない。Rails現行の再送は、例外の種類を問わず`failed`を記録する（②「17. Error設計」の判断理由と同じ）|推測|
+|`RequestInvitationEmail`の呼び出しが`error`を返した場合は、原因をログに出力し、その教員を`failed`（`sent_at`なし）として記録し、次の教員へ進む|`user`②に即時方式で`error`が返る場合の規定はないが、①「5. API / 処理詳細」`#create`の「ジョブ内の処理」4が、Rails現行が対象教員ごとに`rescue StandardError`で捕捉し、ログ出力のうえ`failed`を記録して次へ進むことを定めている|①に基づく（推測ではない）|
 |`InvitationEmailRequester`を、`TeacherNotificationStore`ではなく`TeacherNotificationHandler`のコンストラクタが受け取る構成とし、`NewTeacherNotificationStore`は招待メールの送信依頼に関する依存を持たない|対象教員ごとの送信依頼・記録の手順は、9章のとおりHandlerの処理として実装している（Storeは記録・参照に限る）ため、送信依頼の依存をHandlerが持つ形に揃えた|推測|
 |`UserDirectory.ListInvitationPendingTeachers`で、無効化済み（`deleted_at`あり）の教員を除外しない（`SearchUsers`の無効化の扱いに「無効化済みを含む」を指定する）|Rails現行の絞り込み（`base_teachers_scope`）が有効なユーザーへの絞り込みを持たず、②が絞り込みの対象を変えない方針であるため。②「設計差分管理」の「Rails現行との差」を参照|①Railsの実装を参照（`app/controllers/api/v1/teacher/teacher_notifications_controller.rb`）|
 |`sent_at`不正形式時のHTTP Statusを422とした|②「17. Error設計」のエラー仕様表に本ケースの明示的な記載がない|推測|

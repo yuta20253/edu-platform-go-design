@@ -129,7 +129,16 @@ teacher_notifications
 
 ### Response
 
+- 202 Accepted
 - `message`: `送信処理を開始しました`
+- 送信そのものは非同期ジョブ（`Teacher::TeacherNotificationJob`）で行われるため、このレスポンスは受付の完了のみを表す
+
+### ジョブ内の処理
+
+1. 送信者と、指定された教員（`User.where(id: teacher_ids)`）を取得する。ジョブ側では所属校・教員ロール・招待未完了の再絞り込みを行わない（Controllerで絞り込み済み）
+2. 対象教員ごとに、パスワード再設定用トークンを発行し、招待メール（`AuthMailer#invite_user`）を**同期的に**送信する
+3. 成功した場合、`teacher_notifications` に `status: 'sent'`・`sent_at: Time.current` で1件作成する
+4. **対象教員ごとに例外を捕捉する**（`rescue StandardError`）。例外が発生した場合はログに出力し、`teacher_notifications` に `status: 'failed'`（`sent_at` は設定しない）で1件作成したうえで、**次の対象教員の処理を続ける**。捕捉の範囲はトークン発行・メール送信・レコード作成のすべてを含む
 
 ### Errorケース
 
