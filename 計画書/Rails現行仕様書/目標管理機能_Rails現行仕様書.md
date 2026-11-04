@@ -61,8 +61,8 @@
 
 |項目|必須|型|説明|
 |-|-|-|-|
-|`page`|任意|integer|ページ番号|
-|`per_page`|任意|integer|1ページあたりの件数|
+|`page`|任意|integer|ページ番号。0以下・数値以外は未指定として扱う（`ApplicationController#sanitized_page`が`nil`を返し、Kaminariが1ページ目とする）|
+|`per_page`|任意|integer|1ページあたりの件数。既定値は 5（`GoalsController::DEFAULT_PER_PAGE`）、上限は 100（`ApplicationController::MAX_PER_PAGE`）。0以下・数値以外は既定値、上限超過は上限値として扱う（`ApplicationController#sanitized_per_page`）|
 
 ### 処理内容
 
@@ -92,7 +92,8 @@
   - `due_date`（`YYYY/MM/DD` 形式。未設定なら `null`）
   - `tasks`: 紐づくタスクの配列（`TaskSerializer`）。各要素は `id`・`user_id`・`goal_id`・`title`・`content`・`due_date`（`YYYY/MM/DD`）・`priority`・`status`・`completed_at`（`YYYY/MM/DD`）と、`units`（`UnitSerializer`）
 - `meta`: `current_page` / `total_pages` / `total_count` / `per_page` の4項目
-- 1ページあたりの件数の既定値は 5（`GoalsController::DEFAULT_PER_PAGE`）
+- 1ページあたりの件数の既定値は 5（`GoalsController::DEFAULT_PER_PAGE`）、上限は 100（`ApplicationController::MAX_PER_PAGE`）
+- `meta.per_page` には実際に適用された件数（`limit_value`）を返す
 
 ### Errorケース
 
@@ -134,7 +135,7 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象目標が存在しない、または他の生徒の目標|404|`ApplicationController` の `ActiveRecord::RecordNotFound` ハンドラが返す|
+|対象目標が存在しない、または他の生徒の目標|404|`{"message": "目標が見つかりません"}`（`ApplicationController#not_found`）|
 |進行中または完了のタスクが紐づく|（`Goal::HasActiveTasksError` が発生する。Controller・`ApplicationController` のいずれにもこの例外のハンドラがなく、500 となる）|メッセージは `進行中または完了のタスクがあるため削除できません`|
 
 ## `Api::V1::Student::GoalsController#show`
@@ -187,8 +188,8 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象の目標が存在しない|404|対象目標なし|
-|他ユーザーの目標にアクセス|404|対象目標なし|
+|対象の目標が存在しない|404|`{"message": "目標が見つかりません"}`（`ApplicationController#not_found`）|
+|他ユーザーの目標にアクセス|404|同上（`current_user.goals` を起点に検索するため、他の生徒の目標は見つからない）|
 
 ## `Api::V1::Student::GoalsController#create`
 
@@ -221,13 +222,14 @@
 
 ### Response
 
-- `id`（作成した目標の ID）
+- **201 Created**
+- 本文は作成した目標の ID のみ（`render json: form.goal.id, status: :created`）
 
 ### Errorケース
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|バリデーション失敗|422|`errors` を返却|
+|バリデーション失敗|422|`{"errors": ["メッセージ", ...]}`（`form.errors.full_messages`）|
 
 ## `Api::V1::Student::GoalsController#update`
 
@@ -261,14 +263,15 @@
 
 ### Response
 
-- `id`（更新した目標の ID）
+- **200 OK**
+- 本文は更新した目標の ID のみ（`render json: form.goal.id, status: :ok`）
 
 ### Errorケース
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|バリデーション失敗|422|`errors` を返却|
-|対象の目標が存在しない|404|対象目標なし|
+|バリデーション失敗|422|`{"errors": ["メッセージ", ...]}`（`form.errors.full_messages`）|
+|対象の目標が存在しない、または他の生徒の目標|404|`{"message": "目標が見つかりません"}`（`ApplicationController#not_found`）|
 
 ---
 
@@ -283,7 +286,7 @@
 |-|-|-|-|
 |`id`|bigint|不可|主キー|
 |`user_id`|bigint|不可|生徒（`users`）への外部キー|
-|`title`|string|不可|目標名|
+|`title`|string(255)|不可|目標名|
 |`description`|text|可|説明|
 |`due_date`|date|**可**|期日。カラムは NULL 可であり、`Student::GoalSerializer` も未設定なら `null` を返す。ただし作成・更新の Form（`Student::CreateGoalForm` / `UpdateGoalForm`）は `presence: true` で必須としているため、API 経由では未設定にできない|
 |`status`|integer|不可|進捗。Rails の `enum` で `not_started: 0` / `in_progress: 1` / `completed: 2` に対応する整数。既定値は `0`（`not_started`）|
@@ -299,6 +302,17 @@
 - `default_scope { where(deleted_at: nil) }` を持つため、論理削除済みの目標は通常の検索の対象外である
 - 補足:
   - 1つの目標には、正式なタスクのほかに、生徒が作成途中で保存した下書きタスクが紐づくことがある。下書きタスクの登録・管理の詳細は「タスク下書き機能」を参照。
+
+## エラーレスポンスの本文
+
+この機能のエラー本文は `ApplicationController` の共通ハンドラが決める。本文の形は条件によって異なる。
+
+|条件|HTTP Status|本文|
+|-|-|-|
+|バリデーション失敗（Form）|422|`{"errors": ["メッセージ", ...]}`|
+|`ActiveRecord::RecordNotFound`|404|`{"message": "目標が見つかりません"}`（`errors` ではなく `message` の単一文字列）|
+|`Pundit::NotAuthorizedError`|403|`{"errors": ["この操作を行う権限がありません"]}`|
+|`Goal::HasActiveTasksError`|500|ハンドラがなく、例外がそのまま 500 になる|
 
 ---
 
@@ -334,7 +348,8 @@
 
 |種類|実装|
 |-|-|
-|Controller|`Api::V1::Student::GoalsController`|
+|Controller|`Api::V1::Student::GoalsController`（`DEFAULT_PER_PAGE = 5`）|
+|Controller（共通）|`ApplicationController`（`MAX_PER_PAGE = 100`・`sanitized_page`・`sanitized_per_page`・`not_found` 等の共通ハンドラ）|
 |Form|`Student::CreateGoalForm`, `Student::UpdateGoalForm`（いずれも `DueDateValidatable` を include）|
 |Form の Concern|`DueDateValidatable`（`due_date` を文字列で受け取り `Date.parse` で検証する。空なら検証をスキップする）|
 |Query|`GoalsQuery`|

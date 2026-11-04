@@ -6,7 +6,9 @@
 
 ## 機能概要
 
-生徒が自分の学習目標（Goal）を登録・参照・更新する機能である。提供する操作は一覧・詳細（紐づくタスク一覧を含む）・作成・更新の4つ。Goalは`status`（not_started / in_progress / completed）を保持するが、②Go移行・設計仕様書に明記されているとおり、本機能のAPI内には状態遷移ロジック（遷移条件・遷移禁止ルール等）は存在しない。`status`は値として保持・表示されるのみである。
+生徒が自分の学習目標（Goal）を登録・参照・更新・削除する機能である。提供するAPIは一覧・詳細（紐づくタスク一覧を含む）・作成・更新・削除（論理削除）の5つ。削除は、`not_started`以外のタスクが紐づいていない場合にのみ行える（①「5. API / 処理詳細」`#destroy`）。
+
+Goalは`status`（`not_started` / `in_progress` / `completed`）を保持するが、本機能のAPIの入力では`status`を受け取らない。状態はタスクの状況から再評価して決まり、その再評価は他Contextの操作（タスクの着手・問題の提出）を契機に、本Contextが公開する`ReevaluateGoalStatus`を通じて行われる（①「7. 状態管理」、②「12. UseCase設計」）。遷移そのものの妥当性（どの状態からどの状態へ行けるか）は検証しない。
 
 ## 採用設計パターンとその理由（②からの要約）
 
@@ -16,9 +18,9 @@
 
 ## 本書が対象とする実装範囲
 
-②「11. Repository設計」〜「18. テスト戦略」で示された、goal-management Bounded ContextにおけるGoalの一覧・詳細・作成・更新のActive Record実装（`model.go`相当のstruct定義、`store.go`相当の永続化処理、Presentation層のHandler/Request/Response/Routing）。①Rails実装の詳細は未提供のため参照できず、本書では言及箇所を「①未提供のため参照不可」として明示する。
+②が設計した`goal-management` Bounded ContextのActive Record実装である。Model（Entity相当のstruct定義）、Store（永続化処理）、`GoalStatusPolicy`（状態の判定）、他Contextへの参照（`TaskDirectory`）、他Contextから呼ばれる公開操作（`ReevaluateGoalStatus`）、Presentation層（Handler / Request / Response / Routing）を対象とする。
 
-②「3. Bounded Context」他Contextとの依存関係には、Task Contextに加えてdraft-task Context（下書きタスク）への参照依存が記載されている（目標に下書きタスクが紐づき得るため）。ただし②「12. UseCase設計」のShowGoal出力は「目標詳細情報とタスク一覧」のみであり、下書きタスクを含む具体的な入出力仕様までは定義されていない。本書もこの範囲に従い、DraftTaskの参照実装（Store・Response DTO）は本書の実装対象に含めない（詳細は「3. Domain層設計」「8. Infrastructure層設計」「17. ②からの補足事項」参照）。
+②「3. Bounded Context」の他Contextとの依存関係には、`task-management`に加えて`draft-task`（下書きタスク）への参照依存が記載されている（目標に下書きタスクが紐づき得るため。①「6. データモデル」の`has_many :draft_tasks`）。ただし②「12. UseCase設計」のShowGoalの出力は目標とタスク一覧のみであり、下書きタスクを含む入出力仕様は定義されていない。本書もこの範囲に従い、下書きタスクの参照実装は対象に含めない（詳細は「8. Infrastructure層設計」「17. ②からの補足事項」参照）。
 
 ---
 
@@ -26,7 +28,7 @@
 
 ## 対象Bounded Context名
 
-- goal-management（②「3. Bounded Context」）
+- `goal-management`（②「3. Bounded Context」）
 
 ## ②で採用した設計パターン
 
@@ -80,7 +82,7 @@ internal/goalmanagement/presentation/routes.go
 
 ## 文書の分割
 
-本書は分割しない。実装ファイルは上記の13であり、テストが付くもの（Goal・GoalStatus・DueDate・GoalStatusPolicy・GoalStore・ReevaluateGoalStatus・TaskDirectoryの実装の7）を加えると20となるため、1文書あたり30〜35という範囲に収まる。
+本書は分割しない。実装ファイルは上記の14であり、テストが付くもの（Goal・GoalStatus・DueDate・GoalStatusPolicy・GoalStore・ReevaluateGoalStatus・TaskDirectoryの実装・GoalHandlerの8）を加えると22となるため、1文書あたり30〜35という範囲に収まる。
 
 **②からの補足**: 規約の構造適用方針の例示は`model.go`/`store.go`という単一ファイルの雛形だが、本機能はGoal（Model）・状態の判定（Policy）・他Contextの参照という複数の責務を扱うため、責務ごとにファイルを分割している。これはActive Record構造（domain/infrastructureレイヤーを分離しない、同一package内に置く）という②の設計方針自体は変更せず、同一package内でのファイル分割という実装レベルの整理にとどまる。
 
@@ -104,7 +106,7 @@ internal/goalmanagement/presentation/routes.go
 |Description|string|目標詳細|
 |DueDate|DueDate|期限。②「7. Value Object設計」のDueDateを型として保持|
 |Status|GoalStatus|状態値。②「7. Value Object設計」のGoalStatusを型として保持。APIの入力では変更せず、紐づくタスクの状況から再評価して決まる（②「3. Bounded Context」）|
-|DeletedAt|`*time.Time`|論理削除日時。未削除なら`nil`。検索では未設定のものだけを対象とする（①「6. データモデル」の`default_scope`に相当）|
+|DeletedAt|`gorm.DeletedAt`|論理削除日時。Gorm規約「0. 本プロジェクトでの採用方針」の論理削除のとおりGORM標準の型を用いる。これにより`Find`系が`deleted_at IS NULL`を自動付与し、①「6. データモデル」の`default_scope`と同じ絞り込みになる|
 |CreatedAt|time.Time|作成日時|
 |UpdatedAt|time.Time|更新日時|
 
@@ -317,18 +319,18 @@ sequenceDiagram
     participant G as Goal
 
     C->>H: DELETE /api/v1/student/goals/:id
-    H->>TX: RunInTx(ctx, fn)
-    TX->>GS: FindByIDAndUserID(ctx, id, userID)
-    GS-->>TX: *GoalWithTasks / ErrGoalNotFound
-    TX->>TD: FindTaskStatusesByGoalID(ctx, id)
+    H->>GS: FindByIDAndUserID(ctx, id, userID)
+    GS-->>H: *GoalWithTasks / ErrGoalNotFound
+    H->>TD: FindTaskStatusesByGoalID(ctx, id)
     TD->>TC: 公開参照操作
     TC-->>TD: タスクの状態
-    TD-->>TX: TaskStatusSet
-    TX->>G: CanDelete(taskStatuses)
-    G-->>TX: nil / ErrGoalHasActiveTasks
-    TX->>GS: SoftDelete(ctx, id)
-    GS-->>TX: error
-    TX-->>H: commit / rollback
+    TD-->>H: TaskStatusSet
+    H->>G: CanDelete(taskStatuses)
+    G-->>H: nil / ErrGoalHasActiveTasks
+    H->>GS: SoftDelete(ctx, id)
+    GS->>TX: RunInTx（Storeメソッド内で開始）
+    TX-->>GS: commit / rollback
+    GS-->>H: error
     H-->>C: 204 No Content / AppError
 ```
 
@@ -382,15 +384,13 @@ sequenceDiagram
 flowchart TD
     A[DELETE /goals/:id] --> B{パスパラメータidが整数か}
     B -- いいえ --> E422[422 バリデーションエラー]
-    B -- はい --> C[RunInTxでトランザクション開始]
-    C --> D{id・user_idに一致する<br/>未削除のGoalがあるか}
+    B -- はい --> D{id・user_idに一致する<br/>未削除のGoalがあるか}
     D -- いいえ --> E404[404 ErrGoalNotFound]
     D -- はい --> F[TaskDirectoryでタスクの状態を取得]
     F --> G{not_started以外の<br/>タスクが1件以上あるか}
     G -- はい --> E500[500 ErrGoalHasActiveTasks<br/>Rails現行の挙動を踏襲]
-    G -- いいえ --> H[SoftDeleteでdeleted_at更新]
-    H --> I[コミット]
-    I --> J[204 No Content]
+    G -- いいえ --> H[SoftDelete<br/>deleted_at・updated_atを更新<br/>トランザクションはStore内]
+    H --> J[204 No Content]
 ```
 
 ### ReevaluateGoalStatus
@@ -439,13 +439,13 @@ flowchart TD
 
 |メソッド|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
-|`FindByUserID`|`ctx context.Context, userID uint, page, perPage int`|`([]GoalWithTasks, int64, error)`|user_idによる絞り込み、`deleted_at IS NULL`、due_date昇順（同値はid昇順）ソート、ページネーション（LIMIT/OFFSET相当）、総件数取得。紐づくタスクを`Preload`で一括取得する（②「11. Repository設計」「21. DB操作仕様」）|
-|`FindByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*GoalWithTasks, error)`|id・user_idの両方に一致し、`deleted_at IS NULL`の1件取得。紐づくタスクも一括取得する。一致しない場合はGoal不存在エラー（他ユーザーの目標を含む404相当。②「16. Authorization設計」の所有権チェックをクエリ条件として実現する）|
+|`FindByUserID`|`ctx context.Context, userID uint, page, perPage int`|`([]GoalWithTasks, int64, error)`|user_idによる絞り込み、due_date昇順（同値はid昇順）ソート、ページネーション（LIMIT/OFFSET相当）、総件数取得。紐づくタスクを`Preload`で一括取得する（②「11. Repository設計」「21. DB操作仕様」）。`deleted_at IS NULL`は`gorm.DeletedAt`によりGORMが自動付与する|
+|`FindByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*GoalWithTasks, error)`|id・user_idの両方に一致する1件取得（`deleted_at IS NULL`はGORMが自動付与する）。紐づくタスクも一括取得する。一致しない場合はGoal不存在エラー（他ユーザーの目標を含む404相当。②「16. Authorization設計」の所有権チェックをクエリ条件として実現する）|
 |`FindByID`|`ctx context.Context, id uint`|`(*Goal, error)`|所有者を条件に含めず1件取得する。`ReevaluateGoalStatus`（他Contextから呼ばれる公開操作）が用いる。同操作は認可を行わないため所有者でスコープしない（②「16. Authorization設計」）|
 |`Create`|`ctx context.Context, goal *Goal`|`error`|Goalレコードの新規作成。`status`は`GoalStatusNotStarted`（0）で作成する|
 |`Update`|`ctx context.Context, goal *Goal`|`error`|id（および所有権確認済みのuser_id）に一致するGoalレコードの`title`・`description`・`due_date`列を更新する|
 |`UpdateStatus`|`ctx context.Context, id uint, status GoalStatus`|`error`|対象レコードの`status`列のみを更新する（`ReevaluateGoalStatus`が用いる）|
-|`SoftDelete`|`ctx context.Context, id uint`|`error`|対象レコードの`deleted_at`・`updated_at`を更新する。物理削除は行わず、紐づくタスクの行も削除しない（①「5. API / 処理詳細」`#destroy`）|
+|`SoftDelete`|`ctx context.Context, id uint`|`error`|対象レコードの`deleted_at`・`updated_at`の2列を更新する。物理削除は行わず、紐づくタスクの行も削除しない（①「5. API / 処理詳細」`#destroy`。「15. GORM / DBクエリ設計」）|
 
 各メソッドは`gormtx.DBFromContext(ctx, s.db)`で接続を取得する。トランザクション中であればその接続を、そうでなければ通常の接続を使う（「11. Transaction実装方針」）。
 
@@ -455,7 +455,7 @@ flowchart TD
 
 ### TaskDirectoryの実装（`infrastructure/contextadapter/task_directory.go`）
 
-`dependency.go`で宣言した`TaskDirectory`の実装である。`task-management` Contextが公開する参照手段へ委譲し、本Contextから`tasks`テーブルへクエリを発行しない（規約「5. Context間連携ルール」、②「11. Repository設計」「21. DB操作仕様」）。
+`dependency.go`で宣言した`TaskDirectory`の実装である。`task-management` Contextが公開する参照手段へ委譲し、本Contextから`tasks`テーブルへクエリを発行しない（アーキテクチャ規約「5. Context間連携ルール」、②「11. Repository設計」「21. DB操作仕様」）。
 
 |項目|内容|
 |-|-|
@@ -495,7 +495,7 @@ flowchart TD
 
 ### draft-task Context（下書きタスク）参照について
 
-②「3. Bounded Context」他Contextとの依存関係には、Task Contextに加えてdraft-task Contextへの参照依存（目標に下書きタスクが紐づき得るため）が記載されている。しかし②「11. Repository設計」「10. UseCase設計」のいずれにも、DraftTaskを取得するStore・呼び出し手順の具体的な記載はない（`TaskDirectory`に相当する下書きタスクの参照手段は②に定義されていない）。そのため本書では、DraftTaskの参照実装（Store・Response DTOへの下書きタスク一覧の追加等）を本機能の実装対象に含めない。将来②側でShowGoalの出力に下書きタスク一覧が明記された場合、`TaskDirectory`と同様の参照用インターフェース（例: `DraftTaskDirectory`）をdraft-task Context側の公開参照手段に基づき追加することを想定する（**②からの補足**。詳細は「17. ②からの補足事項」参照）。
+②「3. Bounded Context」の他Contextとの依存関係には、`task-management`に加えて`draft-task` Contextへの参照依存（目標に下書きタスクが紐づき得るため）が記載されている。しかし②「11. Repository設計」「12. UseCase設計」のいずれにも、下書きタスクを取得する手段・呼び出し手順の具体的な記載はない（`TaskDirectory`に相当する下書きタスクの参照手段は②に定義されていない）。そのため本書では、下書きタスクの参照実装（参照手段・Response DTOへの下書きタスク一覧の追加等）を本機能の実装対象に含めない。将来②側でShowGoalの出力に下書きタスク一覧が明記された場合、`TaskDirectory`と同様の参照用インターフェース（例: `DraftTaskDirectory`）を`draft-task` Context側の公開参照手段に基づき追加することを想定する（**②からの補足**。詳細は「17. ②からの補足事項」参照）。
 
 ## 外部連携実装
 
@@ -529,7 +529,7 @@ flowchart TD
 ### ListGoals
 
 1. `c.Request.Context()`からcurrent user（認証Middlewareが格納したstudentユーザー）を取得する（②「16. Authorization設計」）
-2. クエリパラメータ`page` / `per_page`を読み取る。未指定・不正な形式のときは既定値に置き換える（`per_page`の既定値は5。①「5. API / 処理詳細」`#index`）
+2. クエリパラメータ`page` / `per_page`を読み取る。未指定・不正な形式のときは既定値に置き換え、`per_page`が上限を超える場合は上限値にする（既定値5・上限100。①「5. API / 処理詳細」`#index`）
 3. `goalStore.FindByUserID`をcurrent userのIDとページ指定で呼び出し、`[]GoalWithTasks`と総件数を受け取る（②「12. UseCase設計」ListGoals）
 4. 取得結果を`GoalListResponse`へ変換する。`meta`は総件数・`per_page`から算出する
 5. 200 OKで返す
@@ -550,7 +550,7 @@ flowchart TD
 3. Request DTOからGoalを組み立てる。`UserID`はcurrent userのID、`Status`は`GoalStatusNotStarted`とする（`status`は入力に含めない。①「6. データモデル」のカラム既定値`0`に合わせる）
 4. `goal.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
 5. `goalStore.Create`を呼び出す（②「14. Transaction設計」のとおり1トランザクション）
-6. 作成された目標の識別子を200 OKで返す（①「5. API / 処理詳細」`#create`）
+6. 作成された目標の識別子を201 Createdで返す（①「5. API / 処理詳細」`#create`）
 
 ### UpdateGoal
 
@@ -572,7 +572,7 @@ flowchart TD
 6. `goalStore.SoftDelete`で`deleted_at`・`updated_at`を更新する。タスクの行は削除しない
 7. 204 No Contentで返す（本文なし）
 
-3〜6は1トランザクションの中で行う（「11. Transaction実装方針」）。判定とソフトデリートの間に別のタスクが着手されても、削除の可否と削除結果が食い違わないようにするためである。
+3〜5は読み取りと判定であり、トランザクションは`goalStore.SoftDelete`の内側で開始・終了する（②「14. Transaction設計」）。Rails現行の`Goal#soft_delete!`も判定と`update_columns`をトランザクションで囲んでいない（①「5. API / 処理詳細」`#destroy`）。判定と削除の間に別のタスクが着手された場合の扱いについては「17. ②からの補足事項」に要確認として記載する。
 
 ## Request / Response DTO
 
@@ -591,7 +591,9 @@ flowchart TD
 
 作成と更新で必須項目が同一であるのは、①「5. API / 処理詳細」`#create`・`#update`のRequestがいずれも`title`・`due_date`を必須としているためである。`status`はいずれの入力にも含めない（②「12. UseCase設計」）。
 
-パスパラメータ`id`（詳細・更新・削除）は必須・整数として検証する。クエリパラメータ`page` / `per_page`は整数として受け取り、不正な形式はエラーとせずHandlerが既定値に置き換える（`per_page`の既定値は5。①「5. API / 処理詳細」`#index`）。
+パスパラメータ`id`（詳細・更新・削除）は必須・整数として検証する。
+
+クエリパラメータ`page` / `per_page`は整数として受け取り、不正な形式をエラーとせずHandlerが既定値に置き換える。`per_page`の既定値は5、上限は100であり、0以下・数値以外は既定値、上限超過は上限値として扱う。`page`は0以下・数値以外のとき1ページ目として扱う（①「5. API / 処理詳細」`#index`、②「15. Validation設計」、アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「ページネーション」）。
 
 ### Response（`presentation/response/goal_response.go`）
 
@@ -618,7 +620,7 @@ flowchart TD
 |`MetaResponse`|CurrentPage|`int`|`current_page`|
 ||TotalPages|`int`|`total_pages`|
 ||TotalCount|`int`|`total_count`|
-||PerPage|`int`|`per_page`|
+||PerPage|`int`|`per_page`（実際に適用された件数。①「5. API / 処理詳細」`#index`の`limit_value`）|
 
 - **一覧**: 最上位は`goals`と`meta`の2キーである（①「5. API / 処理詳細」`#index`）
 - **詳細**: 最上位をラップせず`GoalResponse`をそのまま返す。項目は一覧の各要素と同じであり、専用のstructを設けない（①「5. API / 処理詳細」`#show`。Rails現行の`GoalSerializer`と`GoalDetailSerializer`は同じ項目を返す）
@@ -652,11 +654,11 @@ flowchart TD
 |-|-|-|-|-|-|
 |GET|/api/v1/student/goals|ListGoals|クエリ: `page` / `per_page`|`GoalListResponse`|200|
 |GET|/api/v1/student/goals/:id|ShowGoal|パス: `id`|`GoalResponse`|200|
-|POST|/api/v1/student/goals|CreateGoal|`CreateGoalRequest`|作成した目標の識別子|200|
+|POST|/api/v1/student/goals|CreateGoal|`CreateGoalRequest`|作成した目標の識別子|201|
 |PATCH|/api/v1/student/goals/:id|UpdateGoal|パス: `id`、Body: `UpdateGoalRequest`|更新した目標の識別子|200|
 |DELETE|/api/v1/student/goals/:id|DeleteGoal|パス: `id`|本文なし|204|
 
-作成・更新の成功時が200であるのは、①「5. API / 処理詳細」`#create`・`#update`のResponseが`render json: form.goal.id`（既定の200）であることに合わせているためである。削除が204であるのは同`#destroy`のとおりである。
+作成が201、更新が200であるのは、①「5. API / 処理詳細」のとおり`#create`が`status: :created`、`#update`が`status: :ok`を返しているためである。削除が204であるのは同`#destroy`のとおりである。
 
 エラーレスポンスの本文は`{"errors": ["メッセージ", ...]}`である（「14. Error実装方針」）。
 
@@ -712,7 +714,7 @@ flowchart TD
 
 ## Transaction開始位置
 
-②「14. Transaction設計」のとおり、Handlerの処理単位に対応するStoreメソッド内でトランザクションを開始する。Active Record採用のため、`gormtx.RunInTx(ctx, db, func(ctx context.Context, tx *gorm.DB) error { ... })`を用いる。`db.WithContext(ctx).Transaction(...)`を直接呼ばない。呼び出し側が既に開始したトランザクションに参加せず、独立した2つ目を開始してしまうためである（規約「11. Transaction実装パターン（TransactionManager）」）。
+②「14. Transaction設計」のとおり、Handlerの処理単位に対応するStoreメソッド内でトランザクションを開始する。Active Record採用のため、`gormtx.RunInTx(ctx, db, func(ctx context.Context, tx *gorm.DB) error { ... })`を用いる。`db.WithContext(ctx).Transaction(...)`を直接呼ばない。呼び出し側が既に開始したトランザクションに参加せず、独立した2つ目を開始してしまうためである（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」）。
 
 対象は`GoalStore.Create`・`GoalStore.Update`・`GoalStore.SoftDelete`・`GoalStore.UpdateStatus`である。
 
@@ -726,13 +728,13 @@ flowchart TD
 
 ## 呼び出し側トランザクションの引き継ぎ
 
-`ReevaluateGoalStatus`は`task-management`（タスクの着手）・`question-answering`（問題の提出）から呼ばれる。呼び出し側が既にトランザクションを開始している場合はそれに参加し、なければ`GoalStore.UpdateStatus`内の`RunInTx`が開始する。開始するか参加するかの判定は`gormtx.RunInTx`の1箇所に集約されており、本Context側で判定を持たない（規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」、②「14. Transaction設計」）。
+`ReevaluateGoalStatus`は`task-management`（タスクの着手）・`question-answering`（問題の提出）から呼ばれる。呼び出し側が既にトランザクションを開始している場合はそれに参加し、なければ`GoalStore.UpdateStatus`内の`RunInTx`が開始する。開始するか参加するかの判定は`gormtx.RunInTx`の1箇所に集約されており、本Context側で判定を持たない（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」、②「14. Transaction設計」）。
 
 トランザクションは`context.Context`で引き継ぐ。`*gorm.DB`を引数で渡し回さない。各Storeメソッドは`gormtx.DBFromContext(ctx, s.db)`で接続を取得する。
 
 ## 複数Storeにまたがる場合の扱い
 
-Goal単体の作成・更新・削除であり、複数テーブルにまたがる整合性維持は不要なため、1つのトランザクションに複数Storeをまとめる処理は行わない。論理削除の可否判定に用いる`TaskDirectory`の参照、および一覧・詳細のタスク取得はいずれも読み取りであり、トランザクション開始前に完了させる。
+Goal単体の作成・更新・削除であり、複数テーブルにまたがる整合性維持は不要なため、1つのトランザクションに複数Storeをまとめる処理は行わない。論理削除の可否判定に用いる`TaskDirectory`の参照、および一覧・詳細のタスク取得はいずれも読み取りであり、トランザクションの外で行う（②「14. Transaction設計」）。
 
 ---
 
@@ -743,7 +745,7 @@ Goal単体の作成・更新・削除であり、複数テーブルにまたが�
 - `CreateGoalRequest` / `UpdateGoalRequest`のバインド時に、Ginのbindingタグで型チェック・必須チェックを行う（`title`・`due_date`の`required`。②「15. Validation設計」Presentation節）
 - `due_date`は文字列で受け取り、日付として解釈できるかはDomain側（`DueDate`の生成）で検証する。Presentation層ではフォーマットを固定しない。Rails現行が`Date.parse`で解釈可能かのみを見ており、特定のフォーマットに限定していないためである（①「10. Rails実装対応表」の`DueDateValidatable`）
 - パスパラメータ`id`は整数として読み取り、解釈できない場合は422とする
-- クエリパラメータ`page` / `per_page`は不正な形式をエラーとせず、既定値に置き換える（①「5. API / 処理詳細」`#index`のErrorケースに記載がないため）
+- クエリパラメータ`page` / `per_page`は不正な形式をエラーとせず、既定値（`per_page`は5）に置き換える。`per_page`が上限100を超える場合は上限値にする（②「15. Validation設計」、アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」）
 
 ## 業務ルール検証
 
@@ -771,13 +773,15 @@ Active Record採用のため、Goal（Model）の`Validate()`メソッドで検�
 
 ## Domain Error → Application Errorへの変換方針
 
-Active Record採用のためDomain Errorに相当する層がなく、`errors.go`のセンチネルエラー（Goal不存在・不正なDueDate・不正なStatus・進行中タスクあり）をそのままApplication Error相当として扱う（規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。センチネルエラーから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
+Active Record採用のためDomain Errorに相当する層がなく、`errors.go`のセンチネルエラー（Goal不存在・不正なDueDate・不正なStatus・進行中タスクあり）をそのままApplication Error相当として扱う（アーキテクチャ規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。センチネルエラーから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
 
 ## Application Error → HTTPレスポンスへの変換方針
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
 
-レスポンスのボディは`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す（規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）。Rails現行も`errors`の配列を返しており（①「5. API / 処理詳細」）、外部仕様は変わらない。
+レスポンスのボディは`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す（アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）。
+
+422・403はRails現行も`errors`の配列を返しており外部仕様は変わらない。404はRails現行が`{"message": "目標が見つかりません"}`という別の形を返しているが、②「17. Error設計」の「エラーレスポンスの本文」のとおり`errors`形式に統一する。規約の形式に揃え、404だけ本文の形が異なる状態を移行後に持ち込まないためである（①「6. データモデル」の「エラーレスポンスの本文」）。
 
 ## Infrastructure Errorのハンドリング方針
 
@@ -787,6 +791,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |-|-|-|
 |Goal不存在（他ユーザーのGoalを含む）|Store → Application（変換）|404|
 |バリデーションエラー（Presentation: 型・必須・フォーマット）|Presentation（Request DTOバインド）|422|
+|`ErrTitleRequired` / `ErrDueDateRequired`（必須項目の未入力）|Model|422|
 |`ErrInvalidDueDate`（日付として解釈できない）|Model|422|
 |`ErrInvalidGoalStatus`（宣言済みでない状態値）|Model|422|
 |`ErrGoalHasActiveTasks`（進行中または完了のタスクが紐づく目標の削除）|Model（判定）→ Application（変換）|**500**|
@@ -807,18 +812,21 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 - `Goal`struct自体をGORMモデルとして扱う（Active Record方針上、Entity相当のstructとGORMモデルを分離しない）。Gorm規約の命名規約に従い、struct名`Goal`は既定でテーブル名`goals`に対応する（`TableName()`のオーバーライドは不要）
 - カラム対応はGorm規約の既定命名規則（フィールド名のsnake_case）に従う。`ID`→`id`、`UserID`→`user_id`、`Title`→`title`、`Description`→`description`、`DueDate`→`due_date`、`Status`→`status`、`CreatedAt`→`created_at`、`UpdatedAt`→`updated_at`
-- `DeletedAt`は`*time.Time`としてマッピングする。GORMの`gorm.DeletedAt`型は使わず、検索条件として明示的に`deleted_at IS NULL`を指定する。Railsの`default_scope`と同じ絞り込みを、どのクエリで効いているかが読んで分かる形にするためである（①「6. データモデル」）
+- `DeletedAt`は`gorm.DeletedAt`型でマッピングする（Gorm規約「0. 本プロジェクトでの採用方針」の論理削除）。`Find`系が`deleted_at IS NULL`を自動付与するため、Storeの各検索メソッドでこの条件を明示しない。Railsの`default_scope`と同じ絞り込みになる（①「6. データモデル」）
+- 論理削除は`Delete`ではなく`deleted_at`・`updated_at`の2列を更新する形で行う。GORMの`Delete`は`deleted_at`のみを設定し`updated_at`を更新しないが、Rails現行は`update_columns`で両列を更新しているためである（①「5. API / 処理詳細」`#destroy`）。物理削除（`Unscoped`）は用いない
 - `TaskRef`structは、参照先の`tasks`テーブル（`task-management` Contextが所有するスキーマ）に対応する読み取り専用モデルとして扱う。書き込みは行わない。`GoalWithTasks`の`Preload`先として用いる
 
 `DueDate`・`GoalStatus`は独立したValue Object層を持たず、Goalのフィールド型として存在するため、GORMがカラムとして読み書きできる必要がある。
 
 - `GoalStatus`は`int`を基底型とする型であるため、GORMは追加実装なしに整数カラム`status`として扱える（①「6. データモデル」のとおり`goals.status`は整数）
-- `DueDate`は内部に`*time.Time`を保持する独自structであるため、`database/sql`の`Scanner`／`driver.Valuer`を実装する。`Scan`は`date`カラムの値（NULLを含む）を受け取って内部値に設定し、`Value`は内部値（または`nil`）を返す。Store側で変換を書く方式は採らない。Store全メソッドに変換を散らさず型の側に閉じ込めるためである（Gorm規約「カスタム型の永続化」）
+- `DueDate`は内部に`*time.Time`を保持する独自structであるため、`database/sql`の`Scanner`／`driver.Valuer`を実装して`date`カラムに対応させる。`Scan`はカラムの値（NULLを含む）を受け取って内部値に設定し、`Value`は内部値（または`nil`）を返す
+
+**②からの補足**: Value Objectを独自の型のままGORMで永続化する方式について、②にもGorm規約にも定めがない。本書では`Scanner`／`driver.Valuer`の実装を採る。`GoalStore`の各メソッドに`time.Time`⇔`DueDate`の変換を書く方式では、列を読み書きするすべての箇所に同じ変換が散るためである。この方式はValue Objectを持つ他機能にも共通して必要になるため、規約側に定めるべき事項と考えられる（「17. ②からの補足事項」参照）
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
-- `GoalStore.FindByUserID`: `user_id`・`deleted_at IS NULL`で絞り込み、`due_date`昇順（同値は`id`昇順）でソートし、`page`・`per_page`に基づくページネーションを行う。総件数は同じ絞り込み条件で`COUNT`を発行する。順序を決定的にするため第2ソートキーに`id`を置く（①「5. API / 処理詳細」`#index`の業務ルール、②「21. DB操作仕様」）
-- `GoalStore.FindByIDAndUserID`: `id`・`user_id`・`deleted_at IS NULL`に一致する1件を取得する
+- `GoalStore.FindByUserID`: `user_id`で絞り込み（`deleted_at IS NULL`はGORMが自動付与する）、`due_date`昇順（同値は`id`昇順）でソートし、`page`・`per_page`に基づくページネーションを行う。総件数は同じ絞り込み条件で`COUNT`を発行する。順序を決定的にするため第2ソートキーに`id`を置く（①「5. API / 処理詳細」`#index`の業務ルール、②「21. DB操作仕様」）
+- `GoalStore.FindByIDAndUserID`: `id`・`user_id`に一致する1件を取得する
 - 紐づくタスクは`Preload`で一括取得する。目標ごとにタスクを問い合わせるN+1を避けるためである（Railsは`GoalsQuery.includes_tasks`で同じことを行っている。①「5. API / 処理詳細」`#index`）
 - `GoalStore.SoftDelete`: `deleted_at`・`updated_at`のみを更新する。`tasks`には触らない
 - `GoalStore.UpdateStatus`: `status`列のみを更新する
@@ -896,11 +904,13 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |-|-|
 |`GoalHandler.ListGoals`|正常系: `goals`と`meta`の2キーで200が返ること|
 |`GoalHandler.ListGoals`|正常系: `per_page`未指定時に1ページ5件で返ること|
+|`GoalHandler.ListGoals`|正常系: `per_page`に100を超える値を指定したとき100件を上限とすること|
+|`GoalHandler.ListGoals`|正常系: `page`に0以下・数値以外を指定したとき1ページ目が返ること|
 |`GoalHandler.ListGoals`|正常系: 目標が0件のとき`goals`が空配列で200が返ること|
 |`GoalHandler.ListGoals`|正常系: 各要素の`status`が`not_started`等の文字列で返ること|
 |`GoalHandler.ShowGoal`|正常系: 目標とタスク一覧が200で返ること|
-|`GoalHandler.ShowGoal`|異常系: 存在しない・他ユーザーのGoalを指定した場合に404が返ること|
-|`GoalHandler.CreateGoal`|正常系: 目標が作成され識別子が200で返ること|
+|`GoalHandler.ShowGoal`|異常系: 存在しない・他ユーザーのGoalを指定した場合に404と`{"errors": [...]}`が返ること|
+|`GoalHandler.CreateGoal`|正常系: 目標が作成され識別子が201で返ること|
 |`GoalHandler.CreateGoal`|正常系: 作成された目標の`status`が`not_started`であること|
 |`GoalHandler.CreateGoal`|異常系: `title` / `due_date`未入力時に422と`{"errors": [...]}`が返ること|
 |`GoalHandler.CreateGoal`|異常系: `due_date`が日付として解釈できない場合に422が返ること|
@@ -931,16 +941,16 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|Bounded Context名`goal-management`に対応する`internal/`配下のディレクトリ名を`internal/goal`とした|アーキテクチャ規約「5. Bounded Context構成」の命名規則、および既存の`task-management`→`internal/task`の対応関係からの類推|推測|
-|Active Record構造の雛形（`model.go`/`store.go`）を、Goal用・TaskRef用に複数ファイル（`goal.go`/`goal_status.go`/`due_date.go`/`errors.go`/`goal_store.go`/`task_ref.go`/`task_store.go`）に分割した|②が扱う対象（Goal本体・参照専用のTask）が2種類あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断とは矛盾しない）|
-|作成・更新リクエストにStatusフィールドを含めず、作成時にStatusを内部で初期値（not_started）に設定する|②「4. 設計パターン」に「statusの変更ロジックはこの機能のAPI内では直接定義されていない」とあることから、Statusをユーザー入力の対象外とする方が現行仕様に忠実と判断したため|推測|
-|DueDateのリクエスト入力フォーマットをISO 8601形式（`YYYY-MM-DD`）と仮定し、表示用フォーマット（`YYYY/MM/DD`）と分離した|②はDueDateの表示用フォーマットのみを明記しており、入力フォーマットの記載がないため。①未提供のため参照不可|推測|
-|GoalListResponseのページ情報フィールド（Page/PerPage/TotalCount）の構造|②は「目標一覧とページ情報」とのみ記載し、具体的なフィールド構成がないため。①未提供のため参照不可|推測|
-|TaskRefResponse（詳細画面の紐づくタスク一覧）のフィールド構成（ID/Title/Status）|②は「紐づくタスク一覧（tasks）を含む構造を維持する」とのみ記載し、詳細フィールドの記載がないため。①未提供のため参照不可|推測|
-|ErrorResponseの構造（`Errors []string`）|②「19. API仕様」に「既存のerrors形式をそのまま踏襲するか、Goの実装に合わせて再構成する」とあり、いずれかが確定していないため、「Goの実装に合わせて再構成する」を仮に採用した|推測|
-|作成成功時のHTTPステータスを201、更新成功時を200とした|②「19. API仕様」に「作成・更新成功時のステータスは既存仕様に合わせて統一する」とあるのみで具体的な値の記載がなく、①未提供のため参照不可|推測|
-|認証エラー・認可エラーのHTTPステータスをそれぞれ401・403とした|②「16. Authorization設計」に具体的なステータスコードの記載がないため、一般的なHTTP実践に基づく|推測|
-|DueDateのGORM永続化方式（Scanner/Valuer実装か、Store内での相互変換か）を確定していない|②にはValue ObjectとGORMモデルの変換方式についての明記がなく、実装時の判断に委ねる必要があるため|推測（方式の選択肢を示すにとどめ、確定は実装時判断とした）|
-|②「3. Bounded Context」に追加されたdraft-task Context（下書きタスク）への参照依存を、具体的なStore・Response DTOとしては実装対象に含めなかった|②はdraft-task Contextへの参照依存を概念レベルで記載しているが、②「12. UseCase設計」ShowGoalの出力定義（目標詳細情報とタスク一覧）には下書きタスクが含まれておらず、`DraftTaskStore`に相当するRepository設計も②「11. Repository設計」に存在しない。②に記載のない業務ルール・出力項目を本書側で新設しないため、参照実装は見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|
+|Active Record構造を`goal.go` / `goal_status.go` / `due_date.go` / `goal_status_policy.go` / `errors.go` / `goal_store.go`等に分割した|②が扱う対象（Goal本体・状態・期限・判定・参照専用のTask）が複数あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断と矛盾しない）|
+|`TaskStatusSet`（タスクの状態の集合）という型を本Contextに定義した|`Goal.CanDelete`・`GoalStatusPolicy.Decide`が判定に必要とするのはタスクの状態だけであり、タスクの識別子や内容を受け取る必要がないため。判定をDBや他Contextの呼び出しから切り離してテストできる形にした|補足（②「8. Domain Service」の責務分担を型として表したもの）|
+|`TaskDirectory`インターフェースの具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、`task-management`側が公開する操作の形は同機能の③で確定する|要確認（`task-management`機能の③の追随時にシグネチャを合わせる）|
+|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
+|論理削除を`Delete`ではなく`deleted_at`・`updated_at`の2列更新として行う|Gorm規約の論理削除は`gorm.DeletedAt`型の使用を定めているが、GORMの`Delete`は`updated_at`を更新しない。Rails現行は`update_columns`で両列を更新している（①「5. API / 処理詳細」`#destroy`）ため、現行の挙動に合わせた|補足（①の実体に基づく）|
+|`DeleteGoal`の削除可否判定をトランザクションの外に置いた（②「14. Transaction設計」のとおりトランザクションは`SoftDelete`の内側のみ）|②が`DeleteGoal`も「Handlerの処理単位に対応するStoreメソッド内で開始する」としており、Rails現行の`Goal#soft_delete!`も判定と`update_columns`を囲んでいないため、現行の挙動に合わせた。ただし判定と削除の間に別のタスクが着手されると、`not_started`以外のタスクが紐づいた目標が削除され得る（Rails現行にも同じ競合がある）|要確認（現行踏襲とするか、判定を含めて囲むかは②側で決める事項。囲む場合は②「14. Transaction設計」の変更が必要）|
+|②「3. Bounded Context」の`draft-task` Context（下書きタスク）への参照依存を、具体的な参照手段・Response DTOとしては実装対象に含めなかった|②は参照依存を概念レベルで記載しているが、②「12. UseCase設計」ShowGoalの出力定義（目標とタスク一覧）に下書きタスクが含まれておらず、`TaskDirectory`に相当する参照手段も②「11. Repository設計」に存在しない。②に記載のない出力項目を本書側で新設しないため見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|
+|404の本文をRails現行の`{"message": ...}`ではなく`{"errors": [...]}`に統一した|アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」が`errors`形式を正本としており、404だけ形が異なる状態を移行後に持ち込まないため。②「17. Error設計」で明記済み|要確認（API外部仕様の変更にあたるため、フロントエンドの404ハンドリングの確認が必要）|
+|`TaskRefResponse`に含める`units`（`UnitRefResponse`）の項目を確定しなかった|単元の表現は`unit-reference`（単元参照機能）が所有する。本機能は`task-management`から受け取った値をそのまま返すため、項目の確定は同機能の③に委ねる|要確認（単元参照機能の③で確定する。バッチ3の対象外）|
 
-上記以外の項目（Bounded Context・Aggregate・Entity/Model構成・Repository（Store）責務・UseCase（Handler処理）の内容・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の大枠）は②の記載内容をそのまま実装レベルに落とし込んだものであり、追加の判断は行っていない。
+上記以外の項目（Bounded Context・Aggregate・Entity/Model構成・Repository（Store）責務・Handler処理の内容・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の大枠）は②の記載内容をそのまま実装レベルに落とし込んだものであり、追加の判断は行っていない。
+
+ディレクトリ名・package名（`internal/goalmanagement/`）、レスポンスの形状（`goals`＋`meta`、`{"errors": [...]}`）、HTTPステータス、`due_date`の入力の扱い、`goals.status`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

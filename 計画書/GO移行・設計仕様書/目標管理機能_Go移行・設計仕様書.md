@@ -506,7 +506,7 @@ ReevaluateGoalStatusは他Contextから呼ばれる。呼び出し側（`task-ma
 |-|-|-|-|
 |`id`（パス）|Presentation|必須・整数であること|入力形式の不正として扱う|
 |`page`|Presentation|整数であること。不正な形式は未指定として扱い、エラーとしない|Rails現行と同じ扱いを維持する|
-|`per_page`|Presentation|整数であること。既定値は5。不正な形式は既定値として扱い、エラーとしない|Rails現行と同じ扱いを維持する（①「5. API / 処理詳細」`#index`）|
+|`per_page`|Presentation|整数であること。既定値は5、上限は100。0以下・数値以外は既定値、上限超過は上限値として扱い、エラーとしない|Rails現行と同じ扱いを維持する（①「5. API / 処理詳細」`#index`）。規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」は既定値と上限を②で定めることとしている|
 |`title`|Presentation|作成時は必須・文字列であること|入力形式の不正として扱う|
 |`description`|Presentation|文字列であること（任意）|入力形式の不正として扱う|
 |`due_date`|Presentation|**必須**・日付として解釈できる文字列であること。Rails現行のFormが`presence: true`としており、API経由では未設定にできない（①「5. API / 処理詳細」`#create`・`#update`）|未入力・形式不正はいずれも入力形式の不正として扱う。形式不正のメッセージは`は正しい日付を入力してください`を踏襲する|
@@ -586,6 +586,12 @@ Rails現行仕様も「current_user.goalsを起点に全検索を行う」とい
 |`student`ロールでない|Forbidden|Middleware|403|
 |DB接続・永続化の失敗|Internal|Infrastructure → Application（変換）|500|
 
+## エラーレスポンスの本文
+
+本文の形は`{"errors": ["メッセージ", ...]}`とする。規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」と同じ形式である。
+
+ただしRails現行は404のみ`{"message": "目標が見つかりません"}`という別の形を返す（`ApplicationController#not_found`。①「6. データモデル」の「エラーレスポンスの本文」）。本設計では404も`errors`形式に統一する。規約が正本であり、404の本文の形だけが他と異なる状態を移行後に持ち込まないためである。これはAPI外部仕様の変更にあたるため、フロントエンドの404ハンドリングの確認が必要である（「2. 設計方針」の互換維持方針に対する例外として明記する）。
+
 削除できない場合を500とするのは、Rails現行がそうなっているためである。`Goal::HasActiveTasksError`に対するハンドラがControllerにも`ApplicationController`にも無く、例外がそのまま500になる（①「5. API / 処理詳細」`#destroy`のErrorケース）。業務ルール違反としては422が自然だが、API外部仕様を変えない方針（「2. 設計方針」）を優先する。422へ改めるかは別途の判断とする。
 
 ---
@@ -618,10 +624,10 @@ Rails現行仕様も「current_user.goalsを起点に全検索を行う」とい
 
 ### GET /api/v1/student/goals
 
-- Request: クエリパラメータ`page`（任意・整数）、`per_page`（任意・整数。既定値5）
+- Request: クエリパラメータ`page`（任意・整数。0以下・数値以外は1ページ目として扱う）、`per_page`（任意・整数。既定値5、上限100）
 - Response: 最上位は`goals`と`meta`の2キー。`goals`の各要素は目標の識別子・タイトル・説明・状態・期限（`YYYY/MM/DD`形式。未設定なら`null`）と、**紐づくタスクの配列**。タスクの各要素は識別子・所有者・目標の識別子・タイトル・内容・期限・優先度・状態・完了日時と、紐づく単元の配列である。`meta`は`current_page` / `total_pages` / `total_count` / `per_page`の4項目（①「5. API / 処理詳細」`#index`）
 - Status Code: 正常系200。異常系は未認証401、`student`ロール不一致403
-- Error Response方針: 既存の`errors`形式（`{"errors": ["メッセージ", ...]}`）を踏襲する。規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」と同じ形式である
+- Error Response方針: 「17. Error設計」の「エラーレスポンスの本文」のとおり
 
 ### GET /api/v1/student/goals/:id
 
