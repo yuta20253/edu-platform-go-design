@@ -145,7 +145,7 @@ internal/goalmanagement/presentation/routes.go
 |生成方法|文字列から生成するコンストラクタ相当の関数（引数・戻り値のみ規定し、パース処理の実装内容は本書では規定しない）|
 |公開メソッド|`String() string`（`YYYY/MM/DD`形式の表示用文字列を返す。未設定なら空文字列。②「7. Value Object設計」）、`IsZero() bool`（未設定かを判定する）、比較用メソッド（Before/After等、期限の前後比較を提供する）|
 
-入力はRailsと同じく**文字列**で受け取り、日付として解釈できるかを検証する。Rails現行は`DueDateValidatable`が`Date.parse`で検証しており、特定のフォーマットに限定していない（①「10. Rails実装対応表」）。したがって本書でも単一のフォーマットに固定せず、日付として解釈できることを条件とする。解釈できない場合は`ErrInvalidDueDate`を返し、メッセージは`は正しい日付を入力してください`を踏襲する（①「5. API / 処理詳細」）。
+入力はRailsと同じく**文字列**で受け取り、日付として解釈できるかを検証する。Rails現行は`DueDateValidatable`が`Date.parse`で検証しており、特定のフォーマットに限定していない（①「10. Rails実装対応表」）。したがって本書でも単一のフォーマットに固定せず、日付として解釈できることを条件とする。解釈できない場合は`ErrInvalidDueDate`を返し、メッセージは`Due date は正しい日付を入力してください`を踏襲する（①「6. データモデル」の「エラーレスポンスの本文」）。
 
 型としては未設定（`nil`）を許容する。`goals.due_date`がNULL可で既存データに未設定の目標が存在しうるためである。一方、作成・更新のRequest DTOでは必須とする（①のFormが`presence: true`であるため。②「15. Validation設計」）。
 
@@ -185,12 +185,14 @@ DBにも他Contextの呼び出しにも依存せず、与えられた状態の�
 
 |エラー|発生条件|メッセージ|
 |-|-|-|
-|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`を入力してください`（①「5. API / 処理詳細」の`validates :title, presence: true`に対応）|
-|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`は正しい日付を入力してください`|
-|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`を入力してください`|
+|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`Title を入力してください`（①「5. API / 処理詳細」の`validates :title, presence: true`に対応）|
+|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`Due date は正しい日付を入力してください`|
+|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`Due date を入力してください`|
 |`ErrInvalidGoalStatus`|`Validate()`・`ParseGoalStatus`時に、GoalStatusが許容値外の場合|—（内部エラー。APIの入力でStatusを受け取らないため、通常は発生しない）|
 |`ErrGoalNotFound`|`GoalStore`が指定ID・所有者に一致するGoalを取得できなかった場合（他ユーザーの目標を指定した場合を含む）|—（「14. Error実装方針」で404へ変換する）|
-|`ErrGoalHasActiveTasks`|`CanDelete`時に、`not_started`以外のタスクが1件以上紐づいていた場合|`進行中または完了のタスクがあるため削除できません`（①「5. API / 処理詳細」`#destroy`）|
+|`ErrGoalHasActiveTasks`|`CanDelete`時に、`not_started`以外のタスクが1件以上紐づいていた場合|`進行中または完了のタスクがあるため削除できません`（①「5. API / 処理詳細」`#destroy`。例外のメッセージであり項目名は付かない）|
+
+メッセージの文言は①のとおり項目名が英語のまま出る形を維持する。フロントエンドを変更しない方針のためである（②「17. Error設計」の「エラーレスポンスの本文」）。
 
 ---
 
