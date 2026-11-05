@@ -390,7 +390,7 @@ flowchart TD
     D -- いいえ --> E404[404 ErrGoalNotFound]
     D -- はい --> F[TaskDirectoryでタスクの状態を取得]
     F --> G{not_started以外の<br/>タスクが1件以上あるか}
-    G -- はい --> E500[500 ErrGoalHasActiveTasks<br/>Rails現行の挙動を踏襲]
+    G -- はい --> E422[422 ErrGoalHasActiveTasks]
     G -- いいえ --> H[SoftDelete<br/>deleted_at・updated_atを更新<br/>トランザクションはStore内]
     H --> J[204 No Content]
 ```
@@ -570,7 +570,7 @@ flowchart TD
 2. パスパラメータ`id`を読み取る
 3. `goalStore.FindByIDAndUserID`で対象Goalを取得する（所有権チェック。一致しなければ`ErrGoalNotFound`→404）
 4. `taskDirectory.FindTaskStatusesByGoalID`で紐づくタスクの状態の集合を取得する
-5. `goal.CanDelete(taskStatuses)`で削除の可否を判定する。`ErrGoalHasActiveTasks`なら500のAppErrorへ変換して返す（Rails現行がこの例外をハンドリングしておらず500になることを踏襲する。①「5. API / 処理詳細」`#destroy`、②「17. Error設計」）
+5. `goal.CanDelete(taskStatuses)`で削除の可否を判定する。`ErrGoalHasActiveTasks`なら422のAppErrorへ変換して返す（①「5. API / 処理詳細」`#destroy`、②「17. Error設計」）
 6. `goalStore.SoftDelete`で`deleted_at`・`updated_at`を更新する。タスクの行は削除しない
 7. 204 No Contentで返す（本文なし）
 
@@ -708,7 +708,7 @@ flowchart TD
 |条件|Status Code|Error内容|
 |-|-|-|
 |対象Goalが存在しない、または他ユーザーのGoalである|404|`ErrGoalNotFound`（①「5. API / 処理詳細」`#destroy`）|
-|`not_started`以外のタスクが紐づいている|500|`ErrGoalHasActiveTasks`。Rails現行が`Goal::HasActiveTasksError`をハンドリングしておらず500になることを踏襲する（①「5. API / 処理詳細」`#destroy`、②「17. Error設計」）|
+|`not_started`以外のタスクが紐づいている|422|`ErrGoalHasActiveTasks`。メッセージは`進行中または完了のタスクがあるため削除できません`（①「5. API / 処理詳細」`#destroy`、②「17. Error設計」）|
 
 ---
 
@@ -787,7 +787,7 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 |-|-|-|
 |入力・業務検証の失敗|422|`{"errors": ["メッセージ", ...]}`。エラーが1件でも配列で返す（アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）|
 |`ErrGoalNotFound`|404|`{"message": "目標が見つかりません"}`。`message`の単一文字列であり、`errors`の配列ではない|
-|`ErrGoalHasActiveTasks`・その他の未分類のエラー|500|`{"errors": [...]}`|
+|その他の未分類のエラー|500|`{"errors": [...]}`|
 |認証・認可・CSRF|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
 
 404のみ本文の形が異なるため、ミドルウェアは`AppError`から得たステータスが404の場合に`message`キーの本文を組み立てる。この分岐は`internal/shared/middleware`のエラーハンドラに1箇所だけ置き、Handler側に持たせない（Gin規約「8. エラーハンドリングミドルウェア」）。
@@ -805,13 +805,13 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`ErrTitleRequired` / `ErrDueDateRequired`（必須項目の未入力）|Model|422|
 |`ErrInvalidDueDate`（日付として解釈できない）|Model|422|
 |`ErrInvalidGoalStatus`（宣言済みでない状態値）|Model|422|
-|`ErrGoalHasActiveTasks`（進行中または完了のタスクが紐づく目標の削除）|Model（判定）→ Application（変換）|**500**|
+|`ErrGoalHasActiveTasks`（進行中または完了のタスクが紐づく目標の削除）|Model（判定）→ Application（変換）|**422**|
 |認証エラー|Middleware|401|
 |認可エラー（役割不一致）|Middleware|403|
 |CSRFトークン不正（`POST` / `PATCH` / `DELETE`）|Middleware|403|
 |DB接続失敗・永続化失敗|Store（Infrastructure相当）|500|
 
-`ErrGoalHasActiveTasks`を500とするのは、Rails現行が`Goal::HasActiveTasksError`に対するハンドラを持たず例外がそのまま500になるためである（①「5. API / 処理詳細」`#destroy`のErrorケース、②「17. Error設計」）。業務ルール違反としては422が自然だが、API外部仕様を変えない方針を優先する。
+`ErrGoalHasActiveTasks`を422とするのは、Rails現行が`Goal::HasActiveTasksError`を`Api::V1::Student::BaseController`の`rescue_from`で捕まえ、422で返しているためである（①「5. API / 処理詳細」`#destroy`のErrorケース、②「17. Error設計」）。業務ルール違反に対するステータスとしても422が自然である。
 
 ---
 
@@ -932,7 +932,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`GoalHandler.UpdateGoal`|異常系: `title` / `due_date`未入力時に422が返ること|
 |`GoalHandler.DeleteGoal`|正常系: タスクが0件の目標を削除し204が返ること|
 |`GoalHandler.DeleteGoal`|正常系: すべて`not_started`のタスクが紐づく目標を削除できること|
-|`GoalHandler.DeleteGoal`|異常系: `not_started`以外のタスクが紐づく場合に500が返り、`deleted_at`が更新されないこと|
+|`GoalHandler.DeleteGoal`|異常系: `not_started`以外のタスクが紐づく場合に422が返り、`deleted_at`が更新されないこと|
 |`GoalHandler.DeleteGoal`|異常系: 存在しない・他ユーザーのGoalを指定した場合に404が返ること|
 
 ## Integration Test
