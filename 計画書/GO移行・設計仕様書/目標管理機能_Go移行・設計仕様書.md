@@ -512,7 +512,7 @@ ReevaluateGoalStatusは他Contextから呼ばれる。呼び出し側（`task-ma
 |`due_date`|Presentation|**必須**・日付として解釈できる文字列であること。Rails現行のFormが`presence: true`としており、API経由では未設定にできない（①「5. API / 処理詳細」`#create`・`#update`）|未入力・形式不正はいずれも入力形式の不正として扱う。形式不正のメッセージは`Due date は正しい日付を入力してください`を踏襲する（①「6. データモデル」の「エラーレスポンスの本文」）|
 |`status`|—|**入力として受け取らない。** 紐づくタスクの状況から決まる（「3. Bounded Context」）|—|
 |対象目標|Domain|操作者自身の目標であること。他の生徒の目標は対象不存在として扱う|対象不存在として扱う（Rails現行も`current_user.goals`を起点にするため404になる）|
-|削除可否|Domain|進行中または完了のタスクが紐づかないこと（①「5. API / 処理詳細」`#destroy`）|Rails現行はこの違反時に500となる。「17. Error設計」のとおり現行の挙動を維持する|
+|削除可否|Domain|進行中または完了のタスクが紐づかないこと（①「5. API / 処理詳細」`#destroy`）|メッセージは`進行中または完了のタスクがあるため削除できません`を踏襲する。422として返す（「17. Error設計」）|
 
 ---
 
@@ -581,7 +581,7 @@ Rails現行仕様も「current_user.goalsを起点に全検索を行う」とい
 |`title`が未入力（作成時）|Validation|Presentation|422|
 |`due_date`の形式が不正|Validation|Presentation|422|
 |`page` / `per_page`の形式が不正|エラーとしない|—|—（既定値で処理する）|
-|進行中または完了のタスクが紐づく目標を削除しようとした|Internal|Domain（判定）→ Application（変換）|**500**|
+|進行中または完了のタスクが紐づく目標を削除しようとした|Validation|Domain（判定）→ Application（変換）|**422**|
 |未認証|Unauthorized|Middleware|401|
 |`student`ロールでない|Forbidden|Middleware|403|
 |DB接続・永続化の失敗|Internal|Infrastructure → Application（変換）|500|
@@ -604,7 +604,7 @@ Rails現行の本文の形をそのまま維持する（①「6. データモデ
 
 メッセージの文言もRails現行のまま維持する。①「6. データモデル」の「エラーレスポンスの本文」のとおり、422のメッセージは項目名が英語のまま出る（`Title を入力してください`・`Due date は正しい日付を入力してください`等）が、フロントエンドがこの文言を表示している可能性があるため変更しない。
 
-削除できない場合を500とするのは、Rails現行がそうなっているためである。`Goal::HasActiveTasksError`に対するハンドラがControllerにも`ApplicationController`にも無く、例外がそのまま500になる（①「5. API / 処理詳細」`#destroy`のErrorケース）。業務ルール違反としては422が自然だが、API外部仕様を変えない方針（「2. 設計方針」）を優先する。422へ改めるかは別途の判断とする。
+削除できない場合を422とする。Rails現行は`Goal::HasActiveTasksError`を`Api::V1::Student::BaseController`の`rescue_from`で捕まえ、`{"errors": ["進行中または完了のタスクがあるため削除できません"]}`を422で返している（①「5. API / 処理詳細」`#destroy`のErrorケース、①「6. データモデル」の「エラーレスポンスの本文」）。業務ルール違反に対するステータスとしても422が自然であり、現行と設計の双方が一致する。
 
 ---
 
@@ -663,11 +663,11 @@ Rails現行の本文の形をそのまま維持する（①「6. データモデ
 
 - Request: パスパラメータ`id`
 - Response: 本文なし
-- Status Code: 正常系204。異常系は対象目標不存在404、進行中または完了のタスクが紐づく場合500（「17. Error設計」）、未認証401、`student`ロール不一致403
+- Status Code: 正常系204。異常系は対象目標不存在404、進行中または完了のタスクが紐づく場合422（「17. Error設計」）、未認証401、`student`ロール不一致403
 
 ## Railsとの差分
 
-API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構造・ステータスコード）はRails現行仕様から変更しない。一覧・詳細がいずれも紐づくタスクを含むこと、作成・更新が識別子のみを返すこと、削除が204で本文を返さないこと、削除できない場合が500になることも、Rails現行と同一である。
+API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構造・ステータスコード）はRails現行仕様から変更しない。一覧・詳細がいずれも紐づくタスクを含むこと、作成・更新が識別子のみを返すこと、削除が204で本文を返さないこと、削除できない場合が422になることも、Rails現行と同一である。
 
 内部の責務には次の差分がある。
 
@@ -813,7 +813,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 - Form Object（CreateGoalForm / UpdateGoalForm）とControllerで入力検証・保存処理が分散している
 - 目標の状態は、`Student::GoalCompletionService`（判定）と`Student::GoalStatusUpdaterService`（更新）が担い、`Student::TaskStartService`（タスクの着手）と`Student::SubmissionService`（問題の提出）から呼ばれる（①「7. 状態管理」）
-- 論理削除の可否判定（進行中・完了のタスクが紐づくか）は`Goal#soft_delete!`がモデル内で行う。違反時の例外にハンドラがなく500になる（①「5. API / 処理詳細」`#destroy`）
+- 論理削除の可否判定（進行中・完了のタスクが紐づくか）は`Goal#soft_delete!`がモデル内で行う。違反時の例外は`Api::V1::Student::BaseController`が捕まえ422になる（①「5. API / 処理詳細」`#destroy`）
 
 ## Go設計での変更内容
 
@@ -829,7 +829,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 ## 影響範囲
 
-- フロントエンドから見たAPI外部仕様は維持する。削除できない場合が500になる点も現行のままとする
+- フロントエンドから見たAPI外部仕様は維持する。削除できない場合が422になる点も現行のままとする
 - `task-management`・`question-answering`の②③は、目標の状態を自前で書き換えず、本Contextの公開操作を呼ぶ形になる。`question-answering`はバッチ3の対象外であり、同機能の②③の追随時に合わせる
 - 既存DBスキーマは維持するため、データ移行は不要
 - 入力検証と業務ルール判定を分離することで、テストと保守性を高めるため

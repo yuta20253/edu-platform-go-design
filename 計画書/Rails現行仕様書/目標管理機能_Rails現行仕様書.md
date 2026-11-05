@@ -136,7 +136,7 @@
 |条件|HTTP Status|内容|
 |-|-|-|
 |対象目標が存在しない、または他の生徒の目標|404|`{"message": "目標が見つかりません"}`（`ApplicationController#not_found`）|
-|進行中または完了のタスクが紐づく|（`Goal::HasActiveTasksError` が発生する。Controller・`ApplicationController` のいずれにもこの例外のハンドラがなく、500 となる）|メッセージは `進行中または完了のタスクがあるため削除できません`|
+|進行中または完了のタスクが紐づく|422|`{"errors": ["進行中または完了のタスクがあるため削除できません"]}`。`Goal::HasActiveTasksError` を `Api::V1::Student::BaseController` が `rescue_from` で捕まえ、422 で返す|
 
 ## `Api::V1::Student::GoalsController#show`
 
@@ -312,7 +312,7 @@
 |バリデーション失敗（Form）|422|`{"errors": ["メッセージ", ...]}`|
 |`ActiveRecord::RecordNotFound`|404|`{"message": "目標が見つかりません"}`（`errors` ではなく `message` の単一文字列）|
 |`Pundit::NotAuthorizedError`|403|`{"errors": ["この操作を行う権限がありません"]}`|
-|`Goal::HasActiveTasksError`|500|ハンドラがなく、例外がそのまま 500 になる|
+|`Goal::HasActiveTasksError`|422|`{"errors": ["進行中または完了のタスクがあるため削除できません"]}`（`Api::V1::Student::BaseController` の `rescue_from`）|
 
 422 のメッセージは「項目名 + メッセージ本体」の形で組み立てられる。この機能の Form（`Student::CreateGoalForm` / `UpdateGoalForm`）の項目名は日本語訳が定義されていないため、**項目名が英語のまま出る**。メッセージ本体のみ日本語である。
 
@@ -360,6 +360,7 @@
 |-|-|
 |Controller|`Api::V1::Student::GoalsController`（`DEFAULT_PER_PAGE = 5`）|
 |Controller（共通）|`ApplicationController`（`MAX_PER_PAGE = 100`・`sanitized_page`・`sanitized_per_page`・`not_found` 等の共通ハンドラ）|
+|Controller（共通）|`Api::V1::Student::BaseController`（生徒向け API の認可と、`Goal::HasActiveTasksError` → 422 等の例外ハンドラ）|
 |Form|`Student::CreateGoalForm`, `Student::UpdateGoalForm`（いずれも `DueDateValidatable` を include）|
 |Form の Concern|`DueDateValidatable`（`due_date` を文字列で受け取り `Date.parse` で検証する。空なら検証をスキップする）|
 |Query|`GoalsQuery`|
