@@ -6,27 +6,25 @@
 
 ## 機能概要
 
-生徒が学習タスクを正式に登録する前段階として、内容を下書きの状態で保存できる機能である。下書きタスクの詳細取得（紐づく単元・コース情報を含む）と新規作成の2操作を提供する。ルーティング上は一覧取得・更新・削除を含む`resources :draft_tasks`が定義されているが、現時点で実装されているアクションは詳細取得・新規作成のみであり、本書もこの2操作を設計対象とする（②「1. 機能概要」要約）。
+生徒が学習タスクを正式に登録する前段階として、内容を下書きの状態で保存できるようにする機能である。提供するAPIは詳細取得と新規作成の2つで、一覧取得・更新・削除は提供しない（①「4. API一覧」のとおりRails現行もルーティング上は定義されているが実装されていない）。
+
+下書きタスクは目標に紐づけて作成し、対象の単元を関連付ける。詳細取得では紐づく単元とその所属コースの情報を含めて返す（①「5. API / 処理詳細」`#show`）。
+
+`status`・`completed_at`は項目として保持するが、本機能に値を変える操作は存在しない。作成時の初期値のまま保たれる（①「7. 状態管理」）。
 
 ## 採用設計パターンとその理由（②からの要約）
 
-②「4. 設計パターン」により **Active Record** を採用する。
+- 採用パターン: **Active Record**（②「4. 設計パターン」）
+- 判断根拠: 詳細取得と新規作成というCRUD中心の業務であり、`status`に本機能スコープ内の遷移ルールが存在しないため
+- 採用しなかったパターン: Transaction Script（単元の関連付けの整合をStoreに寄せた方がタスク管理機能と一貫するため）、Domain Model（遷移ルールがなくDomain Model採用基準を満たさないため）、Event Sourcing（変更履歴の再構築・監査要件がないため）
 
-- 主要操作が詳細取得・新規作成というCRUDの一部であり、業務ルールは「必須項目の検証」「紐づける目標が自分のものであること」「期限日が日付として解釈できること」「関連付ける単元IDが実在すること」というバリデーションに近い水準にとどまる
-- `status`属性は存在するが、下書きタスクの作成処理自体はこの値を明示的に更新せず、初期値のまま保存される。本機能のスコープ内には状態遷移ロジックが存在しない
-- 単元との関連付け（`draft_task_units`）は、作成時にまとめて登録するデータの整合性を保つ範囲にとどまり、複雑な業務ルールを伴わない
-
-Transaction Script（単元関連付けの同期処理をEntity/Storeに寄せた方がタスク管理機能と一貫した設計にできる）、Domain Model（本機能スコープ内での遷移ルール・遷移条件が存在しない）、Event Sourcing（変更履歴の再構築要件がない）はいずれも②「4. 設計パターン」の「採用しなかったパターン」節の理由により不採用とされている。本書はこの判断を変更しない。
-
-本書は、`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」の **Active Record** 節の構造（`model.go`相当のstruct定義＋`store.go`相当のStore、usecase層なし、Repository Interfaceの分離なし）に従って実装レベルへ落とし込む。
+本書はアーキテクチャ規約「3. 設計パターンごとの構造適用方針」のActive Record節の構造（Entity相当のstructとStoreを同一packageに置く、usecase層なし、Repository Interfaceの分離なし）に従って実装レベルへ落とし込む。
 
 ## 本書が対象とする実装範囲
 
-- Bounded Context: `draft-task`（②「3. Bounded Context」）
-- 対象エンドポイント: 下書きタスク詳細取得・新規作成の2API（②「19. API仕様」）
-- 対象外: Goal・Unit・Courseそのものの管理機能（他Contextの責務。②「3. Bounded Context」他Contextとの依存関係を参照）、下書きタスクの一覧取得・更新・削除（Rails現行実装で未提供のため、②「19. API仕様」Railsとの差分のとおり設計対象外とする）
-- ②「3. Bounded Context」に、目標管理機能（goal-management Context）側の②文書が本Contextとの参照関係（`has_many :draft_tasks`）を記載しており、両者は整合した形で依存関係を記載している旨の言及がある。本Context側から見た依存方向は「作成時にGoal Contextへ所有権確認のため依存する」のみであり、目標管理機能側からの参照（目標詳細画面での下書きタスク一覧表示等）は本書の実装対象に含めない（目標管理機能③「1. 機能概要」「5. Infrastructure層設計」の対応する記載を参照）
-- ①Rails実装の詳細は本タスクでは提供されていないため、参照が必要な箇所は「①未提供のため参照不可」として扱う
+②が設計した`draft-task` Bounded ContextのActive Record実装である。Model（Entity相当のstruct定義）、Store（永続化処理）、他Contextへの参照（`dependency.go`のインターフェースとそのアダプタ）、Presentation層（Handler / Request / Response / Routing）を対象とする。
+
+対象外は、目標・単元・コースそのものの管理（他Contextの責務。②「3. Bounded Context」）と、現行Railsに実装されていない一覧取得・更新・削除である。
 
 ---
 
@@ -34,177 +32,214 @@ Transaction Script（単元関連付けの同期処理をEntity/Storeに寄せ�
 
 ## 対象Bounded Context名
 
-`draft-task`
+- `draft-task`（②「3. Bounded Context」）
 
-②にはGo実装上のディレクトリ名の明記がない。アーキテクチャ規約「9. 命名規約」に基づき、既存の`task-management`→`internal/task`の対応関係に倣い、`draft-task`→`internal/draft_task`とする（**②からの補足・推測**。詳細は「17. ②からの補足事項」参照）。
+## ディレクトリ・パッケージ名
+
+アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名`draft-task`から`-`を取り除いて連結した全小文字の名前とする。したがってディレクトリ名は`internal/drafttask/`、package名は同じ`drafttask`となる。同規約は`internal/draft_task/`のようにアンダースコアで区切ることを禁じている（package名にアンダースコアを使わないため、ディレクトリ名とpackage名が一致しなくなる）。
+
+Context名とディレクトリ名は規約から機械的に決まるため、②に明記がなくても推測にはならない。
 
 ## ②で採用した設計パターン
 
 Active Record（②「4. 設計パターン」）
 
-## 採用パターンに対応する構造
-
-`規約/アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」Active Record節に従い、domain/infrastructureのレイヤー分離およびusecase層を設けない。Entity相当のstructと永続化操作（Store）を同一package（`internal/draft_task`）に置く。
-
-作成するディレクトリ一覧:
+## 作成するディレクトリ一覧
 
 ```
-internal/draft_task/
-internal/draft_task/presentation/
-internal/draft_task/presentation/handler/
-internal/draft_task/presentation/request/
-internal/draft_task/presentation/response/
+internal/drafttask/
+internal/drafttask/infrastructure/contextadapter/
+internal/drafttask/presentation/handler/
+internal/drafttask/presentation/request/
+internal/drafttask/presentation/response/
 ```
+
+`domain/`・`application/`・`infrastructure/gormrepo/`は作成しない。Active Record採用のためレイヤー分離を行わず、Model・Storeをpackage直下に置く（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）。`infrastructure/contextadapter/`のみ、他Contextの公開操作へ委譲するアダプタの置き場所として設ける（同「4. Bounded Context構成」）。
 
 ## 作成するファイル一覧
 
 ```
-internal/draft_task/draft_task.go               # DraftTask struct・Validate()等
-internal/draft_task/draft_task_priority.go       # DraftTaskPriority型
-internal/draft_task/due_date.go                  # DueDate型
-internal/draft_task/draft_task_status.go         # DraftTaskStatus型
-internal/draft_task/draft_task_unit.go           # DraftTaskUnit struct
-internal/draft_task/errors.go                    # struct/Storeが返すエラー変数定義
-internal/draft_task/draft_task_store.go          # DraftTaskStore
-internal/draft_task/draft_task_unit_store.go     # DraftTaskUnitStore
-internal/draft_task/goal_ref.go                  # GoalRef struct（参照専用）
-internal/draft_task/goal_store.go                # GoalStore（参照専用）
-internal/draft_task/unit_ref.go                  # UnitRef struct（参照専用、コース情報を含む）
-internal/draft_task/unit_store.go                # UnitStore（参照専用）
-internal/draft_task/presentation/handler/draft_task_handler.go
-internal/draft_task/presentation/request/draft_task_request.go
-internal/draft_task/presentation/response/draft_task_response.go
-internal/draft_task/presentation/routes.go
+internal/drafttask/context.go                      # NewContext（依存関係の組み立て）
+internal/drafttask/dependency.go                   # 他Contextへの依存を宣言するインターフェースと受け渡し用の型
+internal/drafttask/draft_task.go                   # DraftTask struct（Model）+ Validate()
+internal/drafttask/draft_task_status.go            # DraftTaskStatus型（整数の列挙型）
+internal/drafttask/draft_task_priority.go          # DraftTaskPriority型（整数の列挙型）
+internal/drafttask/due_date.go                     # DueDate型（未設定を許容。保存値/表示フォーマットの一元化）
+internal/drafttask/draft_task_unit.go              # DraftTaskUnit struct（draft_task_unitsのGORMモデル）
+internal/drafttask/errors.go                       # struct/Storeが返すエラー定義
+internal/drafttask/draft_task_store.go             # DraftTaskStore（永続化・検索）
+internal/drafttask/draft_task_unit_store.go        # DraftTaskUnitStore（関連付けの一括追加・取得）
+internal/drafttask/infrastructure/contextadapter/goal_directory.go  # GoalDirectoryの実装
+internal/drafttask/infrastructure/contextadapter/unit_directory.go  # UnitDirectoryの実装
+internal/drafttask/presentation/handler/draft_task_handler.go
+internal/drafttask/presentation/request/draft_task_request.go
+internal/drafttask/presentation/response/draft_task_response.go
+internal/drafttask/presentation/routes.go
 ```
 
-`domain/` `application/` `infrastructure/`の各ディレクトリはActive Record採用のため作成しない（規約3章）。
+## 文書の分割
+
+本書は分割しない。実装ファイルは上記の16であり、テストが付くもの（DraftTask・DraftTaskStatus・DraftTaskPriority・DueDate・DraftTaskStore・DraftTaskUnitStore・2つのアダプタ・DraftTaskHandlerの9）を加えると25となるため、1文書あたり30〜35という範囲に収まる。
 
 ---
 
 # 3. Domain層設計
 
-**実装上の位置づけ**: 本機能はActive Record採用のため、domain層のディレクトリ分離は行わない。以下は②「6〜8章」の設計意図を、Active Record構造（Model＝struct＋メソッド、Store＝永続化）に落とし込んだものである（規約3章 Active Record節に従う）。
+**実装上の位置づけ**: 本機能はActive Record採用のため、domain層・infrastructure層のレイヤー分離を行わない。以下は「Entity」の代わりに「Model（Entity相当）」として、`drafttask`パッケージ直下のstructとして扱う（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Active Record節）。
 
 ## Model（Entity相当）
 
-### DraftTask（`internal/draft_task/draft_task.go`）
+### DraftTask（`draft_task.go`）
 
-②「6. Entity設計」DraftTaskの責務・②「7. Value Object設計」DraftTaskPriority/DueDate/DraftTaskStatusの独自ルールを、同一package内のstruct・型・メソッドとして統合する。
+②「6. Entity設計」「7. Value Object設計」に基づくDraftTaskのGoフィールド定義。
 
-フィールド:
-
-|フィールド|型|意味|
+|フィールド名|型|意味|
 |-|-|-|
-|`ID`|`uint`|下書きタスクID（主キー）|
-|`UserID`|`uint`|所有者（生徒）のユーザーID|
-|`GoalID`|`uint`|紐づく目標ID（②「15. Validation設計」の「指定されたgoal_idが自分の目標かどうか」の検証対象）|
-|`Title`|`string`|タイトル|
-|`Content`|`string`|内容|
-|`Priority`|`DraftTaskPriority`|優先度|
-|`DueDate`|`DueDate`|期限日|
-|`Memo`|`string`|メモ（任意項目）|
-|`Status`|`DraftTaskStatus`|状態。本機能のスコープ内では作成時の初期値を保持するのみで、遷移ロジックは持たない（②「6. Entity設計」状態変化）|
-|`CompletedAt`|`*time.Time`|完了日時。現行Rails実装には下書きタスクを完了状態に変更する操作自体が存在しないため、本機能のスコープ内外を問わず更新されることはなく、常に`nil`のまま保存される（①「タスク下書き機能 Rails現行仕様書」「7. 状態管理」、②「9. クラス図」に記載のフィールド）|
-|`CreatedAt`|`time.Time`|作成日時（GORM自動設定。Gorm規約「タイムスタンプのトラッキング」）|
-|`UpdatedAt`|`time.Time`|更新日時（GORM自動設定）|
+|ID|uint|下書きタスクの識別子|
+|UserID|uint|所有者（生徒）のユーザーID。②「16. Authorization設計」の所有権確認の材料|
+|GoalID|uint|紐づく目標の識別子。`draft_tasks.goal_id`はNULL可だが、Railsの`belongs_to :goal`により登録時は必須である（①「6. データモデル」）。本書でも必須として扱い、`*uint`にしない|
+|CourseID|`*uint`|コースの識別子。APIからは入力を受け取らず、現行実装に値を設定する処理が存在しない。カラムがNULL可であるためポインタとする（①「6. データモデル」）|
+|Title|string|タイトル。必須項目。`draft_tasks.title`は`string(100)`である|
+|Content|string|内容。必須項目。`draft_tasks.content`はNOT NULLである|
+|Priority|DraftTaskPriority|優先度。②「7. Value Object設計」のDraftTaskPriorityを型として保持|
+|DueDate|DueDate|期限日。②「7. Value Object設計」のDueDateを型として保持|
+|EstimatedTime|`*int`|見積時間。APIからは入力を受け取らず、作成時に`0`を設定する（①「5. API / 処理詳細」`#create`）。カラムはNULL可であり既存データにNULLが存在し得るためポインタとする|
+|Status|DraftTaskStatus|状態。APIの入力では受け取らず、作成時の`not_started`のまま保たれる（①「7. 状態管理」）|
+|Memo|string|メモ。任意項目。**レスポンスには含まれない**（①「6. データモデル」）|
+|CompletedAt|`*time.Time`|完了日時。現行実装に値を設定する操作が存在しないため、常に`nil`である（①「7. 状態管理」）|
+|DeletedAt|`*time.Time`|論理削除日時。下記のとおり`gorm.DeletedAt`を使わない|
+|CreatedAt|time.Time|作成日時（Gorm規約「4. タイムスタンプのトラッキング」によりGORMが設定する）|
+|UpdatedAt|time.Time|更新日時（同）|
 
-公開method一覧（シグネチャのみ。実装ロジックは記載しない）:
+公開メソッド:
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`NewDraftTask`|`(userID, goalID uint, title, content string, priority DraftTaskPriority, dueDate DueDate, memo string) (*DraftTask, error)`|`(*DraftTask, error)`|新規DraftTask生成時の不変条件（必須項目・初期status=not_started・CompletedAt=nil）を保証するファクトリ|
-|`(d *DraftTask) Validate() error`|なし|`error`|title等必須項目の妥当性を検証する（②「15. Validation設計」Domainの一部）|
-|`(d DraftTask) IsOwnedBy(userID uint) bool`|`userID uint`|`bool`|所有者判定（②「16. Authorization設計」の業務的判定を補助）|
+|`(d *DraftTask) Validate() error`|なし|`error`|Title・Contentの必須チェック、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。ロジックの実装内容は本書では規定しない|
 
-不変条件（`NewDraftTask`で保証する内容）:
+不変条件: Title・Contentが空でないこと、DueDateが設定済みかつ妥当な値であること、Priority・Statusが許容値の範囲内であること。
 
-- `UserID`・`GoalID`・`Title`・`Content`は空値を許容しない
-- 生成直後の`Status`は常に`DraftTaskStatusNotStarted`
-- 生成直後の`CompletedAt`は常に`nil`
+`Status`・`CompletedAt`・`EstimatedTime`・`CourseID`はAPIの入力に含めない。作成時は`Status`を`not_started`（①「6. データモデル」のとおりカラムの既定値が`0`）、`CompletedAt`を`nil`、`EstimatedTime`を`0`、`CourseID`を`nil`とする。状態を変える操作は本機能に存在しないため、状態を反映するメソッドも設けない。
 
-### DraftTaskPriority（`internal/draft_task/draft_task_priority.go`）
+`DeletedAt`は`gorm.DeletedAt`ではなく`*time.Time`としてマッピングする。Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは**削除操作を実装する場合の規定**である。本機能には削除操作が存在せず、`gorm.DeletedAt`を使うと`Find`系が`deleted_at IS NULL`を自動付与してしまう。`DraftTask`は`default_scope`を持たず、Rails現行は論理削除済みのレコードも返すため（①「6. データモデル」）、自動付与が入ると外部仕様が変わる。フロントエンドを変更しない方針により、絞り込みが入らない型を選ぶ（「15. GORM / DBクエリ設計」）。
 
-②「7. Value Object設計」のDraftTaskPriorityに対応する型。Active Record方針上、独立したValue Object層は設けず、DraftTaskの構成要素としてpackage内の付随型として扱う。
+### DraftTaskStatus（`draft_task_status.go`）
+
+②「7. Value Object設計」のDraftTaskStatusに対応する型。Active Record方針上、独立したValue Object層は設けず、DraftTaskの構成要素としてpackage内の付随型として扱う。
 
 |項目|内容|
 |-|-|
-|型定義|`type DraftTaskPriority string`|
-|許容値|`very_low` / `low` / `normal` / `high` / `very_high`（②に定義された5値の定数として表現）|
-|公開メソッド|`NewDraftTaskPriority(raw string) (DraftTaskPriority, error)`（許容値検証を伴う生成関数）、`(p DraftTaskPriority) IsValid() bool`|
+|型定義|`type DraftTaskStatus int`|
+|許容値|`DraftTaskStatusNotStarted`（0）/ `DraftTaskStatusInProgress`（1）/ `DraftTaskStatusCompleted`（2）を`iota`で宣言する（コーディング規約「3. 命名規則」の「定数のグループ化と`iota`」）|
+|公開メソッド|`IsValid() bool`、`String() string`（`not_started` / `in_progress` / `completed`を返す。`stringer`で生成する）|
 
-### DueDate（`internal/draft_task/due_date.go`）
+`draft_tasks.status`はRailsの`enum`として**整数**で保持される（`not_started`=0 / `in_progress`=1 / `completed`=2。①「6. データモデル」）。そのため型を`int`とし、整数カラムへそのまま対応させる。APIの出力は文字列であるため、Response DTOへ入れる際に`String()`で変換する（コーディング規約「3. 命名規則」）。
+
+文字列から変換する関数は設けない。APIの入力として状態を受け取らないためである。
+
+### DraftTaskPriority（`draft_task_priority.go`）
+
+②「7. Value Object設計」のDraftTaskPriorityに対応する型。
+
+|項目|内容|
+|-|-|
+|型定義|`type DraftTaskPriority int`|
+|許容値|`DraftTaskPriorityVeryLow`（1）/ `Low`（2）/ `Normal`（3）/ `High`（4）/ `VeryHigh`（5）。`iota + 1`で宣言する|
+|公開メソッド|`IsValid() bool`、`String() string`（`very_low` / `low` / `normal` / `high` / `very_high`を返す）、`NewDraftTaskPriority(raw int) (DraftTaskPriority, error)`|
+
+`draft_tasks.priority`はRailsの`enum`として**整数**で保持される（`very_low`=1 〜 `very_high`=5。既定値は3。**0は使っていない**。①「6. データモデル」）。`iota`をそのまま使うと0から始まり既存データと食い違うため、`iota + 1`で宣言する。
+
+入力は**整数のみ**を受け取る。Rails現行の`Student::CreateDraftTaskForm`は、タスク管理機能の`PriorityCastable`に相当する優先度名から整数への変換を持たない（①「10. Rails実装対応表」）。入力の扱いは次のとおり。
+
+|入力|Rails現行|本書|
+|-|-|-|
+|`1`〜`5`|正常|正常|
+|未入力|必須チェックで**422**|同じ（`ErrPriorityRequired`を返し422へ変換する）|
+|`0`|Form属性のinteger型変換を経ても`0`。`0`は未入力として扱われないため必須チェックを通過し、保存時に優先度として解釈できず**500**|同じ（`ErrInvalidPriority`を返し500へ変換する）|
+|`9`等の範囲外の整数|同じく**500**|同じ|
+|`normal`等の優先度名|Form属性のinteger型変換で`0`になり、同じく**500**|同じ（Request DTOで整数として受け取り、変換できない文字列は`0`として扱う）|
+
+許容値外を422ではなく500とするのは、Rails現行の挙動を維持する方針によるものである。フロントエンドを変更しないため、ステータスコードを変えない（②「17. Error設計」の「Rails現行の挙動を維持するもの」）。
+
+**タスク管理機能との違い**: タスク管理機能は優先度名も受け取り、定義されていない数値は422、定義されていない優先度名は500という使い分けになる。本機能は整数のみを受け取るため、未入力が422、それ以外の許容値外はすべて500である。同じ「優先度」でも入力の扱いが異なるため、型を共有しない。
+
+### DueDate（`due_date.go`）
 
 ②「7. Value Object設計」のDueDateに対応する型。
 
 |項目|内容|
 |-|-|
-|保持するフィールド|内部に`time.Time`相当の値を1つ保持する（保存値）|
-|生成方法|`NewDueDate(raw string) (DueDate, error)`。「日付として解釈できる値であること」という検証ルールを持つ（②「7. Value Object設計」独自ルール）|
-|公開メソッド|`(d DueDate) String() string`（`YYYY/MM/DD`形式の表示用文字列を返す。②「7. Value Object設計」に基づく）|
+|保持するフィールド|内部に`*time.Time`相当の値を1つ保持する（保存値。未設定を`nil`で表す）|
+|生成方法|文字列から生成するコンストラクタ相当の関数（引数・戻り値のみ規定し、パース処理の実装内容は本書では規定しない）|
+|公開メソッド|`String() string`（`YYYY/MM/DD`形式の表示用文字列を返す。未設定なら空文字列）、`IsZero() bool`|
 
-### DraftTaskStatus（`internal/draft_task/draft_task_status.go`）
+入力はRailsと同じく**文字列**で受け取り、日付として解釈できるかを検証する。Rails現行は`Date.parse`で検証しており、特定のフォーマットに限定していない（①「5. API / 処理詳細」`#create`）。したがって本書でも単一のフォーマットに固定せず、日付として解釈できることを条件とする。解釈できない場合は`ErrInvalidDueDate`を返し、メッセージは`Due date は正しい日付を入力してください`を踏襲する。
 
-②「7. Value Object設計」のDraftTaskStatusに対応する型。
+型としては未設定（`nil`）を許容する。`draft_tasks.due_date`がNULL可で既存データに未設定の下書きタスクが存在しうるためである。一方、作成のRequest DTOでは必須とする（①「5. API / 処理詳細」`#create`）。
 
-|項目|内容|
-|-|-|
-|型定義|`type DraftTaskStatus string`|
-|許容値|`not_started` / `in_progress` / `completed`（②に定義された3値の定数として表現）|
-|公開メソッド|`IsValid() bool`（許容値内かどうかを判定する。本機能のスコープ内では遷移ルールは持たせない。②「7. Value Object設計」独自ルール）|
+比較用のメソッドは設けない。本機能に期限の前後を比較する業務要件がないためである（タスク管理機能・目標管理機能とは異なる）。
 
-### DraftTaskUnit（`internal/draft_task/draft_task_unit.go`）
+### DraftTaskUnit（`draft_task_unit.go`）
 
-②「6. Entity設計」DraftTaskUnitの責務を反映する。
+下書きタスクと単元の関連付けを表すGORMモデルである（①「6. データモデル」の`draft_task_units`）。
 
-フィールド:
-
-|フィールド|型|意味|
+|フィールド名|型|意味|
 |-|-|-|
-|`ID`|`uint`|関連ID（主キー）|
-|`DraftTaskID`|`uint`|紐づく下書きタスクID|
-|`UnitID`|`uint`|紐づく単元ID|
-|`CreatedAt`|`time.Time`|作成日時（GORM自動設定）|
+|ID|uint|識別子|
+|DraftTaskID|uint|下書きタスクの識別子|
+|UnitID|uint|単元の識別子|
+|CreatedAt|time.Time|作成日時|
+|UpdatedAt|time.Time|更新日時|
 
-公開method一覧:
+`draft_task_units`は`draft_task_id`と`unit_id`の組に一意インデックスを持つため、同じ単元を同じ下書きタスクに重複して関連付けられない（①「6. データモデル」）。
 
-|メソッド|引数|戻り値|責務|
-|-|-|-|-|
-|`NewDraftTaskUnit`|`(draftTaskID, unitID uint) (*DraftTaskUnit, error)`|`(*DraftTaskUnit, error)`|draftTaskID・unitIDが0でないことを保証するファクトリ|
+テーブル名は`draft_task_units`であり、struct名`DraftTaskUnit`の既定の複数形と一致するため、`TableName()`のオーバーライドは不要である。
+
+`draft_task_courses`に対応するモデルは定義しない。現行実装に書き込む処理が存在せず、本Contextで扱う必要がないためである（①「6. データモデル」、②「21. DB操作仕様」）。
 
 ## Value Object
 
-規約3章「Active Record」節により、Value Objectを独立した層としては設けない（原則「対象外」）。②「7. Value Object設計」で定義されたDraftTaskPriority／DueDate／DraftTaskStatusの独自ルールは、上記「Model」節のとおりDraftTaskのフィールド型・付随型としてすべて実現している。②「Value Objectを採用しないもの」（タイトル・内容・メモ）についても同様に単純な`string`フィールドとして扱う。
+対象外（Active Record採用のため独立したValue Object層は設けない）。②が設計したDraftTaskPriority・DueDate・DraftTaskStatusは、上記のとおりDraftTaskと同一package内の付随型として扱う。②「7. Value Object設計」の「Value Objectを採用しないもの」（タイトル・内容・メモ）は単純な`string`フィールドとする。
 
 ## Repository Interface
 
-規約3章「Active Record」節により、domain層にRepository Interfaceを定義しない（原則「対象外」）。②「11. Repository設計」の責務は「8. Infrastructure層設計」節のStoreとして実装する。
+対象外（Active Record採用のため、domain層にRepository Interfaceを定義しない。永続化・検索はEntity相当のstructと同一package内のStoreとして「8. Infrastructure層設計」に記載する）。
 
-なお、②「11. Repository設計」のGoalStore・UnitStoreは、goal-management Context・curriculum(Unit) Context側が公開する参照手段であり、draft-task Contextがこれらのデータを所有・実装するものではない（`規約/アーキテクチャ規約.md`「5. Context間連携ルール」）。ただし②「11. Repository設計」はGoalStore・UnitStoreを本Context内に配置する設計をすでに決定しているため、本書もその決定をそのまま踏襲し、参照専用のStore（読み取り専用の投影）として`internal/draft_task`パッケージ内に実装する（目標管理機能③のTaskStore（参照用）と同様の整理。将来goal-management/curriculum Context側が公開APIとして参照系メソッドを整備した場合は、本Storeの実装をそちらの呼び出しに置き換える余地がある）。
+他Contextへの参照のみ、インターフェースとして`dependency.go`に宣言する。②「11. Repository設計」の「他Contextの参照手段」に対応する（規約「5. Context間連携ルール」）。詳細は「8. Infrastructure層設計」に記載する。
 
 ## Domain Service
 
-②「8. Domain Service」のとおり、複数Entityを横断する業務ルールは現状存在しないため不要と判断されている。「対象外」とする。
+対象外。②「8. Domain Service」のとおり、複数Entityを横断する業務ルールは本機能のスコープに存在しないため不要と判断されている。
 
 ## Domain Event
 
-②「18. Domain Event」のとおり、本機能ではDomain Eventを採用しない。「対象外」とする。
+対象外。②「18. Domain Event」のとおり、非同期の副作用が現行仕様に存在しないため採用しない。
 
-## Domain Error
+## Domain Error（struct/Storeが返すエラー）
 
-規約3章「Active Record」節に従い、「struct/Storeが返すエラー」として`internal/draft_task/errors.go`に`sentinel error`を定義する。
+②「17. Error設計」に対応する内容を、`errors.go`内のセンチネルエラー（`error`型の変数）として定義する。
 
-|変数名|発生条件|対応する②の記載|
+|エラー|発生条件|メッセージ|
 |-|-|-|
-|`ErrDraftTaskNotFound`|指定idの下書きタスクが存在しない、または所有者が一致しない|②「17. Error設計」対象下書きタスクが存在しない、または自分のものでない|
-|`ErrGoalNotOwned`|指定goal_idが自分の目標でない|②「17. Error設計」所有者外の目標参照|
-|`ErrInvalidDueDate`|`due_date`が日付として解釈できない|②「17. Error設計」due_dateが日付として不正|
-|`ErrUnitNotFound`|指定unit_idsの中に実在しない単元が含まれる|②「17. Error設計」unit_idsに実在しない単元が含まれる|
+|`ErrGoalRequired`|`goal_id`が未入力の場合|`Goal を入力してください`|
+|`ErrGoalNotOwned`|指定された目標が操作者自身のものでない（存在しない場合を含む）|`Goal が不正です`|
+|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`Title を入力してください`|
+|`ErrContentRequired`|`Validate()`時にContentが空の場合|`Content を入力してください`|
+|`ErrPriorityRequired`|優先度が未入力の場合|`Priority を入力してください`|
+|`ErrInvalidPriority`|優先度が`1`〜`5`以外の場合（`0`・範囲外の整数・優先度名を渡した場合を含む）|—（500へ変換する。「14. Error実装方針」）|
+|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`Due date を入力してください`|
+|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`Due date は正しい日付を入力してください`|
+|`ErrUnitNotFound`|指定された単元のいずれかが存在しない|`Unit ids に不正な値が含まれています`（**1件**。タスク管理機能では2件返る）|
+|`ErrInvalidDraftTaskStatus`|`Validate()`時に状態が許容値外の場合|—（内部エラー。APIの入力で状態を受け取らないため、通常は発生しない）|
+|`ErrDraftTaskNotFound`|`DraftTaskStore`が指定ID・所有者に一致する下書きタスクを取得できなかった場合（他の生徒のものを指定した場合を含む）|—（「14. Error実装方針」で404へ変換する）|
+
+メッセージの文言は①のとおり項目名が英語のまま出る形を維持する。フロントエンドを変更しない方針のためである（②「17. Error設計」の「エラーレスポンスの本文」）。
+
+`ErrUnitNotFound`は、Rails現行と同じく**1件のみ**返す。タスク管理機能は検証が2回登録されているため2件返るが、本機能のFormは1回のみである（①「5. API / 処理詳細」`#create`）。
 
 ---
 
 # 4. クラス図
-
-Active Record採用のため、Model（struct）とStoreの関係として可視化する。
 
 ```mermaid
 classDiagram
@@ -212,71 +247,77 @@ classDiagram
         +uint ID
         +uint UserID
         +uint GoalID
+        +*uint CourseID
         +string Title
         +string Content
         +DraftTaskPriority Priority
         +DueDate DueDate
-        +string Memo
+        +*int EstimatedTime
         +DraftTaskStatus Status
-        +time.Time CompletedAt
-        +time.Time CreatedAt
-        +time.Time UpdatedAt
-        +NewDraftTask(...) (*DraftTask, error)
+        +string Memo
+        +*time.Time CompletedAt
+        +*time.Time DeletedAt
         +Validate() error
-        +IsOwnedBy(userID) bool
+    }
+    class DraftTaskStatus {
+        <<int>>
+        +IsValid() bool
+        +String() string
+    }
+    class DraftTaskPriority {
+        <<int、1から5>>
+        +IsValid() bool
+        +String() string
+    }
+    class DueDate {
+        +String() string
+        +IsZero() bool
     }
     class DraftTaskUnit {
         +uint ID
         +uint DraftTaskID
         +uint UnitID
-        +time.Time CreatedAt
-        +NewDraftTaskUnit(draftTaskID, unitID) (*DraftTaskUnit, error)
     }
-    class DraftTaskPriority {
-        <<型（string基底）>>
-        very_low
-        low
-        normal
-        high
-        very_high
-    }
-    class DraftTaskStatus {
-        <<型（string基底）>>
-        not_started
-        in_progress
-        completed
-    }
-    class DueDate {
-        <<型>>
-        +String() string
-    }
+    class UnitIDSet
     class DraftTaskStore {
-        +FindByIDForUser(...) (*DraftTask, error)
-        +CreateWithUnitLinks(...) error
+        -*gorm.DB db
+        +FindByIDAndUserID(ctx, uint, uint) (*DraftTaskWithUnits, error)
+        +Create(ctx, *DraftTask) error
     }
     class DraftTaskUnitStore {
-        +FindUnitIDsByDraftTaskID(draftTaskID) ([]uint, error)
-        +CreateBulk(draftTaskID, unitIDs) error
+        -*gorm.DB db
+        +FindUnitIDsByDraftTaskID(ctx, uint) (UnitIDSet, error)
+        +Add(ctx, uint, UnitIDSet) error
     }
-    class GoalStore {
-        +ExistsForStudent(goalID, userID) (bool, error)
+    class GoalDirectory {
+        <<interface>>
+        +IsOwnedByUser(ctx, goalID, userID) (bool, error)
     }
-    class UnitStore {
-        +Exists(unitID) (bool, error)
-        +FindWithCourseByIDs(unitIDs) ([]UnitRef, error)
+    class UnitDirectory {
+        <<interface>>
+        +ExistsAll(ctx, UnitIDSet) (bool, error)
+        +FindUnitsByIDs(ctx, UnitIDSet) ([]UnitRef, error)
+    }
+    class DraftTaskHandler {
+        +ShowDraftTask(*gin.Context)
+        +CreateDraftTask(*gin.Context)
     }
 
-    DraftTask "1" *-- "0..*" DraftTaskUnit : 保持
-    DraftTask --> DraftTaskPriority : Priority
-    DraftTask --> DraftTaskStatus : Status
-    DraftTask --> DueDate : DueDate
-    DraftTaskStore ..> DraftTask : 永続化
-    DraftTaskUnitStore ..> DraftTaskUnit : 永続化
-    DraftTask ..> GoalStore : goal_id確認
-    DraftTaskUnit ..> UnitStore : unit_id確認
+    DraftTask *-- DraftTaskStatus
+    DraftTask *-- DraftTaskPriority
+    DraftTask *-- DueDate
+    DraftTask "1" o-- "0..*" DraftTaskUnit : 関連付け
+    DraftTaskStore ..> DraftTask
+    DraftTaskUnitStore ..> DraftTaskUnit
+    DraftTaskHandler --> DraftTaskStore
+    DraftTaskHandler --> DraftTaskUnitStore
+    DraftTaskHandler --> GoalDirectory
+    DraftTaskHandler --> UnitDirectory
 ```
 
-「3. Domain層設計」のstruct定義をそのまま反映した。
+Active Record採用のためRepository Interfaceは存在せず、`DraftTaskStore`・`DraftTaskUnitStore`が`DraftTask`と同一package内で永続化を担う。他Contextへの依存のみ、インターフェースとして本Contextに置く（コーディング規約「7. インターフェース」）。実装は`infrastructure/contextadapter/`に閉じ込める。
+
+`DraftTask`に状態を変えるメソッドがないのは、本機能に状態を変える操作が存在しないためである（①「7. 状態管理」）。
 
 ---
 
@@ -284,161 +325,185 @@ classDiagram
 
 省略する。
 
-理由: ②「10. 状態遷移図」に「Rails現行仕様書7章に『下書きタスクの作成処理自体はこの値（status）を明示的に更新しておらず、初期値のまま保存される』と明記されており、本機能のスコープ内でDraftTaskStatusが遷移することはない」と明記されているとおり、`DraftTaskStatus`は作成時の初期値を保持するのみであり、状態遷移図として可視化すべき遷移が本機能のスコープ内には存在しない。将来的に下書きから正式タスクへの変換操作等が実装され、状態変更ロジックが追加された場合は、あらためて状態遷移図を作成する（②の判断をそのまま踏襲）。
+②「10. 状態遷移図」のとおり、本機能のスコープ内で`DraftTaskStatus`が遷移することはない。`status`は作成時の`not_started`を保持するのみであり、値を変える操作が現行実装に存在しない（①「7. 状態管理」）。図示すべき遷移が存在しないため省略する。
+
+将来的に下書きから正式タスクへの変換操作等が実装され、状態を変える処理が加わった場合は、あらためて状態遷移図を作成する。
+
+論理削除（`deleted_at`）についても、値を設定する操作が存在しないため遷移として扱わない。
 
 ---
 
 # 6. Application層設計
 
-**実装上の位置づけ**: 本機能はActive Record採用のためusecase層を設けない。「対象外（Active Record採用のため、usecase層を設けない）」とする。②「12. UseCase設計」に記載された2つの業務操作（ShowDraftTask／CreateDraftTask）は、Handlerが`internal/draft_task`のStore・Modelを直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する。
-
-## DTO（Command / Query）
-
-DTOはPresentation層のRequest/Response DTOとして「9. Presentation層設計」にまとめて記載する（Active Record採用のため、Application層独自のCommand/Query DTOは設けない）。
+対象外（Active Record採用のため、usecase層を設けない。②「12. UseCase設計」に記載されたShowDraftTask / CreateDraftTaskの業務操作は、HandlerがStoreと他Contextの参照手段を直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する）。
 
 ---
 
 # 7. シーケンス図・処理フロー図
 
-Active Record採用のためUseCase層はなく、Handlerが各Store・参照用Storeを直接呼び出す（6章参照）。
+## シーケンス図
 
-## シーケンス図（CreateDraftTask）
+### CreateDraftTask
 
 ```mermaid
 sequenceDiagram
+    participant C as Client
     participant H as DraftTaskHandler
-    participant GS as GoalStore
-    participant US as UnitStore
-    participant DTS as DraftTaskStore
-    participant DTUS as DraftTaskUnitStore
+    participant GD as GoalDirectory
+    participant UD as UnitDirectory
+    participant TX as gormtx
+    participant DS as DraftTaskStore
+    participant DUS as DraftTaskUnitStore
 
-    H->>GS: ExistsForStudent(goalID, userID)
-    GS-->>H: bool
-    H->>US: Exists(unitID)（unit_idsそれぞれについて）
-    US-->>H: bool
-    H->>DTS: CreateWithUnitLinks(draftTask, unitIDs)
-    DTS-->>H: error
-    H-->>H: DraftTaskResponseへ変換
+    C->>H: POST /api/v1/student/draft_tasks
+    H->>H: CreateDraftTaskRequestへバインド
+    H->>GD: IsOwnedByUser(goalID, userID)
+    GD-->>H: 可否 / ErrGoalNotOwned
+    H->>UD: ExistsAll(unitIDs)
+    UD-->>H: 可否 / ErrUnitNotFound
+    H->>H: DraftTaskを組み立て Validate()
+    H->>TX: RunInTx(ctx, fn)
+    TX->>DS: Create(ctx, draftTask)
+    DS-->>TX: error
+    TX->>DUS: Add(ctx, draftTaskID, unitIDs)
+    DUS-->>TX: error
+    TX-->>H: commit / rollback
+    H-->>C: 201 Created（識別子）
 ```
 
-## シーケンス図（ShowDraftTask）
+### ShowDraftTask
 
 ```mermaid
 sequenceDiagram
+    participant C as Client
     participant H as DraftTaskHandler
-    participant DTS as DraftTaskStore
-    participant DTUS as DraftTaskUnitStore
-    participant US as UnitStore
+    participant DS as DraftTaskStore
+    participant UD as UnitDirectory
 
-    H->>DTS: FindByIDForUser(id, userID)
-    DTS-->>H: *DraftTask
-    H->>DTUS: FindUnitIDsByDraftTaskID(draftTaskID)
-    DTUS-->>H: []uint
-    H->>US: FindWithCourseByIDs(unitIDs)
-    US-->>H: []UnitRef
-    H-->>H: DraftTaskDetailResponseへ変換
+    C->>H: GET /api/v1/student/draft_tasks/:id
+    H->>DS: FindByIDAndUserID(ctx, id, userID)
+    Note over DS: deleted_at で絞り込まない<br/>（論理削除済みも返す）
+    DS-->>H: *DraftTaskWithUnits / ErrDraftTaskNotFound
+    H->>UD: FindUnitsByIDs(ctx, unitIDs)
+    UD-->>H: []UnitRef
+    H-->>C: 200 OK（単元・コース情報を含む）
 ```
 
 ## 処理フロー図
 
-省略する。理由: 検証項目（目標所有権確認・単元存在確認）は複数あるが、いずれも直列的な存在確認であり、タスク管理機能のUpdateTaskのような削除可否判定を伴う複雑な分岐は存在しない（②「13. シーケンス図・処理フロー図」処理フロー図の省略理由を踏襲）。そのため、「7. シーケンス図」の説明で十分に表現できる。
+### 優先度の入力の扱い
+
+分岐が多く、かつタスク管理機能と扱いが異なるため図示する。
+
+```mermaid
+flowchart TD
+    A[priorityの入力] --> B{未入力か}
+    B -- はい --> E422[422 ErrPriorityRequired]
+    B -- いいえ --> C{整数として<br/>1から5の範囲か}
+    C -- はい --> OK[正常]
+    C -- いいえ --> E500[500 ErrInvalidPriority<br/>0・範囲外の整数・優先度名を含む<br/>Rails現行の挙動を維持]
+```
+
+### CreateDraftTask
+
+```mermaid
+flowchart TD
+    A[POST /draft_tasks] --> B{必須項目が揃っているか<br/>goal_id/title/content/priority/due_date}
+    B -- いいえ --> E422[422 バリデーションエラー]
+    B -- はい --> C{priorityが1から5か}
+    C -- いいえ --> E500[500 ErrInvalidPriority]
+    C -- はい --> D{due_dateが日付として<br/>解釈できるか}
+    D -- いいえ --> E422
+    D -- はい --> F{指定の目標が<br/>操作者自身のものか}
+    F -- いいえ --> E422B[422 ErrGoalNotOwned]
+    F -- はい --> G{unit_idsが指定されたか}
+    G -- はい --> H{指定の単元が<br/>すべて存在するか}
+    H -- いいえ --> E422C[422 ErrUnitNotFound]
+    H -- はい --> I[トランザクション開始]
+    G -- いいえ --> I
+    I --> J[DraftTaskを作成<br/>status=0・estimated_time=0]
+    J --> K[DraftTaskUnitを一括追加]
+    K --> L[コミット]
+    L --> M[201 Created 識別子]
+```
+
+詳細取得は分岐が所有権の確認のみであるため、処理フロー図は省略する。処理順序は「9. Presentation層設計」のHandler処理順序に記載したとおりである。
 
 ---
 
 # 8. Infrastructure層設計
 
-**実装上の位置づけ**: 本機能はActive Record採用のためinfrastructure層のディレクトリ分離は行わない。「3. Domain層設計」で定義したModelと同一package（`internal/draft_task`）にStoreを置く。
+**実装上の位置づけ**: 本機能はActive Record採用のため、Repository Interfaceの実装という形は取らない。②「11. Repository設計」で定義された責務を、Model（DraftTask / DraftTaskUnit）と同一package内のStoreとして実装する。
 
 ## Store実装
 
-### DraftTaskStore（`internal/draft_task/draft_task_store.go`）
-
-- struct名: `DraftTaskStore`
-- 対応するGORMモデル: `DraftTask`（同一struct。GORMタグは付与せず、規約のデフォルト命名規則に委ねる。「15. GORM / DBクエリ設計」参照）
-
-コンストラクタ:
-
-```go
-func NewDraftTaskStore(db *gorm.DB) *DraftTaskStore
-```
-
-メソッド一覧:
-
-|メソッド|引数|戻り値|発行するクエリ内容|
-|-|-|-|-|
-|`FindByIDForUser`|`(ctx context.Context, id, userID uint)`|`(*DraftTask, error)`|`id`と`user_id`の一致で1件取得する所有者スコープ検索（②「11. Repository設計」DraftTaskStore「user_id + idによる単一取得（所有権確認を兼ねる）」）。該当なしは`ErrDraftTaskNotFound`を返す|
-|`CreateWithUnitLinks`|`(ctx context.Context, d *DraftTask, unitIDs []uint)`|`error`|DraftTask作成とDraftTaskUnit一括作成を1トランザクションで実行する（②「12. UseCase設計」CreateDraftTaskのトランザクション範囲。「11. Transaction実装方針」参照）|
-
-保持しない責務（②「11. Repository設計」を踏襲）: 一覧取得・更新・削除（現行実装で未提供のため、本書のスコープ外）、業務ルール判定（所有権・期限日妥当性等はDraftTask/Handler側で扱う）。
-
-### DraftTaskUnitStore（`internal/draft_task/draft_task_unit_store.go`）
-
-- struct名: `DraftTaskUnitStore`
-- 対応するGORMモデル: `DraftTaskUnit`（テーブル名`draft_task_units`。「15. GORM / DBクエリ設計」参照）
-
-コンストラクタ:
-
-```go
-func NewDraftTaskUnitStore(db *gorm.DB) *DraftTaskUnitStore
-```
-
-メソッド一覧:
-
-|メソッド|引数|戻り値|発行するクエリ内容|
-|-|-|-|-|
-|`FindUnitIDsByDraftTaskID`|`(ctx context.Context, draftTaskID uint)`|`([]uint, error)`|`draft_task_id`一致で紐づく`unit_id`一覧を取得する（②「11. Repository設計」「下書きタスクに紐づく単元一覧取得（詳細取得時）」）|
-|`CreateBulk`|`(ctx context.Context, draftTaskID uint, unitIDs []uint)`|`error`|指定unitIDs分のDraftTaskUnitレコードを一括作成する（②「11. Repository設計」「下書きタスク作成時の単元関連付けの一括作成」）|
-
-保持しない責務: 関連付けの更新・削除（現行実装に存在しないため。②「11. Repository設計」）。
-
-`DraftTaskStore.CreateWithUnitLinks`は、トランザクション用の`*gorm.DB`を`NewDraftTaskUnitStore`に渡して同一トランザクション内で`DraftTaskUnitStore.CreateBulk`を呼び出す（Entity ⇔ GORMモデルの変換は不要。同一structをそのまま永続化する）。
-
-### GoalStore（参照用、`internal/draft_task/goal_store.go`）
+### DraftTaskStore（`draft_task_store.go`）
 
 |項目|内容|
 |-|-|
-|struct名|`GoalStore`|
-|対応するGORMモデル|`GoalRef`（読み取り専用モデル。実体の目標管理はgoal-management Contextの責務であり、本Contextでは参照専用の投影として扱う）|
-
-コンストラクタ:
-
-```go
-func NewGoalStore(db *gorm.DB) *GoalStore
-```
+|struct名|`DraftTaskStore`|
+|対応するGORMモデル|`DraftTask`struct自体をGORMモデルとして扱う（詳細は「15. GORM / DBクエリ設計」参照）|
+|保持するフィールド|`db *gorm.DB`|
+|コンストラクタ|`NewDraftTaskStore(db *gorm.DB) *DraftTaskStore`|
 
 メソッド一覧:
 
 |メソッド|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
-|`ExistsForStudent`|`(ctx context.Context, goalID, userID uint)`|`(bool, error)`|指定`goal_id`が`user_id`に属するかの存在確認クエリ（②「11. Repository設計」GoalStore責務「指定goal_idが現在の生徒に属するか確認する」）|
+|`FindByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*DraftTaskWithUnits, error)`|id・user_idの両方に一致する1件取得。紐づく単元の識別子も一括取得する。一致しない場合は`ErrDraftTaskNotFound`（他の生徒のものを含む404相当。②「16. Authorization設計」の所有権確認をクエリ条件として実現する）|
+|`Create`|`ctx context.Context, draftTask *DraftTask`|`error`|DraftTaskレコードの新規作成。`status`は`DraftTaskStatusNotStarted`（0）、`estimated_time`は`0`、`completed_at`・`course_id`は未設定で作成する（①「5. API / 処理詳細」`#create`）|
 
-②「11. Repository設計」のとおり、GoalStoreは下書きタスクの作成可否判断そのものを持たない。
+**`deleted_at`による絞り込みを行わない。** `DraftTask`は`default_scope`を持たず、Rails現行は論理削除済みのレコードも返すためである（①「6. データモデル」、②「11. Repository設計」）。`Goal`・`Task`のStoreとは異なる点であり、実装時に他機能のStoreから条件をコピーしないよう注意する。
 
-### UnitStore（参照用、`internal/draft_task/unit_store.go`）
+一覧取得・更新・削除のメソッドは設けない。現行Railsに実装がなく、②「11. Repository設計」の「保持しない責務」に明記されているためである。
+
+各メソッドは`gormtx.DBFromContext(ctx, s.db)`で接続を取得する。トランザクション中であればその接続を、そうでなければ通常の接続を使う（「11. Transaction実装方針」）。
+
+`DraftTaskWithUnits`（`draft_task.go`で定義する）は、下書きタスクとその紐づく単元の識別子を一括取得した結果を表す型である。単元を個別に問い合わせるN+1を避けるために設ける（Gorm規約「0. 本プロジェクトでの採用方針」の「リレーションの取得とN+1対策」）。フィールドは`DraftTask *DraftTask`と`UnitIDs UnitIDSet`である。
+
+単元の表示用の情報（単元名・所属コース）は`draft_tasks`との結合では取得しない。`units`・`courses`は他Contextが所有するため、`UnitDirectory`経由で取得する（②「11. Repository設計」）。
+
+②「11. Repository設計」に明記のとおり、業務ルール判定・認可判定はStoreに持たせない。所有権の確認は「idとuser_idが一致するレコードを取得できるか」というクエリ条件として表現し、判定ロジック自体はHandler側の処理順序で扱う。
+
+### DraftTaskUnitStore（`draft_task_unit_store.go`）
 
 |項目|内容|
 |-|-|
-|struct名|`UnitStore`|
-|対応するGORMモデル|`UnitRef`（読み取り専用モデル。実体の単元管理はcurriculum(Unit) Contextの責務であり、本Contextでは参照専用の投影として扱う。コース情報（コースID・コース名）を含めて保持する）|
-
-コンストラクタ:
-
-```go
-func NewUnitStore(db *gorm.DB) *UnitStore
-```
+|struct名|`DraftTaskUnitStore`|
+|対応するGORMモデル|`DraftTaskUnit`（テーブル名`draft_task_units`）|
+|保持するフィールド|`db *gorm.DB`|
+|コンストラクタ|`NewDraftTaskUnitStore(db *gorm.DB) *DraftTaskUnitStore`|
 
 メソッド一覧:
 
 |メソッド|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
-|`Exists`|`(ctx context.Context, unitID uint)`|`(bool, error)`|指定`unit_id`の存在確認クエリ（②「11. Repository設計」UnitStore責務「指定単元の存在確認」）|
-|`FindWithCourseByIDs`|`(ctx context.Context, unitIDs []uint)`|`([]UnitRef, error)`|指定`unit_id`群について、コース情報を結合したUnitRef一覧を取得する（②「11. Repository設計」UnitStore責務「詳細取得時のコース情報取得」、②「21. DB操作仕様」「コース（courses）との結合が必要」）|
+|`FindUnitIDsByDraftTaskID`|`ctx context.Context, draftTaskID uint`|`(UnitIDSet, error)`|draft_task_id一致で紐づくunit_idの集合を取得する|
+|`Add`|`ctx context.Context, draftTaskID uint, unitIDs UnitIDSet`|`error`|指定された単元分のレコードを一括作成する。空の集合が渡された場合はクエリを発行しない|
 
-②「11. Repository設計」のとおり、UnitStoreは単元の作成・更新責務を持たない。
+関連付けの更新・削除のメソッドは設けない。現行Railsに実装がなく、②「11. Repository設計」の「保持しない責務」に明記されているためである。
+
+`Add`も`gormtx.DBFromContext`で接続を取得する。これにより、Handlerが開始したトランザクションに`DraftTaskStore`と同じ接続で参加する。`NewDraftTaskUnitStore(tx)`のようにトランザクション用の`*gorm.DB`を渡してStoreを再生成する方式は採らない（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」）。
+
+## 他Contextの参照手段の実装
+
+`dependency.go`で宣言したインターフェースの実装である。相手Contextが公開する操作へ委譲し、本Contextから相手のテーブルへクエリを発行しない（アーキテクチャ規約「5. Context間連携ルール」、②「11. Repository設計」）。いずれもGORMに依存せず相手Contextの公開操作を呼ぶアダプタであるため`infrastructure/contextadapter/`に置く（同「4. Bounded Context構成」）。
+
+|インターフェース|相手Context|メソッド|責務|
+|-|-|-|-|
+|`GoalDirectory`|`goal-management`|`IsOwnedByUser(ctx context.Context, goalID, userID uint) (bool, error)`|指定の目標が操作者自身のものかを返す。作成時の`goal_id`の検証に用いる（①「5. API / 処理詳細」`#create`）|
+|`UnitDirectory`|`unit-reference`|`ExistsAll(ctx context.Context, unitIDs UnitIDSet) (bool, error)`|指定された単元がすべて存在するかを返す|
+||`unit-reference`|`FindUnitsByIDs(ctx context.Context, unitIDs UnitIDSet) ([]UnitRef, error)`|レスポンスに含める単元の情報を返す|
+
+`UnitIDSet`・`UnitRef`（`dependency.go`で定義する）は、それぞれ単元の識別子の集合と、レスポンスに含める単元の情報を表す型である。`UnitRef`のフィールドは識別子・所属コースの識別子・単元名と、所属コースの情報（識別子・レベル番号・レベル名）である（①「5. API / 処理詳細」`#show`）。相手Contextの内部structをそのまま受け取らず、本Contextが必要とする項目だけを持つ型で受け取る（アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）。
+
+**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。`unit-reference`のContext名も単元参照機能の②で確定する（②「25. 設計判断サマリー」）。
+
+タスク管理機能の③も同じ2つの参照手段を必要とする。インターフェースは各Contextが自身の`dependency.go`に持つため共有しないが、相手Contextが公開する操作は同一のものを呼ぶ。シグネチャを合わせる（同機能③「8. Infrastructure層設計」）。
 
 ## 外部連携実装
 
-②にMail・Cache・Queue等の外部連携に関する記載はない。「対象外」とする。
+対象外。②にMail・Cache・Queue等の外部連携は記載されていない。
 
 ---
 
@@ -446,300 +511,397 @@ func NewUnitStore(db *gorm.DB) *UnitStore
 
 ## Handler
 
-### DraftTaskHandler（`internal/draft_task/presentation/handler/draft_task_handler.go`）
+### DraftTaskHandler（`presentation/handler/draft_task_handler.go`）
 
-- struct名: `DraftTaskHandler`
-- 依存: `*draft_task.DraftTaskStore`、`*draft_task.DraftTaskUnitStore`、`*draft_task.GoalStore`、`*draft_task.UnitStore`（コンストラクタで注入する）
-
-```go
-func NewDraftTaskHandler(
-    draftTaskStore *draft_task.DraftTaskStore,
-    draftTaskUnitStore *draft_task.DraftTaskUnitStore,
-    goalStore *draft_task.GoalStore,
-    unitStore *draft_task.UnitStore,
-) *DraftTaskHandler
-```
-
-メソッド一覧（HTTPメソッド・パスとの対応は「10. API仕様」参照）:
-
-|メソッド|対応API|
+|項目|内容|
 |-|-|
-|`(h *DraftTaskHandler) ShowDraftTask(c *gin.Context)`|GET /api/v1/student/draft_tasks/:id|
-|`(h *DraftTaskHandler) CreateDraftTask(c *gin.Context)`|POST /api/v1/student/draft_tasks|
+|struct名|`DraftTaskHandler`|
+|対応する呼び出し先|`DraftTaskStore`、`DraftTaskUnitStore`、`GoalDirectory`、`UnitDirectory`（Active Record採用のためUseCaseを経由せず直接呼び出す）|
+|コンストラクタ|`NewDraftTaskHandler(store *DraftTaskStore, unitStore *DraftTaskUnitStore, goals GoalDirectory, units UnitDirectory) *DraftTaskHandler`|
 
-Active Record採用のためUseCase層を経由しない。以下、②「12. UseCase設計」で「Handler処理」として記載された業務操作の呼び出し順序を、権限チェック・呼び出し順序を含めてHandlerの処理順序として記載する（規約7章 横断的関心事の置き場所に基づき、認可（所有権・業務権限）は該当Storeまたは本Handlerで行う）。
+メソッド一覧（HTTPメソッド・パス対応）:
 
-#### ShowDraftTask 処理順序
+|メソッド|HTTPメソッド|パス|
+|-|-|-|
+|`ShowDraftTask`|GET|/api/v1/student/draft_tasks/:id|
+|`CreateDraftTask`|POST|/api/v1/student/draft_tasks|
 
-1. Middlewareで設定済みのcurrent user（student）をcontextから取得する
-2. パスパラメータ`id`をバインドする
-3. `DraftTaskStore.FindByIDForUser`をcurrent userのuser_idでスコープして呼び出す。存在しない場合は`ErrDraftTaskNotFound`（②「12. UseCase設計」ShowDraftTask、②「13. Authorization設計」所有権確認）
-4. `DraftTaskUnitStore.FindUnitIDsByDraftTaskID`で関連単元IDを取得する
-5. `UnitStore.FindWithCourseByIDs`で単元一覧（コース情報を含む）を取得する（②「12. UseCase設計」ShowDraftTaskの出力「下書きタスク詳細情報と紐づく単元一覧（コース情報を含む）」）
-6. 取得結果をResponse DTOへ変換して返す
+処理順序（UseCase層を経由しない分、本来UseCaseが担う手順をここに明記する）:
 
-#### CreateDraftTask 処理順序
+### ShowDraftTask
+
+1. `c.Request.Context()`からcurrent user（認証Middlewareが格納したstudentユーザー）を取得する（②「16. Authorization設計」）
+2. パスパラメータ`id`を読み取る
+3. `store.FindByIDAndUserID`をid・current userのIDで呼び出す。一致しなければ`ErrDraftTaskNotFound`
+4. `ErrDraftTaskNotFound`を404のAppErrorへ変換して`c.Error(err)`で返す（「14. Error実装方針」）
+5. `unitDirectory.FindUnitsByIDs`で単元の情報を取得する
+6. `DraftTaskResponse`へ変換する。`memo`は含めない（①「6. データモデル」）
+7. 200 OKで返す
+
+### CreateDraftTask
 
 1. current userを取得する
-2. Request DTOへバインドし、型・必須・フォーマットを検証する（②「15. Validation設計」Presentation）
-3. `GoalStore.ExistsForStudent`で指定goal_idが自分の目標か確認する。該当しない場合は`ErrGoalNotOwned`（②「15. Validation設計」業務ルール「指定されたgoal_idが自分の目標かどうか」）
-4. `draft_task.NewDueDate`でdue_dateを検証する。日付として解釈できない場合は`ErrInvalidDueDate`（②「15. Validation設計」整合性チェック）
-5. `draft_task.NewDraftTaskPriority`でpriorityを検証する
-6. 指定された各unit_id（任意項目）について`UnitStore.Exists`で存在確認する。存在しない場合は`ErrUnitNotFound`（②「15. Validation設計」整合性チェック）
-7. `draft_task.NewDraftTask`でDraftTaskを生成し、`DraftTask.Validate()`で業務ルールを検証する（②「15. Validation設計」Domain）
-8. `DraftTaskStore.CreateWithUnitLinks`をDraftTaskと確認済みunit_ids一覧で呼び出す（②「12. UseCase設計」CreateDraftTask 呼び出すStore：GoalStore→UnitStore→DraftTaskStore→DraftTaskUnitStoreの順に対応）
-9. 作成結果をResponse DTOへ変換して返す
+2. `CreateDraftTaskRequest`へバインドする（`draft_task`キーでネストした本文。②「15. Validation設計」）
+3. `NewDraftTaskPriority`で優先度を変換する。未入力なら`ErrPriorityRequired`（422）、`1`〜`5`以外なら`ErrInvalidPriority`（500）
+4. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`（①「5. API / 処理詳細」`#create`）
+5. `unit_ids`が指定されている場合、`unitDirectory.ExistsAll`で存在確認する。偽なら`ErrUnitNotFound`（1件）
+6. Request DTOからDraftTaskを組み立てる。`UserID`はcurrent userのID、`Status`は`DraftTaskStatusNotStarted`、`EstimatedTime`は`0`、`CompletedAt`・`CourseID`は未設定とする
+7. `draftTask.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
+8. `gormtx.RunInTx`でトランザクションを開始し、`store.Create`と`unitStore.Add`を順に呼ぶ（②「14. Transaction設計」）
+9. 作成された下書きタスクの識別子を**201 Created**で返す（①「5. API / 処理詳細」`#create`）
 
 ## Request / Response DTO
 
-### Request（`internal/draft_task/presentation/request/draft_task_request.go`）
+### Request（`presentation/request/draft_task_request.go`）
 
-|struct名|フィールドと型|バリデーションタグ／チェック内容|
-|-|-|-|
-|`CreateDraftTaskRequest`|`GoalID uint`、`Title string`、`Content string`、`Priority string`、`DueDate string`、`Memo string`、`UnitIDs []uint`|`GoalID`・`Title`・`Content`・`Priority`・`DueDate`は`binding:"required"`（②「15. Validation設計」必須チェック）。`Memo`・`UnitIDs`は任意項目。`UnitIDs`は配列形式チェック（②「15. Validation設計」フォーマットチェック）|
+|struct名|フィールド|型|検証|
+|-|-|-|-|
+|`CreateDraftTaskRequest`|DraftTask|`CreateDraftTaskBody`|`binding:"required"`。リクエストボディは`draft_task`キーでネストする（①「5. API / 処理詳細」`#create`の`params.require(:draft_task)`）|
+|`CreateDraftTaskBody`|GoalID|uint|`json:"goal_id" binding:"required"`|
+||Title|string|`json:"title" binding:"required"`|
+||Content|string|`json:"content" binding:"required"`|
+||Priority|`*int`|`json:"priority" binding:"required"`。**整数**として受け取る。`0`と未入力を区別する必要があるためポインタとする|
+||DueDate|string|`json:"due_date" binding:"required"`。日付として解釈できることを検証する。フォーマットは固定しない|
+||Memo|string|`json:"memo"`。任意|
+||UnitIDs|`[]uint`|`json:"unit_ids"`。任意。空文字を除いて整数として扱う（①「5. API / 処理詳細」`#create`）|
 
-### Response（`internal/draft_task/presentation/response/draft_task_response.go`）
+`status`・`completed_at`・`estimated_time`・`course_id`は入力として受け取らない。
 
-|struct名|フィールドと型|
-|-|-|
-|`CreateDraftTaskResponse`|`ID uint`|
-|`DraftTaskDetailResponse`|`ID uint`、`UserID uint`、`GoalID uint`、`Title string`、`Content string`、`DueDate string`、`Priority string`、`Memo string`、`Status string`、`CompletedAt *string`、`Units []DraftTaskUnitResponse`、`CreatedAt string`、`UpdatedAt string`|
-|`DraftTaskUnitResponse`|`ID uint`、`Name string`、`CourseID uint`、`CourseName string`|
+`Priority`を`*int`とするのは、`0`が渡された場合（500）と未入力の場合（422）を区別する必要があるためである。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない。優先度名のような整数として解釈できない文字列が渡された場合は`0`として扱い、500とする（Rails現行がForm属性のinteger型変換で同じ結果になるため。「3. Domain層設計」）。
 
-`DueDate`・`CreatedAt`・`UpdatedAt`は`DueDate.String()`等を用いて表示用フォーマットへ変換する。EntityであるDraftTaskをそのまま返さず、必ずResponse DTOへ変換する（規約「6. データフロー」）。
+パスパラメータ`id`（詳細）は必須・整数として検証する。
 
-## Routing
+### Response（`presentation/response/draft_task_response.go`）
 
-`internal/draft_task/presentation/routes.go`
+|struct名|フィールド|型|JSONキー|
+|-|-|-|-|
+|`DraftTaskResponse`|ID|`uint`|`id`|
+||UserID|`uint`|`user_id`|
+||GoalID|`*uint`|`goal_id`|
+||Title|`string`|`title`|
+||Content|`string`|`content`|
+||DueDate|`*string`|`due_date`（`YYYY/MM/DD`形式。未設定なら`null`）|
+||Priority|`string`|`priority`|
+||Status|`string`|`status`|
+||CompletedAt|`*string`|`completed_at`（`YYYY/MM/DD`形式。未設定なら`null`）|
+||Units|`[]UnitResponse`|`units`|
+|`UnitResponse`|ID|`uint`|`id`|
+||CourseID|`uint`|`course_id`|
+||UnitName|`string`|`unit_name`|
+||Course|`CourseResponse`|`course`|
+|`CourseResponse`|ID|`uint`|`id`|
+||LevelNumber|`int`|`level_number`|
+||LevelName|`string`|`level_name`|
+
+- **詳細**: 最上位をラップせず`DraftTaskResponse`をそのまま返す（①「5. API / 処理詳細」`#show`）
+- **作成**: 作成された下書きタスクの識別子のみを返す。ラップしたstructを設けず識別子をそのまま返す（①「5. API / 処理詳細」`#create`）
+- `memo`はレスポンスに含めない。Rails現行の`DraftTaskSerializer`が返していないためである（①「6. データモデル」）
+- `DraftTaskResponse.Status`・`Priority`は整数ではなく文字列を入れる。Modelの型は整数の列挙型であるため、`String()`で変換してから設定する（「3. Domain層設計」）
+- `GoalID`を`*uint`とするのは、`draft_tasks.goal_id`がNULL可であり既存データにNULLが存在し得るためである。入力では必須だが出力では`null`を返しうる（①「6. データモデル」）
+- タスク管理機能の詳細が単元ごとに持つ`started`（学習開始済みか）は、本機能のレスポンスには含めない（①「5. API / 処理詳細」`#show`）
+- エラーレスポンスは専用structを本書で定義しない。形式は「14. Error実装方針」のとおりであり、集中エラーハンドリングミドルウェアが組み立てる
+
+## Routing（`presentation/routes.go`）
 
 |Method|Path|Handler|
 |-|-|-|
 |GET|/api/v1/student/draft_tasks/:id|DraftTaskHandler.ShowDraftTask|
 |POST|/api/v1/student/draft_tasks|DraftTaskHandler.CreateDraftTask|
 
-いずれのルートも認証Middleware（本人確認）・認可Middleware（student roleチェック）を経由する（②「16. Authorization設計」Middleware、「13. Authorization実装方針」参照）。
+いずれのルートも認証Middleware・`student`ロール確認Middlewareを経由する（②「16. Authorization設計」）。`POST`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象にも含める（Gin規約「5. CSRF対策」の「適用範囲」）。詳細取得はGETのため対象外である。
+
+一覧取得・更新・削除の経路は定義しない。Rails現行は`resources :draft_tasks`により経路だけが存在するが、対応するアクションが実装されていないため（①「4. API一覧」）。
 
 ---
 
 # 10. API仕様
 
-②「19. API仕様」に基づき、Rails現行仕様で実装されている2エンドポイントを維持する。一覧取得・更新・削除は②が「実装されていない業務仕様を推測で設計することを避ける」として設計対象外としているため、本書でも対象外とする。
-
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
-|GET|/api/v1/student/draft_tasks/:id|ShowDraftTask|パスパラメータ`id`|`DraftTaskDetailResponse`|200|
-|POST|/api/v1/student/draft_tasks|CreateDraftTask|`CreateDraftTaskRequest`|`CreateDraftTaskResponse`|201（②「19. API仕様」Status Code「201/200: 作成成功の扱いは既存仕様に合わせて統一する」とあり、作成=201と推測。「17. ②からの補足事項」参照）|
+|GET|/api/v1/student/draft_tasks/:id|ShowDraftTask|パス: `id`|`DraftTaskResponse`|200|
+|POST|/api/v1/student/draft_tasks|CreateDraftTask|`CreateDraftTaskRequest`|作成した下書きタスクの識別子|201|
 
-## Errorケース
+作成が201であるのは、①「5. API / 処理詳細」のとおり`#create`が`status: :created`を返しているためである。
+
+エラーレスポンスの本文は「14. Error実装方針」のとおり、422が`{"errors": [...]}`、404のみ`{"message": "Draft taskが見つかりません"}`である。
+
+各Endpointのエラーケース:
+
+## 全Endpoint共通
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|未認証|401|認証エラー（Middleware）|
-|student以外のロール|403|認可エラー（Middleware）|
-|Request DTOの型・必須・フォーマット不正|422|②「19. API仕様」422: 入力・業務ルール違反|
-|指定goal_idが自分の目標でない（`ErrGoalNotOwned`）|422|②「19. API仕様」|
-|due_dateが日付として不正（`ErrInvalidDueDate`）|422|②「19. API仕様」|
-|unit_idsに実在しない単元が含まれる（`ErrUnitNotFound`）|422|②「19. API仕様」|
-|対象下書きタスク不存在／所有者不一致（`ErrDraftTaskNotFound`）|404|②「19. API仕様」404: 対象下書きタスク不存在|
-|DB接続失敗等のInfrastructure Error|500|内部エラー|
+|未認証|401|認証Middlewareが返す（②「16. Authorization設計」）|
+|`student`ロールでない|403|ロール確認Middlewareが返す|
+|`POST`でCSRFトークンが不正|403|CSRF検証Middlewareが返す（Gin規約「5. CSRF対策」）|
+
+認証・認可・CSRFのステータスコードは本機能で定めるものではなく、該当Middlewareの仕様に従う。
+
+## GET /api/v1/student/draft_tasks/:id
+
+|条件|Status Code|Error内容|
+|-|-|-|
+|対象が存在しない、または他の生徒の下書きタスクである|404|`ErrDraftTaskNotFound`（①「5. API / 処理詳細」`#show`）|
+
+論理削除済みの下書きタスクは404にならず、200で返る（①「5. API / 処理詳細」`#show`の業務ルール）。
+
+## POST /api/v1/student/draft_tasks
+
+|条件|Status Code|Error内容|
+|-|-|-|
+|`goal_id` / `title` / `content` / `priority` / `due_date`の未入力|422|バリデーションエラー|
+|`due_date`が日付として解釈できない|422|`ErrInvalidDueDate`|
+|指定された目標が操作者自身のものでない（存在しない場合を含む）|422|`ErrGoalNotOwned`|
+|指定された単元のいずれかが存在しない|422|`ErrUnitNotFound`（**1件**）|
+|`priority`が`1`〜`5`以外（`0`・範囲外の整数・優先度名を渡した場合を含む）|**500**|`ErrInvalidPriority`。Rails現行の挙動を維持する（②「17. Error設計」）|
+|`title`が100文字を超えた|**500**|DBの制約違反。Rails現行の挙動を維持する（②「17. Error設計」）|
 
 ---
 
 # 11. Transaction実装方針
 
-②「14. Transaction設計」を実装単位に落とし込む。
+## Transaction開始位置
 
-## Transaction開始箇所
+②「14. Transaction設計」のとおり、`CreateDraftTask`はHandlerの処理単位でトランザクションを開始する。`DraftTaskStore`と`DraftTaskUnitStore`の2つのStore操作にまたがるため、Storeメソッド内では境界を取れない。
 
-- Active Record採用のため、`DraftTaskStore.CreateWithUnitLinks`メソッド内で`db.WithContext(ctx).Transaction(func(tx *gorm.DB) error { ... })`を用いてトランザクションを開始する（②「14. Transaction設計」Handlerの処理単位に対応するStoreメソッド内でトランザクションを開始する）
-- `ShowDraftTask`はトランザクションを使用しない（②「14. Transaction設計」）
+`gormtx.RunInTx(ctx, db, func(ctx context.Context, tx *gorm.DB) error { ... })`を用いる。`db.WithContext(ctx).Transaction(...)`を直接呼ばない。呼び出し側が既に開始したトランザクションに参加せず、独立した2つ目を開始してしまうためである（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」）。
 
-## Transaction終了箇所（Commit / Rollback条件）
+他Contextの参照（`GoalDirectory` / `UnitDirectory`）は読み取りであり、トランザクションの外で行う（②「14. Transaction設計」）。
 
-- `CreateWithUnitLinks`: DraftTask作成とDraftTaskUnit一括作成がすべて成功した時点でコミットする。いずれかが失敗した場合はロールバックする
+## Transaction終了位置
+
+- `CreateDraftTask`: DraftTaskの作成と単元の関連付けの追加が完了した時点でコミットする。いずれかが失敗した場合はロールバックする
+- `ShowDraftTask`: 読み取りのみのためトランザクションを使用しない（②「14. Transaction設計」）
+
+## 呼び出し側トランザクションの引き継ぎ
+
+本Contextには他Contextから呼ばれる公開操作が存在しないため、呼び出し側のトランザクションを引き継ぐ経路はない。ただし各Storeメソッドは`gormtx.DBFromContext(ctx, s.db)`で接続を取得するため、将来他Contextから呼ばれる操作が追加された場合も引き継ぎが成立する。
 
 ## 複数Storeにまたがる場合の扱い
 
-`DraftTaskStore.CreateWithUnitLinks`は、トランザクション用の`tx *gorm.DB`を用いて`DraftTaskUnitStore`を`NewDraftTaskUnitStore(tx)`で生成し、同一トランザクション内で`DraftTaskUnitStore.CreateBulk`を呼び出す。GoalStore・UnitStoreによる確認は、トランザクション開始前（Handler側）で完了させ、トランザクション内では行わない（②「11. Repository設計」GoalStore/UnitStoreは「下書きタスクの作成可否判断そのもの」を保持しないとされている点と整合）。
+`CreateDraftTask`は`DraftTaskStore`と`DraftTaskUnitStore`にまたがる。両Storeが`gormtx.DBFromContext`で接続を取得するため、Handlerが`RunInTx`で開始したトランザクションに同じ接続で参加する。トランザクション用の`*gorm.DB`を渡してStoreを再生成しない。
 
 ---
 
 # 12. Validation実装方針
 
-②「15. Validation設計」の「バリデーション仕様」表を実装レベルに落とし込む。
-
 ## Presentation
 
-|フィールド|struct名|バリデーションタグ|エラーメッセージ|
-|-|-|-|-|
-|`GoalID` / `Title` / `Content` / `Priority` / `DueDate`|`CreateDraftTaskRequest`|`binding:"required"`|「必須項目が未入力です」|
-|`UnitIDs`|`CreateDraftTaskRequest`|`binding:"omitempty,dive"`（配列形式チェック）|「単元の指定が不正です」|
+- `CreateDraftTaskRequest`のバインド時に、Ginのbindingタグで型チェック・必須チェックを行う（②「15. Validation設計」）
+- `priority`は整数として受け取る。`0`と未入力を区別するためポインタで受け取り、`binding:"required"`だけに委ねない
+- `due_date`は文字列で受け取り、日付として解釈できるかはDomain側（`DueDate`の生成）で検証する。Presentation層ではフォーマットを固定しない（①「5. API / 処理詳細」`#create`）
+- `unit_ids`は配列として受け取り、空文字を除いて整数として扱う
+- パスパラメータ`id`は整数として読み取り、解釈できない場合は422とする
 
-## 業務ルール検証（Active Record採用時: Modelのメソッドで検証する内容）
+## 業務ルール検証
 
-- `DraftTask.Validate()`: title等必須項目の妥当性
-- `DraftTaskPriority.NewDraftTaskPriority()`: priority入力値の許容値検証
-- `DueDate.NewDueDate()`: due_dateが日付として解釈できる値であることの検証（②「15. Validation設計」整合性チェック）
+Active Record採用のため、DraftTask（Model）の`Validate()`メソッドで検証する。
 
-## 業務ルール検証（Model単体では完結しないため、Handlerで実行する内容）
+- Title・Contentが空でないこと（長さは検証しない。下記）
+- DueDateが設定済みであり、かつ日付として妥当な値であること
+- Priority・Statusが許容値の範囲内であること
 
-goal_idの所有権確認（`GoalStore.ExistsForStudent`）、unit_idの存在確認（`UnitStore.Exists`）は、他Contextのデータを参照する業務ルールであり、DraftTask Model単体では検証できないため、Handlerが呼び出し元となって検証する（②「15. Validation設計」業務ルール・整合性チェックの実装先を、Active Record構造に合わせて具体化したもの。**②からの補足**）。
+Titleの長さは検証しない。`draft_tasks.title`は`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えると同じ入力に対するステータスコードが500から422へ変わり、フロントエンドから見える挙動が変わる。フロントエンドを変更しない方針を優先する（②「17. Error設計」の「Rails現行の挙動を維持するもの」）。
 
-## 責務分離
+Model単体では完結しない検証は、Handlerが他Contextの参照手段を呼び出して行う。
 
-②の方針どおり、Presentationは「入力が正しいか」、Model／Handlerは「業務的に妥当か」を担当する。
+|検証|呼び出す先|
+|-|-|
+|指定された目標が操作者自身のものか|`GoalDirectory.IsOwnedByUser`|
+|指定された単元がすべて存在するか|`UnitDirectory.ExistsAll`|
+
+所有権の確認（他の生徒の下書きタスクへのアクセスの禁止）は、`Validate()`ではなくStoreの検索条件（`FindByIDAndUserID`）として実現する。②「11. Repository設計」で「業務ルール判定をStoreに持たせない」とされているため、判定そのものはHandler側の処理順序に含め、Storeはその判定に必要なクエリ条件のみを提供する。
 
 ---
 
 # 13. Authorization実装方針
 
-②「16. Authorization設計」を実装レベルに落とし込む。
+- Middlewareで行う処理: 認証済みユーザーの特定と`context.Context`への格納、役割（`student`）であることの確認（②「16. Authorization設計」Middleware節）
+- Handlerで行う処理: `context.Context`からcurrent userを取り出し、Store呼び出し時の`user_id`として使用する。具体的な業務権限判定はHandler自体には持たせず、Store呼び出しの条件として委譲する
+- Store／Modelで行う処理: `DraftTaskStore.FindByIDAndUserID`がid・user_idの両方一致を検索条件とすることで所有権の確認を実現する。DraftTask（Model）自体は`UserID`フィールドを保持し、所有権確認の材料を提供するのみで、判定ロジックは持たない（②「16. Authorization設計」）
+- 作成時の目標の確認: `GoalDirectory.IsOwnedByUser`に「その目標が操作者自身のものか」を問う形で確認する。他の生徒の目標に下書きタスクを紐づけられない（①「8. 権限制御」）
+- CSRF: `POST`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象に含める（Gin規約「5. CSRF対策」の「適用範囲」）。GETの詳細取得は対象外である
 
-## Middleware
-
-- JWT等の検証を行い、current userをcontextに格納する（規約「7. 横断的関心事の置き場所」認証）
-- ロールがstudentであることを確認する（②「16. Authorization設計」Middleware）
-
-## Handler
-
-- Middlewareが認証・ロール認可を行うため、Handler自体は個別の業務権限判定を持たない（②「16. Authorization設計」Handler）
-- ただし、Active Record採用によりUseCase層がないため、所有者スコープでの取得（`DraftTaskStore.FindByIDForUser`にuser_idを渡す）と、goal_id所有権確認（`GoalStore.ExistsForStudent`）はHandlerが呼び出す（②「16. Authorization設計」UseCaseの記載を、Active Record構造上Handlerに読み替え）
-
-## Store／Model
-
-- `DraftTaskStore`の検索メソッドは、渡されたuser_idによるスコープを常に条件へ含める（②「16. Authorization設計」Domain：所有者外のアクセスが行われないようにする、を実装レベルで反映）
-- Model（`DraftTask`）は`IsOwnedBy`メソッドを提供するのみで、認可の主体としては扱わない
+本Contextには他Contextから呼ばれる公開操作が存在しないため、認可を行わない経路はない。
 
 ---
 
 # 14. Error実装方針
 
-②「17. Error設計」の「エラー仕様」表を実装レベルに落とし込む。
-
 ## Domain Error → Application Errorへの変換方針
 
-Active Record採用のためDomain Error層は独立させず、「3. Domain層設計」の`errors.go`で定義したsentinel error（`ErrDraftTaskNotFound`等）をそのままApplication Error相当として扱う（規約7章 横断的関心事の置き場所「Transaction Script/Active Record採用時はDomain Errorに相当する層がないため、関数・struct側で発生したエラーをApplication Error相当として扱う」）。
+Active Record採用のためDomain Errorに相当する層がなく、`errors.go`のセンチネルエラーをそのままApplication Error相当として扱う（アーキテクチャ規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。センチネルエラーから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
 
 ## Application Error → HTTPレスポンスへの変換方針
 
-Handlerが`errors.Is`でsentinel errorを判定し、対応するHTTP Status Codeへ変換する。
+Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
 
-|業務シナリオ|Error変数名／型|発生層|HTTP Status|
-|-|-|-|-|
-|対象下書きタスクが存在しない、または自分のものでない|`ErrDraftTaskNotFound`|Store|404|
-|必須項目の不足|Request DTOバインドエラー|Presentation|422|
-|指定goal_idが自分の目標でない|`ErrGoalNotOwned`|Handler（GoalStore経由）|422|
-|due_dateが日付として不正|`ErrInvalidDueDate`|Model（DueDate生成時）|422|
-|unit_idsに実在しない単元が含まれる|`ErrUnitNotFound`|Handler（UnitStore経由）|422|
-|未認証|認証エラー|Middleware|401|
-|studentロールでない|認可エラー|Middleware|403|
-|DB接続失敗等|未分類エラー|Store／Infrastructure|500|
+レスポンスのボディは、②「17. Error設計」の「エラーレスポンスの本文」のとおりRails現行の形を維持する。
+
+|条件|HTTP Status|ボディ|
+|-|-|-|
+|入力・業務検証の失敗|422|`{"errors": ["メッセージ", ...]}`。エラーが1件でも配列で返す（アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）|
+|`ErrDraftTaskNotFound`|404|`{"message": "Draft taskが見つかりません"}`。`message`の単一文字列であり、`errors`の配列ではない|
+|`ErrInvalidPriority`・その他の未分類のエラー|500|`{"errors": [...]}`|
+|認証・認可・CSRF|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
+
+404のみ本文の形が異なるため、ミドルウェアは`AppError`から得たステータスが404の場合に`message`キーの本文を組み立てる。この分岐は`internal/shared/middleware`のエラーハンドラに1箇所だけ置き、Handler側に持たせない。
+
+**②からの補足**: 404の本文の形はRails現行の`ApplicationController#not_found`が決めており、全機能に共通する。ミドルウェア側の分岐も全機能で共通になるため、実装時は本機能に固有の処理として書かない。
+
+一方、**本文に入る名称が`Draft task`と英語になるのは本機能固有である**。Railsは`DraftTask`のモデル名の日本語訳を持たないため、`〇〇が見つかりません`の`〇〇`が英語のまま出る（①「5. API / 処理詳細」`#show`）。目標管理機能（`目標が見つかりません`）・タスク管理機能（`タスクが見つかりません`）とは異なる。ミドルウェアが共通であっても、本機能が渡す名称は`Draft task`である必要がある。
 
 ## Infrastructure Errorのハンドリング方針
 
-GORMが返すDB接続エラー等は、sentinel errorとして特別扱いせず、Storeからそのまま呼び出し元へ返し、Handlerでハンドリングされなかった場合は共通のエラーハンドリングMiddleware（本機能固有の設計ではないため対象外。`shared/`側の既存実装に従う）で500として応答する。
+DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`fmt.Errorf`でラップして返す（コーディング規約「18. エラーハンドリング」）。`AppError`へ変換されずにミドルウェアへ到達した場合も、未分類のエラーとして500で扱う。
+
+|Error種別|発生層|HTTP Status|
+|-|-|-|
+|`ErrDraftTaskNotFound`（他の生徒のものを含む）|Store → Application（変換）|404|
+|バリデーションエラー（Presentation: 型・必須）|Presentation（Request DTOバインド）|422|
+|`ErrGoalRequired` / `ErrTitleRequired` / `ErrContentRequired` / `ErrPriorityRequired` / `ErrDueDateRequired`|Presentation / Model|422|
+|`ErrInvalidDueDate`|Model|422|
+|`ErrGoalNotOwned`|Handler（`GoalDirectory`経由）|422|
+|`ErrUnitNotFound`|Handler（`UnitDirectory`経由）|422（1件）|
+|`ErrInvalidPriority`（`0`・範囲外の整数・優先度名）|Model|**500**（Rails現行の挙動を維持する）|
+|`ErrInvalidDraftTaskStatus`|Model|500（APIの入力で状態を受け取らないため、通常は発生しない）|
+|`title`が100文字を超えた（DBの制約違反）|Store（Infrastructure相当）|**500**（Rails現行の挙動を維持する）|
+|認証エラー|Middleware|401|
+|認可エラー（役割不一致）|Middleware|403|
+|CSRFトークン不正（`POST`）|Middleware|403|
+|DB接続失敗・永続化失敗|Store（Infrastructure相当）|500|
+
+`ErrInvalidPriority`を500とするのは、Rails現行が許容値外の優先度を必須チェックで弾かず、保存時の例外がそのまま500になるためである（①「5. API / 処理詳細」`#create`、②「17. Error設計」の「Rails現行の挙動を維持するもの」）。業務ルール違反としては422が自然だが、フロントエンドを変更しない方針を優先する。
 
 ---
 
 # 15. GORM / DBクエリ設計
 
-②「20. DB設計方針」により、既存Rails DBをそのまま継続利用し、Schema変更は行わない。
+②「20. DB設計方針」のとおり、既存Rails DBを継続利用し、スキーマ変更は行わない。既存の`draft_tasks`・`draft_task_units`テーブルを利用する。
 
 ## 利用するGORMモデルとテーブルの対応
 
 |Goモデル|テーブル名|備考|
 |-|-|-|
-|`DraftTask`|`draft_tasks`|Gorm規約のデフォルト命名規則（struct名の複数形snake_case）で一致するため、`TableName()`のオーバーライドは不要|
-|`DraftTaskUnit`|`draft_task_units`|struct名のデフォルト複数形（`draft_task_units`）が実テーブル名と一致するため、`TableName()`のオーバーライドは不要（タスク管理機能のTaskUnitLink→task_unitsのような不一致は本機能には生じない）|
-|`GoalRef`|`goals`|読み取り専用の投影。goal-management Context側が所有するテーブルであり、書き込みは行わない|
-|`UnitRef`|`units`|読み取り専用の投影。curriculum(Unit) Context側が所有するテーブルであり、書き込みは行わない。詳細取得時はコース情報表示のため`courses`テーブルとの結合を含む|
+|`DraftTask`|`draft_tasks`|Gorm規約「2. 複数形のテーブル名」の既定命名規則で一致するため、`TableName()`のオーバーライドは不要|
+|`DraftTaskUnit`|`draft_task_units`|同じく既定命名規則で一致するため、オーバーライドは不要|
 
-`draft_task_courses`テーブルは、②「5. Aggregate設計」のとおり現行実装のDraftTask作成処理では関連付けが行われておらず、本Aggregateに含めない。そのため本書では対応するGORMモデルを定義しない（②「5. Aggregate設計」「20. DB設計方針」）。
+- `DraftTask`struct自体をGORMモデルとして扱う（Active Record方針上、Entity相当のstructとGORMモデルを分離しない）
+- カラム対応はGorm規約の既定命名規則（フィールド名のsnake_case）に従う。`ID`→`id`、`UserID`→`user_id`、`GoalID`→`goal_id`、`CourseID`→`course_id`、`EstimatedTime`→`estimated_time`、`CompletedAt`→`completed_at`等
+- **`DeletedAt`は`*time.Time`としてマッピングし、`gorm.DeletedAt`を使わない。** Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本機能に削除操作は存在せず、`gorm.DeletedAt`を使うと`Find`系が`deleted_at IS NULL`を自動付与する。`DraftTask`は`default_scope`を持たず、Rails現行は論理削除済みのレコードも返すため（①「6. データモデル」）、自動付与が入ると外部仕様が変わる。フロントエンドを変更しない方針により、絞り込みが入らない型を選ぶ
+- `DraftTaskStatus`・`DraftTaskPriority`は`int`を基底型とする型であるため、GORMは追加実装なしに整数カラムとして扱える（①「6. データモデル」のとおり`draft_tasks.status`・`draft_tasks.priority`は整数）
+- `DueDate`は内部に`*time.Time`を保持する独自structであるため、`database/sql`の`Scanner`／`driver.Valuer`を実装して`date`カラムに対応させる。`Scan`はカラムの値（NULLを含む）を受け取って内部値に設定し、`Value`は内部値（または`nil`）を返す
+- `draft_task_courses`に対応するモデルは定義しない（①「6. データモデル」）
+
+**②からの補足**: Value Objectを独自の型のままGORMで永続化する方式について、②にもGorm規約にも定めがない。本書では`Scanner`／`driver.Valuer`の実装を採る。Storeの各メソッドに`time.Time`⇔`DueDate`の変換を書く方式では、列を読み書きするすべての箇所に同じ変換が散るためである。この方式はValue Objectを持つ他機能にも共通して必要になるため、規約側に定めるべき事項と考えられる（「17. ②からの補足事項」参照）。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
-|Store|メソッド|対象テーブル|条件|結合|
-|-|-|-|-|-|
-|DraftTaskStore|FindByIDForUser|draft_tasks|`id`・`user_id`一致|なし|
-|DraftTaskStore|CreateWithUnitLinks|draft_tasks|-|なし|
-|DraftTaskUnitStore|FindUnitIDsByDraftTaskID|draft_task_units|`draft_task_id`一致|なし|
-|DraftTaskUnitStore|CreateBulk|draft_task_units|-|なし|
-|GoalStore|ExistsForStudent|goals|`goal_id`・`user_id`一致の存在確認|なし|
-|UnitStore|Exists|units|`unit_id`一致の存在確認|なし|
-|UnitStore|FindWithCourseByIDs|units|`unit_id IN (...)`|コース（courses）との結合が必要（②「21. DB操作仕様」）|
+- `DraftTaskStore.FindByIDAndUserID`: `id`・`user_id`に一致する1件を取得する。**`deleted_at`を条件に含めない**（上記）
+- 紐づく単元の識別子は`Preload`で一括取得する。単元を個別に問い合わせるN+1を避けるためである（Railsも`includes(units: :course)`で一括取得している。①「5. API / 処理詳細」`#show`）
+- `DraftTaskStore.Create`: 全列を挿入する。`status`は0、`estimated_time`は0、`completed_at`・`course_id`・`deleted_at`はNULLで作成する
+- `DraftTaskUnitStore.Add`: `draft_task_id`と`unit_id`の組で一括作成する。空の集合ではクエリを発行しない
+- ページネーション・ソートは不要である。取得は単一の下書きタスク単位であり、一覧取得が存在しない（②「21. DB操作仕様」）
+- 単元の表示用の情報（単元名・所属コース）は`units`・`courses`への直接クエリではなく`UnitDirectory`経由で取得する（②「21. DB操作仕様」）
 
-SQL文そのものは記載しない。
+## 既存Schemaへの変更
 
-## 既存Schemaに対する変更
-
-②「20. DB設計方針」により変更なし。
+②「20. DB設計方針」のとおり、スキーマ変更は提案されていない。本書でも既存`draft_tasks`・`draft_task_units`テーブルをそのまま利用する前提とする。`draft_task_courses`は現行実装で書き込まれないが、スキーマとしては残す。
 
 ---
 
 # 16. テストケース設計
 
-②「22. テスト戦略」を、Active Record採用時の区分（規約3章「Active Record採用時: 『Domain Test』→『Model Test』、『UseCase Test』は『対象外』、『Repository Test』→『Store Test』」）に読み替えて具体化する。
+②「22. テスト戦略」を、Active Record採用に合わせて読み替える（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の読み替えルールに従い、Domain Test→Model Test、UseCase Test→対象外、Repository Test→Store Test）。
 
-## Model Test（②「Domain Test」からの読み替え）
+## Model Test
 
 |対象|テストケース|
 |-|-|
-|`DraftTaskPriority.NewDraftTaskPriority`|許容値（very_low〜very_high）で正しく生成できること|
-|`DraftTaskPriority.NewDraftTaskPriority`|許容値以外の文字列でエラーとなること|
-|`DueDate.NewDueDate`|正しい形式の入力から正常に生成できること|
-|`DueDate.NewDueDate`|日付として解釈できない入力でエラーになること|
-|`DueDate.String`|`YYYY/MM/DD`形式の文字列を返すこと|
-|`DraftTaskStatus.IsValid`|許容値（not_started / in_progress / completed）で`true`を返すこと|
-|`DraftTask.Validate`|title等必須項目が空の場合にエラーになること|
-|`DraftTask.NewDraftTask`|生成直後のStatusが`not_started`、CompletedAtが`nil`であること|
+|`DraftTaskStatus.IsValid`|宣言済みの値（0 / 1 / 2）でtrueを返し、範囲外でfalseを返すこと|
+|`DraftTaskStatus.String`|各値が`not_started` / `in_progress` / `completed`を返すこと|
+|`DraftTaskPriority.IsValid`|1〜5でtrueを返し、**0**と6でfalseを返すこと|
+|`DraftTaskPriority.String`|各値が`very_low` / `low` / `normal` / `high` / `very_high`を返すこと|
+|`NewDraftTaskPriority`|1〜5から変換できること|
+|`NewDraftTaskPriority`|`0`で`ErrInvalidPriority`を返すこと（未入力ではなく許容値外として扱う）|
+|`NewDraftTaskPriority`|`9`で`ErrInvalidPriority`を返すこと|
+|DueDateの生成|日付として解釈できる入力から生成でき、解釈できない入力で`ErrInvalidDueDate`を返すこと|
+|`DueDate.String`|`YYYY/MM/DD`形式を返し、未設定で空文字列を返すこと|
+|`DraftTask.Validate`|Title・Contentが空の場合にそれぞれのエラーを返すこと|
+|`DraftTask.Validate`|Titleが101文字でもエラーにならないこと（長さを検証しない）|
+|`DraftTask.Validate`|DueDateが未設定の場合に`ErrDueDateRequired`を返すこと|
+|`DraftTask.Validate`|すべての項目が妥当な場合にエラーにならないこと|
 
 ## UseCase Test
 
 対象外（Active Record採用のため、usecase層を設けない）。
 
-## Store Test（②「Repository Test」からの読み替え）
+## Store Test
 
 |対象|テストケース|
 |-|-|
-|`DraftTaskStore.FindByIDForUser`|所有者本人の下書きタスクが取得できること|
-|`DraftTaskStore.FindByIDForUser`|他ユーザーの下書きタスクを指定した場合に`ErrDraftTaskNotFound`が返ること|
-|`DraftTaskStore.CreateWithUnitLinks`|DraftTask作成とDraftTaskUnit一括作成が同一トランザクションで成功すること|
-|`DraftTaskStore.CreateWithUnitLinks`|DraftTaskUnit作成が失敗した場合にDraftTask作成もロールバックされること|
-|`DraftTaskUnitStore.FindUnitIDsByDraftTaskID`|指定draft_task_idに紐づくunit_id一覧が取得できること|
-|`GoalStore.ExistsForStudent`|自分の目標を指定した場合に`true`、他ユーザーの目標を指定した場合に`false`を返すこと|
-|`UnitStore.FindWithCourseByIDs`|指定unit_idsに対応するコース情報を含む単元一覧が取得できること|
+|`DraftTaskStore.FindByIDAndUserID`|所有者本人の下書きタスクが紐づく単元の識別子とともに取得できること|
+|`DraftTaskStore.FindByIDAndUserID`|他の生徒の下書きタスクを指定した場合に`ErrDraftTaskNotFound`が返ること|
+|`DraftTaskStore.FindByIDAndUserID`|**論理削除済み（`deleted_at`が設定済み）の下書きタスクも取得できること**（`Goal`・`Task`と異なる点）|
+|`DraftTaskStore.FindByIDAndUserID`|紐づく単元の識別子が一括取得されること（単元が複数件でも関連付けのクエリが1回であること）|
+|`DraftTaskStore.Create`|レコードが作成され、`status`が0、`estimated_time`が0、`completed_at`・`course_id`がNULLで保存されること|
+|`DraftTaskStore.Create`|`priority`が指定した整数で保存されること|
+|`DraftTaskUnitStore.Add`|指定された単元分のレコードが作成されること|
+|`DraftTaskUnitStore.Add`|空の集合でクエリを発行しないこと|
+|`DraftTaskUnitStore.FindUnitIDsByDraftTaskID`|指定`draft_task_id`に紐づく単元の識別子が取得でき、関連付けがない場合に空の集合が返ること|
 
 ## Handler Test
 
 |対象|テストケース|
 |-|-|
-|`ShowDraftTask`|存在しない下書きタスクIDで404が返ること|
-|`ShowDraftTask`|正常時に200と紐づく単元一覧（コース情報を含む）が返ること|
-|`CreateDraftTask`|必須項目欠落時に422が返ること|
-|`CreateDraftTask`|goal_idが他人の目標の場合に422が返ること|
-|`CreateDraftTask`|due_dateが不正な形式の場合に422が返ること|
-|`CreateDraftTask`|unit_idsに実在しない単元が含まれる場合に422が返ること|
-|`CreateDraftTask`|正常時に201が返ること|
-|全Handler|未認証・非student roleでのアクセスが401/403となること|
+|`DraftTaskHandler.ShowDraftTask`|正常系: 単元と所属コースの情報を含めて200が返ること|
+|`DraftTaskHandler.ShowDraftTask`|正常系: `memo`がレスポンスに含まれないこと|
+|`DraftTaskHandler.ShowDraftTask`|正常系: `status`・`priority`が文字列で返ること|
+|`DraftTaskHandler.ShowDraftTask`|正常系: 単元に`started`が含まれないこと（タスク管理機能との違い）|
+|`DraftTaskHandler.ShowDraftTask`|正常系: 論理削除済みの下書きタスクが200で返ること|
+|`DraftTaskHandler.ShowDraftTask`|異常系: 存在しない・他の生徒のものを指定した場合に404と`{"message": "Draft taskが見つかりません"}`が返ること|
+|`DraftTaskHandler.CreateDraftTask`|正常系: 201で識別子が返ること|
+|`DraftTaskHandler.CreateDraftTask`|正常系: `unit_ids`を指定しない場合も作成できること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: 必須項目の未入力時に422と`{"errors": [...]}`が返ること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: `priority`未入力で422、`0`・`9`・優先度名で500が返ること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: 他の生徒の目標を指定した場合に422が返ること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: 存在しない単元を指定した場合に422が返り、メッセージが**1件**であること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: `title`が100文字を超えた場合に500が返ること|
+|エラーハンドラ|404のみ`message`キー、それ以外は`errors`キーの本文になること|
 
 ## Integration Test
 
 |対象|テストケース|
 |-|-|
-|下書きタスク作成〜詳細取得|一連のエンドポイント呼び出しが正常に完了し、単元・コース情報を含むレスポンスの整合性が保たれること（②「22. テスト戦略」Integration Test）|
-|所有権|他ユーザーの下書きタスクにアクセスできないこと（②「22. テスト戦略」）|
+|作成〜詳細取得の一連の流れ|エンドポイント経由で作成と詳細取得が正常に動作すること（②「22. テスト戦略」Integration Test）|
+|認可|未認証・`student`ロール以外のユーザーがアクセスした場合に拒否されること|
+|認可|他の生徒の下書きタスクの詳細取得が404になること|
+|認可|他の生徒の目標を指定した作成が422になること|
+|CSRF|`POST`でCSRFトークンが不正な場合に拒否されること（Gin規約「5. CSRF対策」）|
+|経路|一覧取得・更新・削除の経路が存在しないこと|
 
 ---
 
 # 17. ②からの補足事項
 
-②に明記がなく、実装のために追加で判断した内容を以下に記載する。
+②に明記がなく、実装のために追加で判断した内容は以下のとおりである。
 
-|判断した内容|判断理由|推測か否か|
+|判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|Bounded Context `draft-task` の内部ディレクトリ名を`internal/draft_task`とした|②はContext名（draft-task）のみを記載し、内部ディレクトリ名を明記していない。アーキテクチャ規約「9. 命名規約」、既存の`task-management`→`internal/task`の対応関係から類推した|推測|
-|GoalStore・UnitStoreをdraft-task Context内で参照専用のStoreとして直接実装する構成とした（Context間連携ルールの参照インターフェース化は行わない）|②「11. Repository設計」はGoalStore・UnitStoreを本Context内に配置する設計をすでに決定しており、目標管理機能③が同様の判断（TaskStoreを参照用の具象Storeとして自Context内に実装）を採用しているため、student向け機能内での一貫性を優先して同じ整理とした|補足（既存の目標管理機能③との整合を優先した判断）|
-|`CompletedAt`フィールドは②「9. クラス図」に記載があるため保持するが、常に`nil`のまま保存・返却される前提とした|①「タスク下書き機能 Rails現行仕様書」「7. 状態管理」により、現行Railsには下書きタスクを完了状態にする操作自体（更新・削除を含む）が存在せず、`completed_at`を更新する操作がこの機能のスコープ内外を問わず存在しないことが確認できたため。②「6. Entity設計」「10. 状態遷移図」の整理とも一致する|①の記載に基づく確定（推測ではない）|
-|作成時のHTTP Status Codeを201とした|②「19. API仕様」Status Codeの記載が「201/200: 作成成功の扱いは既存仕様に合わせて統一する」と曖昧であり、①未提供のため実際のRails挙動を参照できない。REST慣例に基づき作成=201と仮置きした|推測（実装着手前にRails現行仕様の確認を推奨）|
-|`UnitIDs`（下書きタスク作成時の単元指定）を任意項目（`binding:"omitempty"`）とした|②「19. API仕様」は「`unit_ids`（任意）」と明記しているため、この記載をそのまま反映した|補足（②に根拠あり。推測ではない）|
+|Active Record構造を`draft_task.go` / `draft_task_status.go` / `draft_task_priority.go` / `due_date.go` / `draft_task_unit.go` / `errors.go` / `draft_task_store.go` / `draft_task_unit_store.go`に分割した|②が扱う対象（DraftTask本体・状態・優先度・期限・関連付け）が複数あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断と矛盾しない）|
+|`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とした|Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本機能に削除操作はなく、`gorm.DeletedAt`を使うと`deleted_at IS NULL`が自動付与され、論理削除済みも返すRails現行の挙動（①「6. データモデル」）が変わる|補足（規約の趣旨に沿った判断。ただし規約に「削除操作を持たないContextでの扱い」の記載はないため、規約側に明記すべきか要確認）|
+|`UnitIDSet`（単元の識別子の集合）という型を本Contextに定義した|存在確認と関連付けの対象が識別子の集合であり、単元の実体を扱う必要がないため。タスク管理機能③と同じ型名を用いるが、Contextごとに定義する（規約「5. Context間連携ルール」）|補足|
+|`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#show`のレスポンスに合わせた|補足|
+|`GoalDirectory` / `UnitDirectory`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。タスク管理機能③と同じ操作を呼ぶため、シグネチャを合わせた|要確認（`goal-management`・`unit-reference`の③の追随時にシグネチャを合わせる）|
+|`CreateDraftTaskBody.Priority`を`*int`とした|`0`が渡された場合（500）と未入力の場合（422）を区別する必要があるため。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない|補足（①の実体に基づく）|
+|Titleの長さをドメインで検証しないことにした|`draft_tasks.title`が`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えるとステータスコードが422へ変わる|補足（②「17. Error設計」の決定に従う）|
+|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
+|`DraftTaskPriority`を`iota + 1`で宣言した|`draft_tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
+|`EstimatedTime`を`*int`、`CourseID`を`*uint`とした|いずれもカラムがNULL可であり既存データにNULLが存在し得るため。`EstimatedTime`は作成時に`0`を設定し、`CourseID`は設定しない（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
+|`GoalID`を`uint`（非ポインタ）とし、Response DTOでは`*uint`とした|カラムはNULL可だがRailsの`belongs_to :goal`により登録時は必須である。一方、既存データにNULLが存在し得るため出力では`null`を返しうる（①「6. データモデル」）|補足（①の実体に基づく）|
+|`DueDate`に比較用のメソッドを設けない|本機能に期限の前後を比較する業務要件がないため。目標管理機能・タスク管理機能の`DueDate`は比較用メソッドを持つが、本機能では不要である|補足|
+|`draft_task_courses`に対応するモデルを定義しない|現行実装に書き込む処理が存在せず、本Contextで扱う必要がないため（①「6. データモデル」、②「21. DB操作仕様」）|補足（①の実体に基づく）|
+|一覧取得・更新・削除の経路・Storeメソッドを設けない|Rails現行は`resources :draft_tasks`により経路だけが存在するが、対応するアクションが実装されていない（①「4. API一覧」）。使えない経路を移植する理由がない|補足（②「19. API仕様」の「Railsとの差分」に従う）|
+|404の本文に入る名称が`Draft task`と英語になる点|Railsは`DraftTask`のモデル名の日本語訳を持たないため（①「5. API / 処理詳細」`#show`）。目標管理機能・タスク管理機能とは異なり、本機能固有の事象である|補足（①の実体に基づく）|
 
+ディレクトリ名・package名（`internal/drafttask/`）、レスポンスの形状、HTTPステータス、`due_date`の入力の扱い、`draft_tasks.status`・`draft_tasks.priority`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
