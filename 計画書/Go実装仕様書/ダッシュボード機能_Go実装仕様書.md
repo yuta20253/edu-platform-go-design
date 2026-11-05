@@ -6,346 +6,648 @@
 
 ## 機能概要
 
-生徒のホーム画面に表示する、期限が近い目標（Goal）を最大5件取得する参照専用機能である。生徒自身の目標を`due_date`昇順で取得し、上位5件に絞り込んで返却する。状態変更を伴わない読み取り専用の集計処理である。
+生徒のホーム画面に表示する情報を、1回のリクエストでまとめて取得する参照機能である。提供するAPIは1つで、取得するのは次の2つである（①「5. API / 処理詳細」`#show`）。
+
+- 期限が近い目標を最大5件。紐づくタスクも含む
+- その生徒の当日の解答件数
+
+いずれもこの機能が作成・更新するデータではない。**本Contextが所有するテーブルは存在しない。** 他Contextが公開する参照手段を呼び、結果を1つのレスポンスへまとめるだけである（②「3. Bounded Context」）。
 
 ## 採用設計パターンとその理由（②からの要約）
 
-- 採用パターン: **Transaction Script**
-- 理由（②「4. 設計パターン」より）:
-  - 業務ルールが「期限が近い順で最大5件取得する」という単純な並び替え・件数制限のみであり、状態管理・状態遷移が存在しない
-  - 本機能側では目標の状態を変更しない（読み取り専用）
-  - 将来的に他の集計項目（タスク進捗率等）が追加される場合も、独立したTransaction Scriptとして追加すればよく、既存ロジックへの影響がない
-  - 入力（current user）に対する出力（上位5件の目標）を検証するだけでテストが完結する
+- 採用パターン: **Transaction Script**（②「4. 設計パターン」）
+- 判断根拠: 2つの参照を呼んでまとめるだけで、Entityに振る舞いを持たせる余地も永続化の責務もないため
+- 採用しなかったパターン: Active Record（作成・更新処理がなく所有するテーブルもないため）、Domain Model（業務ルールが所有者側のContextの責務であるため）、Event Sourcing（履歴の再構築・監査要件がないため）
+
+本書はアーキテクチャ規約「3. 設計パターンごとの構造適用方針」のTransaction Script節の構造（Entityを持たず、手続きをapplication層の関数として置く）に従って実装レベルへ落とし込む。
 
 ## 本書が対象とする実装範囲
 
-- 対象Bounded Context: `dashboard`（生徒向けダッシュボード）
-- 対象エンドポイント: `GET /api/v1/student/dashboard`
-- Transaction Script構造（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）に基づく、application層の関数、infrastructure層のクエリ関数、presentation層のHandler/Response/Routingの実装単位までを具体化する
-- goal-management（目標管理機能）自体の実装仕様（目標の作成・更新・状態遷移等）は対象外。本書はgoal-managementが管理するデータを読み取り専用で参照する側の実装のみを扱う
-- ①Rails実装（Controller/Query Object/Serializer等の詳細実装）は本タスクでは未提供のため、実装仕様の根拠として参照していない（「①未提供のため参照不可」として扱う）
+②が設計した`dashboard` Bounded ContextのTransaction Script実装である。application層の関数（`GetDashboard`）、他Contextへの参照（`dependency.go`のインターフェースとそのアダプタ）、Presentation層（Handler / Response / Routing）を対象とする。
+
+対象外は、目標・タスク・単元そのものの管理と、当日の解答件数の加算である（いずれも他Contextの責務。②「3. Bounded Context」）。
 
 ---
 
 # 2. ディレクトリ構成
 
-- 対象Bounded Context名: `dashboard`
-- ②で採用した設計パターン: **Transaction Script**
-- 採用パターンに対応する構造: アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Transaction Script構成をそのまま適用する（domain層・usecase層・Repository Interfaceは設けない）
+## 対象Bounded Context名
+
+- `dashboard`（②「3. Bounded Context」）
+
+## ディレクトリ・パッケージ名
+
+アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名`dashboard`から`-`を取り除いて連結した全小文字の名前とする。`-`を含まないため、ディレクトリ名は`internal/dashboard/`、package名は同じ`dashboard`となる。
+
+Context名とディレクトリ名は規約から機械的に決まるため、②に明記がなくても推測にはならない。
+
+教師向け・管理者向けのダッシュボードは別Contextであり、それぞれ別のディレクトリになる（②「3. Bounded Context」）。本Contextのディレクトリに`student/`のようなロール別のサブディレクトリを設けない。同一Contextを複数のロールが共有する場合の分割（規約「4. Bounded Context構成」の末尾）には当たらないためである。
+
+## ②で採用した設計パターン
+
+Transaction Script（②「4. 設計パターン」）
 
 ## 作成するディレクトリ一覧
 
 ```
 internal/dashboard/
-├── application/
-├── infrastructure/
-└── presentation/
-    ├── handler/
-    ├── response/
-    └── （routes.go はpresentation直下）
+internal/dashboard/application/
+internal/dashboard/infrastructure/contextadapter/
+internal/dashboard/presentation/handler/
+internal/dashboard/presentation/response/
 ```
+
+`domain/`は作成しない。②「6. Entity設計」のとおり独自のEntityを定義せず、業務ルールを持たないためである（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Transaction Script節）。
+
+`infrastructure/gormrepo/`も作成しない。**本Contextが所有するテーブルがなく、GORMでDBを読み書きする実装を持たない**ためである（②「21. DB操作仕様」）。`infrastructure/`配下は`contextadapter/`のみとなる。
+
+`presentation/request/`も作成しない。リクエストパラメータを一切受け取らないためである（①「5. API / 処理詳細」`#show`）。
+
+規約「4. Bounded Context構成」の「機能で不要なディレクトリは作成しない。『層として必要だから』という理由で空のディレクトリを置かない」に従う。
 
 ## 作成するファイル一覧
 
 ```
-internal/dashboard/application/list_recent_goals.go
-internal/dashboard/infrastructure/goal_query.go
+internal/dashboard/context.go                      # NewContext（依存関係の組み立て）
+internal/dashboard/dependency.go                   # 他Contextへの依存を宣言するインターフェースと受け渡し用の型
+internal/dashboard/application/get_dashboard.go    # GetDashboard（2つの参照をまとめる関数）
+internal/dashboard/infrastructure/contextadapter/goal_summary_directory.go       # GoalSummaryDirectoryの実装
+internal/dashboard/infrastructure/contextadapter/today_answer_count_directory.go # TodayAnswerCountDirectoryの実装
 internal/dashboard/presentation/handler/dashboard_handler.go
 internal/dashboard/presentation/response/dashboard_response.go
 internal/dashboard/presentation/routes.go
 ```
 
-**②からの補足**: `domain/`・`presentation/request/`は本機能では作成しない。リクエストパラメータが存在しない（②「12. Validation設計」）ため、Request DTOも設けない。ファイル名・package構成は②に明記がないため、コーディング規約「4. パッケージ設計」およびアーキテクチャ規約「9. 命名規約」（Transaction Scriptの関数は`動詞+対象`）に従って補った（推測ではなく規約適用による決定）。
+## 文書の分割
+
+本書は分割しない。実装ファイルは上記の8であり、テストが付くもの（`GetDashboard`・2つのアダプタ・DashboardHandlerの4）を加えても12であるため、1文書あたり30〜35という範囲に十分収まる。
 
 ---
 
 # 3. Domain層設計
 
-**対象外（Transaction Script採用のため、Domain層を設けない）**。
+対象外。
 
-理由: ②「6. Entity設計」「7. Value Object設計」「8. Domain Service」「9. Repository設計」のいずれも、本機能では独自のEntity・Value Object・Domain Service・Repository Interfaceを持たないと判断されている。業務ルールの検証・処理ステップは「4. Application層設計」に記載する。
+②「6. Entity設計」のとおり、本Contextは独自のEntityを定義しない。所有するデータがなく、業務ルールも持たないためである（②「3. Bounded Context」の「持たない責務」）。`domain/`ディレクトリを作成しない。
+
+他Contextから受け取る値は、本Contextが必要とする項目だけを持つ参照用の型として`dependency.go`に定義する。相手Contextの内部Entityをそのまま持ち込まない（アーキテクチャ規約「5. Context間連携ルール」）。
+
+## Model（Entity相当）
+
+対象外（上記のとおり）。
+
+他Contextから受け取る型は「8. Infrastructure層設計」に記載する。
+
+## Value Object
+
+対象外。②「7. Value Object設計」のとおり、並び順・件数は参照手段に渡す条件であり、独自の業務ルールを持つ値ではない。
+
+目標の期限の表示形式（`YYYY/MM/DD`）は`goal-management`が定める表現であり、本Contextは受け取った文字列をそのまま返す。本Contextで日付型として受け取って整形し直さない。同じ目標が機能によって別の形で返ることを避けるためである（②「7. Value Object設計」）。
+
+## Repository Interface
+
+対象外。本Contextが所有するテーブルがないため、Repository Interfaceもその実装も持たない（②「11. Repository設計」）。
+
+他Contextの参照手段を宣言するインターフェースは`dependency.go`に置く。詳細は「8. Infrastructure層設計」に記載する。
+
+## Domain Service
+
+対象外。②「8. Domain Service」のとおり、複数Entityにまたがる業務ルールの判定が存在しない。
+
+2つの参照結果を1つのレスポンスへまとめる処理は業務ルールではなく、application層の関数が担う（「6. Application層設計」）。
+
+## Domain Event
+
+対象外。②「18. Domain Event」のとおり、参照のみの機能であり表示に伴う副作用が存在しない。
+
+## Domain Error（struct/Storeが返すエラー）
+
+対象外。本Contextに業務ルール違反を表すエラーが存在しない（②「17. Error設計」）。
+
+他Contextの参照手段が返すエラーの扱いは「14. Error実装方針」に記載する。センチネルエラーを本Contextで定義せず、`errors.go`も作成しない。
 
 ---
 
-# 4. Application層設計
+# 4. クラス図
 
-**実装単位の読み替え**: 本機能はTransaction Script採用のため、UseCase（struct）は設けない。②「10. UseCase設計」の`GetDashboard`（業務操作としての設計意図）は、`application/`直下に置く関数`ListRecentGoals`として実装する。
+②「9. クラス図」のとおり省略する。
 
-**②からの補足**: 関数名`ListRecentGoals`は、②本文の「GetDashboard」という業務操作名から、アーキテクチャ規約「9. 命名規約」の「Transaction Scriptの関数は`動詞+対象`の形式にする（例：`ListRecentGoals`）」に従って命名した。この命名例はアーキテクチャ規約およびGo実装仕様書自動生成プロンプトの出力フォーマット例そのものであり、②の業務内容（生徒の目標一覧を取得する）と矛盾しない。
+本Contextが持つのは、他Contextの参照手段を宣言するインターフェースと、それを呼んで結果をまとめる関数のみである。Entityもstructの階層も持たないため、クラス図として図示する意味がない。
+
+関係は「7. シーケンス図・処理フロー図」のシーケンス図で示す。
+
+参考として、本Contextに定義する型とインターフェースは次のとおりである（詳細は「8. Infrastructure層設計」）。
+
+|種類|名前|役割|
+|-|-|-|
+|インターフェース|`GoalSummaryDirectory`|`goal-management`への参照手段|
+|インターフェース|`TodayAnswerCountDirectory`|`question-answering`への参照手段|
+|型|`GoalSummary`|受け取る目標の情報|
+|型|`TaskSummary`|目標に紐づくタスクの情報|
+|型|`UnitSummary`|タスクに紐づく単元の情報|
+|型|`CourseSummary`|単元の所属コースの情報|
+|型|`DashboardData`|`GetDashboard`が返す集約結果|
+
+---
+
+# 5. 状態遷移図
+
+②「10. 状態遷移図」のとおり省略する。
+
+本機能に状態を持つデータが存在しない。目標・タスクの状態は参照して返すのみで変更せず、当日の解答件数も単調増加する整数であって状態として扱うものではない（①「7. 状態管理」）。
+
+---
+
+# 6. Application層設計
+
+本機能はTransaction Script採用のため、UseCase structを設けない。②「12. UseCase設計」の`GetDashboard`を、application層の関数として実装する（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」Transaction Script節）。
 
 ## DTO（Command / Query）
 
-|struct名|フィールドと型|Command / Query|
+入力のDTOは設けない。リクエストパラメータを一切受け取らず、操作者の識別子のみを引数に取るためである（①「5. API / 処理詳細」`#show`）。
+
+出力は`DashboardData`（`dependency.go`で定義する）とする。フィールドは次のとおりである。
+
+|フィールド|型|意味|
 |-|-|-|
-|`GoalSummary`|`ID uint`, `Title string`, `Description string`, `Status string`, `DueDate time.Time`|Query（出力）|
+|Goals|`[]GoalSummary`|期限が近い目標（最大5件）|
+|TodayAnswerCount|`int`|当日の解答件数|
 
-- `ListRecentGoals`関数への入力は`userID uint`（current userのID）のみであり、専用の入力DTO structは設けない
-- `GoalSummary`は`application/`パッケージ内に定義し、infrastructure層のクエリ結果をこの型に変換して返す
+Presentation層のResponse DTOと分けるのは、`DashboardData`が他Contextから受け取った値の集約であり、JSONのキー名や表示形式といったHTTPの関心を持たないためである（アーキテクチャ規約「6. データフロー」）。
 
-**②からの補足**: `GoalSummary`のフィールド構成は、②「16. API互換方針」のResponse定義（id, title, description, status, due_date）から導出した。②本文にDTOのフィールド型までの明記はないため、実装のために補った。
+## 関数
 
-## UseCase（Transaction Script関数として記載）
+### GetDashboard（`application/get_dashboard.go`）
 
-### `ListRecentGoals`
+|項目|内容|
+|-|-|
+|関数|`GetDashboard(ctx context.Context, userID uint) (*DashboardData, error)`|
+|受け取る依存|`GoalSummaryDirectory`、`TodayAnswerCountDirectory`（コンストラクタで注入する`struct`のメソッドとして実装してよい）|
 
-- 関数シグネチャ: `func ListRecentGoals(ctx context.Context, db *gorm.DB, userID uint) ([]GoalSummary, error)`
-- 処理ステップ（呼び出し順序。ロジックそのものは書かない）:
-  1. `infrastructure`層のクエリ関数（`FindRecentGoalsByUserID`）を、`userID`と上限件数（5件）を指定して呼び出す
-  2. 取得したレコードを`GoalSummary`のスライスへ変換する
-  3. infrastructure層からのエラーをApplication Errorとしてラップして返す（詳細は「11. Error実装方針」）
-- 呼び出すinfrastructure関数: `infrastructure.FindRecentGoalsByUserID`
-- トランザクション境界: 不要（読み取りのみ。②「11. Transaction設計」に基づく。詳細は「8. Transaction実装方針」）
-- 発生しうるApplication Error: `ErrFetchRecentGoalsFailed`（infrastructure層のエラーを包んだ取得失敗エラー）
+処理ステップ:
 
-**②からの補足**: 上限件数「5」は②「1. 機能概要」「16. API互換方針」に明記された業務ルールであり、実装時は`application`パッケージ内の定数（例：`MaxDashboardGoals = 5`）として定義することを推測として補った。定数名・配置場所は②に記載がないための実装判断である。
+1. `GoalSummaryDirectory.FindUpcomingGoals`で期限が近い目標を最大5件取得する。失敗した場合はエラーを返す
+2. `TodayAnswerCountDirectory.FindTodayAnswerCount`で当日の解答件数を取得する
+3. 2が失敗した場合は**エラーを返さず、件数を`0`として扱う**。失敗の内容をログに記録する（②「12. UseCase設計」）
+4. `DashboardData`を組み立てて返す
+
+目標が0件の場合も、空のスライスを持つ`DashboardData`を返す。エラーにしない（①「5. API / 処理詳細」`#show`）。
+
+**当日の解答件数の失敗を吸収する理由**: Rails現行がRedisの障害時にログを記録して`0`を返しており、目標の取得が成功していればダッシュボード全体が200で応答する（①「5. API / 処理詳細」`#show`のErrorケース）。フロントエンドを変更しない方針により、この挙動を維持する。
+
+吸収をこの関数に置き、参照手段の側に置かないのは、吸収するかどうかが集約側の判断であるためである。参照手段の側で`0`を返す形にすると、他の利用者にも同じ吸収が強制される（②「12. UseCase設計」）。
+
+ログの記録にはエラーの内容を含める。`0`を返して200で応答するため、障害が起きていることがレスポンスから分からない。ログだけが手がかりになる（コーディング規約「18. エラーハンドリング」）。
+
+トランザクションは使用しない（②「14. Transaction設計」、「11. Transaction実装方針」）。
 
 ---
 
-# 5. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
+
+## シーケンス図
+
+### GetDashboard
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant H as DashboardHandler
+    participant F as GetDashboard
+    participant GD as GoalSummaryDirectory
+    participant GM as goal-management
+    participant AD as TodayAnswerCountDirectory
+    participant QA as question-answering
+
+    C->>H: GET /api/v1/student/dashboard
+    H->>H: context.Contextからcurrent userを取得
+    H->>F: GetDashboard(ctx, userID)
+    F->>GD: FindUpcomingGoals(ctx, userID, 5)
+    GD->>GM: 公開参照操作
+    GM-->>GD: 目標とタスク
+    GD-->>F: []GoalSummary / error
+    F->>AD: FindTodayAnswerCount(ctx, userID)
+    AD->>QA: 公開参照操作
+    QA-->>AD: 件数 / error
+    AD-->>F: 件数 / error
+    alt 取得に失敗した
+        Note over F: 0として扱い<br/>ログに記録する
+    end
+    F-->>H: *DashboardData
+    H->>H: DashboardResponseへ変換
+    H-->>C: 200 OK（goals / today_answer_count）
+```
+
+## 処理フロー図
+
+### GetDashboard
+
+当日の解答件数の失敗を吸収する分岐があるため図示する。
+
+```mermaid
+flowchart TD
+    A[GET /dashboard] --> B[FindUpcomingGoalsで最大5件取得]
+    B --> C{取得できたか}
+    C -- いいえ --> E500[500 内部エラー]
+    C -- はい --> D[FindTodayAnswerCountで件数取得]
+    D --> F{取得できたか}
+    F -- いいえ --> G[件数を0として扱い<br/>エラーの内容をログに記録]
+    F -- はい --> H[取得した件数を使う]
+    G --> I[DashboardDataを組み立て]
+    H --> I
+    I --> J[DashboardResponseへ変換]
+    J --> K[200 OK]
+```
+
+目標が0件の場合も`goals`を空配列として200を返す（①「5. API / 処理詳細」`#show`）。
+
+---
+
+# 8. Infrastructure層設計
+
+**実装上の位置づけ**: 本Contextが所有するテーブルは存在しない。したがってRepository実装・Store実装・Infrastructure関数のいずれも持たない（②「11. Repository設計」「21. DB操作仕様」）。`infrastructure/`配下に置くのは、他Contextの公開操作へ委譲するアダプタのみである。
+
+## Repository実装（Domain Model / Event Sourcing採用時）
+
+対象外（Transaction Script採用のため、かつ所有するテーブルがないため）。
+
+## Store実装（Active Record採用時）
+
+対象外（同上）。
 
 ## Infrastructure関数（Transaction Script採用時）
 
-### `FindRecentGoalsByUserID`
+対象外。Transaction Script採用Contextは通常、永続化処理をinfrastructure層の関数として持つが、本Contextには永続化の対象がない（②「21. DB操作仕様」の「本Contextから発行するクエリはない」）。
 
-- 関数シグネチャ: `func FindRecentGoalsByUserID(ctx context.Context, db *gorm.DB, userID uint, limit int) ([]GoalRecord, error)`
-- 発行するクエリ内容:
-  - 対象テーブル: `goals`
-  - 絞り込み条件: `user_id = ?`（current userのID）
-  - ソート順: `due_date`昇順
-  - 件数制限: `limit`件（application層から5を渡す）
-  - SQL文そのものは記載しない。GORMのメソッドチェーン（Where条件・Order・Limit相当）で組み立てる方針とする
+GORMを用いる実装を一切持たないため、`*gorm.DB`を受け取る構造も存在しない。`context.go`の`NewContext`も`*gorm.DB`を引数に取らない（**②からの補足**。詳細は「17. ②からの補足事項」参照）。
 
-### GORMモデル（読み取り専用）
+## 他Contextの参照手段の実装
 
-- struct名: `GoalRecord`
-- 対応テーブル: `goals`（既存Rails DBのテーブルをそのまま利用。②「17. DB設計方針」よりSchema変更なし）
-- 保持フィールド: `ID`, `UserID`, `Title`, `Description`, `Status`, `DueDate`（表示に必要な属性のみ。②「6. Entity設計」の「表示に必要な属性（id, title, description, due_date, status）」に対応）
+`dependency.go`で宣言したインターフェースの実装である。相手Contextが公開する操作へ委譲し、本Contextから相手のテーブル・Redisへアクセスしない（アーキテクチャ規約「5. Context間連携ルール」、②「11. Repository設計」）。いずれもGORMに依存せず相手Contextの公開操作を呼ぶアダプタであるため`infrastructure/contextadapter/`に置く（同「4. Bounded Context構成」）。
 
-**②からの補足**: `GoalRecord`をdashboard機能側で独自に定義する方針は、②およびアーキテクチャ規約「6. Context間連携ルール」（「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）に基づく判断である。goal-management側が公開する参照専用の関数・モデルが存在する場合はそれを利用すべきだが、goal-management機能の②/③文書は本タスクで参照しておらず、公開インターフェースの詳細が不明であるため、dashboard機能のinfrastructure層に読み取り専用のGORMモデルを独自定義し、`goals`テーブルへ直接クエリする構成とした。これは推測であり、goal-management側の実装仕様書を確認したうえで、公開関数呼び出しへの置き換えを検討する余地がある。
+|インターフェース|相手Context|メソッド|責務|
+|-|-|-|-|
+|`GoalSummaryDirectory`|`goal-management`|`FindUpcomingGoals(ctx context.Context, userID uint, limit int) ([]GoalSummary, error)`|期限が近い目標を`limit`件まで返す。期限の昇順（同値は識別子の昇順）で並べ、紐づくタスクを含む。論理削除済みを除く（①「5. API / 処理詳細」`#show`）|
+|`TodayAnswerCountDirectory`|`question-answering`|`FindTodayAnswerCount(ctx context.Context, userID uint) (int, error)`|指定の生徒の当日の解答件数を返す（同）|
+
+`limit`を引数に取るのは、件数が本機能の表示仕様（5件）であり、相手Contextが決める値ではないためである。呼び出し側が渡す形にする。
+
+`dependency.go`に定義する受け渡し用の型:
+
+|型|フィールド|備考|
+|-|-|-|
+|`GoalSummary`|ID（`uint`）・Title（`string`）・Description（`string`）・Status（`string`）・DueDate（`*string`）・Tasks（`[]TaskSummary`）|`Status`・`DueDate`は`goal-management`が整形した**文字列**で受け取る。`DueDate`は`YYYY/MM/DD`形式で、未設定なら`nil`|
+|`TaskSummary`|ID・UserID・GoalID・Title・Content・DueDate・Priority・Status・CompletedAt・Units（`[]UnitSummary`）|項目は①「5. API / 処理詳細」`#show`のレスポンスに合わせる。`Status`・`Priority`・日付はいずれも文字列|
+|`UnitSummary`|ID・CourseID・UnitName・Course（`CourseSummary`）|同|
+|`CourseSummary`|ID・LevelNumber・LevelName|同|
+
+状態と日付を文字列で受け取るのは、表示形式を`goal-management`・`task-management`が定める表現に委ねるためである（②「7. Value Object設計」）。整数の列挙型や`time.Time`で受け取って本Contextで整形し直すと、同じ目標・タスクが機能によって別の形で返る余地が生まれる。
+
+**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
+
+目標管理機能③の`GoalStore`は`FindByUserID(ctx, userID, page, perPage)`としてページネーション付きの一覧取得を持つ（同③「8. Infrastructure層設計」）。本機能が必要とするのは「最大5件・ページングなし」であり、`page=1, perPage=5`を渡せば同じ結果が得られる。ただし総件数の`COUNT`が不要であるため、件数制限専用の参照手段を設けるかは目標管理機能の③で確定する（②「25. 設計判断サマリー」、「17. ②からの補足事項」）。
+
+`TodayAnswerCountDirectory`は、保持先がRedisであることを本Contextに漏らさない。キーの構成（`student:today_answer_count:{ユーザーID}:{日付}`）も有効期限の扱いも、所有者である`question-answering`に閉じ込める（①「6. データモデル」）。`question-answering`の②③がまだ作成されていないため、シグネチャは同機能の③で確定する。
 
 ## 外部連携実装
 
-対象外。②に記載の通り、Mail・Cache・Queue等の外部連携は本機能に含まれない。
+対象外。本Contextから外部サービスへ直接アクセスしない。Redisへのアクセスも`question-answering`に委ねる（②「24. 採用しなかった設計」の「本Contextから直接Redisを読む案」）。
 
 ---
 
-# 6. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
-- struct名: `DashboardHandler`
-- 対応する呼び出し先: `application.ListRecentGoals`関数
-- コンストラクタ: `func NewDashboardHandler(db *gorm.DB) *DashboardHandler`（`db`はHandlerが保持し、application関数呼び出し時に渡す）
+### DashboardHandler（`presentation/handler/dashboard_handler.go`）
 
-### メソッド一覧
+|項目|内容|
+|-|-|
+|struct名|`DashboardHandler`|
+|対応する呼び出し先|application層の`GetDashboard`|
+|コンストラクタ|`NewDashboardHandler(getDashboard *application.GetDashboardService) *DashboardHandler`。`GetDashboard`を関数として注入する形でもよい|
+
+メソッド一覧（HTTPメソッド・パス対応）:
 
 |メソッド|HTTPメソッド|パス|
 |-|-|-|
-|`GetDashboard`|GET|`/api/v1/student/dashboard`|
+|`ShowDashboard`|GET|/api/v1/student/dashboard|
 
-### 処理順序
+処理順序:
 
-1. Middlewareが設定したcontextからcurrent user（生徒）を取得し、`userID`を抽出する
-2. リクエストパラメータの入力バインド・Validationは行わない（②「12. Validation設計」の通りパラメータが存在しないため）
-3. `application.ListRecentGoals(ctx, db, userID)`を呼び出す
-4. 取得した`[]application.GoalSummary`を`DashboardResponse`へ変換する
-5. エラー発生時は「11. Error実装方針」の対応表に従いHTTPレスポンスへ変換する
-6. 正常時は200 OKで`DashboardResponse`をJSONとして返す
+### ShowDashboard
 
-**②からの補足**: Transaction Script採用のためUseCase層を経由しない。本来UseCaseが担う「current userのuser_idを検索条件へ渡す」手順（②「13. Authorization設計」のUseCase節に相当）は、Handlerの処理順序の中で`application.ListRecentGoals`呼び出し時の引数として明記した。
+1. `c.Request.Context()`からcurrent user（認証Middlewareが格納したstudentユーザー）を取得する（②「16. Authorization設計」）
+2. `GetDashboard(ctx, userID)`を呼ぶ
+3. エラーが返った場合は500のAppErrorへ変換して`c.Error(err)`で返す（「14. Error実装方針」）
+4. `DashboardData`を`DashboardResponse`へ変換する
+5. 200 OKで返す
+
+リクエストパラメータのバインドと検証は行わない。パスパラメータ・クエリパラメータ・リクエストボディのいずれも受け取らないためである（①「5. API / 処理詳細」`#show`、②「15. Validation設計」）。
+
+当日の解答件数の取得が失敗していても、Handlerには成功として返る。`GetDashboard`が`0`に吸収するためである（「6. Application層設計」）。Handlerにこの吸収の判断を持たせない。
 
 ## Request / Response DTO
 
-- Request DTO: 対象外（②「12. Validation設計」の通り、リクエストパラメータが存在しないため作成しない）
+### Request
 
-### Response DTO
+対象外。リクエストパラメータを一切受け取らないため、Request DTOを定義せず`presentation/request/`も作成しない（①「5. API / 処理詳細」`#show`）。
 
-|struct名|フィールドと型|備考|
-|-|-|-|
-|`DashboardResponse`|`Goals []GoalResponse`|ルートレスポンス|
-|`GoalResponse`|`ID uint`, `Title string`, `Description string`, `Status string`, `DueDate time.Time`|②「16. API互換方針」のResponse項目に対応|
+### Response（`presentation/response/dashboard_response.go`）
 
-バリデーションタグ: Response DTOであるため入力バリデーションタグは付与しない。JSONタグ（`json:"id"`等）はコーディング規約・Gorm規約に反しない範囲でsnake_caseを付与する（②からの補足: JSONフィールド名の具体的な表記は②に明記がないため、既存API互換方針に合わせsnake_caseとした）。
+|struct名|フィールド|型|JSONキー|
+|-|-|-|-|
+|`DashboardResponse`|Goals|`[]GoalResponse`|`goals`|
+||TodayAnswerCount|`int`|`today_answer_count`|
+|`GoalResponse`|ID|`uint`|`id`|
+||Title|`string`|`title`|
+||Description|`string`|`description`|
+||Status|`string`|`status`|
+||DueDate|`*string`|`due_date`（`YYYY/MM/DD`形式。未設定なら`null`）|
+||Tasks|`[]TaskResponse`|`tasks`|
+|`TaskResponse`|ID|`uint`|`id`|
+||UserID|`uint`|`user_id`|
+||GoalID|`*uint`|`goal_id`|
+||Title|`string`|`title`|
+||Content|`string`|`content`|
+||DueDate|`*string`|`due_date`|
+||Priority|`string`|`priority`|
+||Status|`string`|`status`|
+||CompletedAt|`*string`|`completed_at`|
+||Units|`[]UnitResponse`|`units`|
+|`UnitResponse`|ID|`uint`|`id`|
+||CourseID|`uint`|`course_id`|
+||UnitName|`string`|`unit_name`|
+||Course|`CourseResponse`|`course`|
+|`CourseResponse`|ID|`uint`|`id`|
+||LevelNumber|`int`|`level_number`|
+||LevelName|`string`|`level_name`|
 
-## Routing
+- 最上位は`goals`と`today_answer_count`の2キーである（①「5. API / 処理詳細」`#show`）
+- **`meta`を返さない。** 最大5件に固定されておりページングを行わないためである（同）。目標管理機能の一覧（`goals`＋`meta`）とは異なる
+- `goals`の各要素の項目は、目標管理機能の一覧の各要素と同一である。Rails現行も同じシリアライザ（`Student::GoalSerializer`）を使っている（①「10. Rails実装対応表」）
+- タスクに含まれる単元には、タスク管理機能の詳細が持つ`started`（学習開始済みか）を含めない。Rails現行の`UnitSerializer`が返していないためである（①「5. API / 処理詳細」`#show`）
+- `Status`・`Priority`・日付はいずれも`dependency.go`の型が持つ文字列をそのまま入れる。本Contextで変換しない（「8. Infrastructure層設計」）
+- エラーレスポンスは専用structを本書で定義しない。形式は「14. Error実装方針」のとおりであり、集中エラーハンドリングミドルウェアが組み立てる
+
+`GoalResponse`以下の構造は`dependency.go`の`GoalSummary`以下と項目が一致する。それでもResponse DTOを別に定義するのは、JSONのキー名という表現上の関心をPresentation層に置くためである（アーキテクチャ規約「6. データフロー」）。`GoalSummary`にJSONタグを付けてそのまま返す形にはしない。
+
+## Routing（`presentation/routes.go`）
 
 |Method|Path|Handler|
 |-|-|-|
-|GET|`/api/v1/student/dashboard`|`DashboardHandler.GetDashboard`|
+|GET|/api/v1/student/dashboard|DashboardHandler.ShowDashboard|
 
-`presentation/routes.go`に`RegisterRoutes(rg *gin.RouterGroup, h *DashboardHandler)`のようなルート登録関数を置く方針とする（②からの補足: ルーティング登録関数の具体的な形は②に記載がないため、Ginを前提とした一般的な構成として補った）。認証・ロールチェックのMiddlewareは、authenticationを扱う別Bounded Context側の実装であり本書の対象外とする。
+パスは単数形（`dashboard`）である。Rails現行の`resource :dashboard, only: :show`に対応する（①「4. API一覧」）。複数形（`dashboards`）にしない。
+
+認証Middleware・`student`ロール確認Middlewareを経由する（②「16. Authorization設計」）。**CSRF検証Middlewareの対象外である。** GETのみであり、状態を変更しないためである（Gin規約「5. CSRF対策」の「適用範囲」）。
+
+一覧取得・作成・更新・削除の経路は定義しない。Rails現行にも存在しないためである（①「4. API一覧」）。
 
 ---
 
-# 7. API仕様
+# 10. API仕様
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
-|GET|`/api/v1/student/dashboard`|`DashboardHandler.GetDashboard`|なし|`DashboardResponse`|200|
+|GET|/api/v1/student/dashboard|ShowDashboard|なし|`DashboardResponse`|200|
+
+リクエストパラメータを一切受け取らない。
+
+エラーレスポンスの本文は「14. Error実装方針」のとおり`{"errors": [...]}`である。本機能には404を返す経路がないため、他機能にある`message`キーの本文は現れない。
 
 ## Errorケース
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|未認証（トークン不備等）|401|認証エラー（Middleware側で処理。本機能のHandler到達前に弾かれる）|
-|studentロールでない|403|認可エラー（Middleware側で処理）|
-|`ListRecentGoals`実行時にDB接続失敗等が発生|500|Application Error/Infrastructure Errorに基づく想定外エラー（②「16. API互換方針」の「想定外エラー時のみ既存形式に準じたレスポンスを返す」に対応）|
+|未認証|401|認証Middlewareが返す（②「16. Authorization設計」）|
+|`student`ロールでない|403|ロール確認Middlewareが返す。本文は`{"errors": ["この操作を行う権限がありません"]}`|
+|目標の取得に失敗した|500|`{"errors": [...]}`|
+|当日の解答件数の取得に失敗した|—|**エラーにしない。** `today_answer_count`を`0`として200で応答する（①「5. API / 処理詳細」`#show`のErrorケース、②「17. Error設計」）|
 
-**②からの補足**: 401/403はauthenticationを扱う別Contextの責務であり、②「13. Authorization設計」のMiddleware節に記載された「役割がstudentであることを確認する」を実現する具体的なStatus Codeは②に明記がないため、一般的なHTTP認可エラーの慣例として補った。
+認証・認可のステータスコードは本機能で定めるものではなく、該当Middlewareの仕様に従う。
 
----
+固有の404・422は存在しない。対象が一意に定まるリクエストパラメータを持たず、入力検証の対象もないためである（②「17. Error設計」）。
 
-# 8. Transaction実装方針
-
-②「11. Transaction設計」の通り、Transaction開始位置・終了位置ともに「なし」である。
-
-- Transaction開始箇所: 対象外（状態変更を伴わない読み取り専用処理のため）
-- Transaction終了箇所: 対象外
-- 複数関数にまたがる場合の扱い: 本機能は`ListRecentGoals`単体から`FindRecentGoalsByUserID`単体を呼び出すのみであり、複数のinfrastructure関数を組み合わせる処理は存在しない。よってTransaction境界の調整は不要である
+目標が0件の場合も`goals`を空配列として200を返す。
 
 ---
 
-# 9. Validation実装方針
+# 11. Transaction実装方針
+
+## Transaction開始位置
+
+なし。②「14. Transaction設計」のとおり、状態を変更する処理が存在しないためである。
+
+`gormtx.RunInTx`を呼ぶ箇所はない。`*gorm.DB`を保持する構造も持たない（「8. Infrastructure層設計」）。
+
+## Transaction終了位置
+
+なし（上記のとおり）。
+
+## 呼び出し側トランザクションの引き継ぎ
+
+本Contextには他Contextから呼ばれる公開操作が存在しないため、呼び出し側のトランザクションを引き継ぐ経路はない。
+
+他Contextの参照手段を呼ぶ際は`context.Context`をそのまま渡す。相手Contextのアダプタ・Storeが`gormtx.DBFromContext`で接続を取得するため、本Contextが`ctx`に手を加える必要はない（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」）。
+
+## 複数Storeにまたがる場合の扱い
+
+本ContextはStoreを持たないため、該当しない。
+
+2つの参照手段が返す値の間に整合性を求めない。目標の取得と解答件数の取得の間に別のリクエストで解答が記録された場合、件数のみが新しい値になりうるが、表示用の集約であり業務上の問題にならない。Rails現行も2つの取得をトランザクションで囲んでいない（②「14. Transaction設計」）。
+
+当日の解答件数はRedisに保持されており、RDBのトランザクションに含めることはできない（①「6. データモデル」）。整合性を求めない方針はこの制約とも一致する。
+
+---
+
+# 12. Validation実装方針
 
 ## Presentation
 
-- ②「12. Validation設計」の通り、リクエストパラメータが存在しないため型チェック・必須チェック・フォーマットチェックのいずれも対象外
+検証項目はない。パスパラメータ・クエリパラメータ・リクエストボディのいずれも受け取らないためである（①「5. API / 処理詳細」`#show`、②「15. Validation設計」）。
+
+Request DTOを定義せず、バインド処理も行わない。
 
 ## 業務ルール検証
 
-Transaction Script採用時のため、`application/list_recent_goals.go`内のガード節で検証する内容を記載する。
+対象外。②「15. Validation設計」のとおり、本Contextに業務ルールが存在しない。
 
-- ②「12. Validation設計」の通り、業務ルール・状態チェック・整合性チェックは「特になし」
-- 前提条件はcurrent userの識別のみであり、`userID`が有効な値であることはHandler側でcontextから取得できることをもって満たされる（②「Middleware」の認証処理に委ねる）
+表示件数（5件）と並び順（期限の昇順、同値は識別子の昇順）は検証の対象ではなく、参照手段に渡す条件である。件数は`FindUpcomingGoals`の`limit`引数として渡し、並び順は相手Contextが保証する（「8. Infrastructure層設計」）。
 
-**②からの補足**: `userID`の未設定（context取得失敗）時の扱いは②に明記がない。Handler側で取得失敗時は500（Application Error）として扱う方針を推測として補った。
-
----
-
-# 10. Authorization実装方針
-
-## Middleware
-
-- 認証済みユーザーを特定し、contextへ保持する
-- 役割がstudentであることを確認する
-
-（②「13. Authorization設計」のMiddleware節をそのまま踏襲。具体的な実装はauthenticationを扱う別Bounded Context側の責務であり、本機能側では利用するのみとする）
-
-## Handler
-
-- 業務権限判定は持たせない（②の通り）
-- contextからcurrent userの`userID`を取得し、`application.ListRecentGoals`へ引き渡す
-
-## application関数（Transaction Script採用時）
-
-- `ListRecentGoals`は、渡された`userID`を`FindRecentGoalsByUserID`の検索条件として使うことで、自分自身の目標のみを取得できるようにする（②「13. Authorization設計」のUseCase節を、Transaction Script構造に読み替えたもの）
-
-## 判断理由（②より）
-
-本機能はcurrent userのスコープに閉じた単純な参照であるため、認証確認と検索条件スコープ化のみで十分であり、追加の認可レイヤーを設ける必要はない。
+参照手段が5件を超える件数を返した場合の切り詰めは行わない。`limit`を渡した以上、件数を守るのは相手Contextの責務である。守られていなければ相手Contextの不具合であり、本Contextで隠蔽すると発見が遅れる。
 
 ---
 
-# 11. Error実装方針
+# 13. Authorization実装方針
+
+- Middlewareで行う処理: 認証済みユーザーの特定と`context.Context`への格納、役割（`student`）であることの確認（②「16. Authorization設計」Middleware節）
+- Handlerで行う処理: `context.Context`からcurrent userを取り出し、application層の関数へ渡す。業務権限判定は持たせない
+- Applicationで行う処理: current userの識別子を2つの参照手段に渡すことで、操作者自身のデータのみ取得できるようにする
+- Domainで行う処理: なし。本ContextにDomain層が存在しない
+- CSRF: **対象外。** GETのみであり状態を変更しないためである（Gin規約「5. CSRF対策」の「適用範囲」）
+
+所有権のスコープは、参照手段に渡す識別子で担保する。本Contextに検索条件を持たないため、Storeの検索条件による担保（他機能の方式）は取れない。相手Contextが識別子で正しく絞ることに依存する（②「16. Authorization設計」）。
+
+本Contextには他Contextから呼ばれる公開操作が存在しないため、認可を行わない経路はない。
+
+---
+
+# 14. Error実装方針
 
 ## Domain Error → Application Errorへの変換方針
 
-②「14. Error設計」の通り、本機能では業務ルール違反がほぼ発生しないためDomain Errorは原則使用しない。Application Errorのみを中心としたシンプルな構成とする。
+本ContextにDomain Errorが存在しないため、変換は行わない（②「17. Error設計」）。センチネルエラーを定義せず、`errors.go`も作成しない。
 
-- `application`パッケージ内に`var ErrFetchRecentGoalsFailed = errors.New("...")`のようなsentinel errorを定義し、infrastructure層のエラーを`fmt.Errorf("...: %w", err)`でラップする方針とする（コーディング規約「6. エラーハンドリング」の`%w`ラップ方針に準拠）
+他Contextの参照手段が返すエラーは、アダプタの中でラップして返す。相手Contextのエラー型を本Contextのハンドリングに持ち込まない（アーキテクチャ規約「5. Context間連携ルール」）。本Contextはエラーの種類で分岐せず、成否のみを見る。
+
+- 目標の取得が失敗した場合: `GetDashboard`がエラーを返し、Handlerが500のAppErrorへ変換する
+- 当日の解答件数の取得が失敗した場合: `GetDashboard`が`0`へ吸収し、エラーを返さない（「6. Application層設計」）
 
 ## Application Error → HTTPレスポンスへの変換方針
 
-- Handler側で`ListRecentGoals`のエラーを判定し、500 Internal Server Errorとして既存API互換のエラーレスポンス形式で返す
+Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
+
+レスポンスのボディは`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す（アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）。
+
+|条件|HTTP Status|ボディ|
+|-|-|-|
+|目標の取得に失敗した|500|`{"errors": [...]}`|
+|認証・認可|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
+
+**本機能には404を返す経路がない。** 他機能の③が記載している「404のみ`message`キーの本文を組み立てる分岐」は、本機能では使われない（目標管理機能③・タスク管理機能③・学習ログ機能③「14. Error実装方針」）。ミドルウェア自体は共通であり、本機能のために分岐を減らす必要はない。
 
 ## Infrastructure Errorのハンドリング方針
 
-- DB接続失敗等のGORMエラーは、infrastructure層の`FindRecentGoalsByUserID`内で`%w`によりラップし、application層へ伝播させる
+本ContextにDBアクセスがないため、GORMが返すエラーを扱う箇所はない。
+
+他Contextの参照手段の内部で発生した障害（DB接続失敗・Redisの障害等）は、アダプタ経由でエラーとして伝わる。`fmt.Errorf`でラップして返す（コーディング規約「18. エラーハンドリング」）。
 
 |Error種別|発生層|HTTP Status|
 |-|-|-|
-|Application Error（`ErrFetchRecentGoalsFailed`）|Application（`ListRecentGoals`）|500|
-|Infrastructure Error（DB接続失敗等）|Infrastructure（`FindRecentGoalsByUserID`）|500（Application Errorにラップされた上で変換）|
+|目標の取得の失敗（相手Contextの障害を含む）|Application（`GetDashboard`）|500|
+|当日の解答件数の取得の失敗|—|—（`0`へ吸収し200で応答する。ログに記録する）|
+|認証エラー|Middleware|401|
+|認可エラー（役割不一致）|Middleware|403|
 
-**②からの補足**: sentinel errorの具体的な変数名・エラーメッセージ文言は②に記載がないため実装のために補った。Domain Errorに相当する層はTransaction Script構造のため設けない（アーキテクチャ規約「8. 横断的関心事の置き場所」のError変換方針に基づく）。
+当日の解答件数の失敗を`0`へ吸収する際は、エラーの内容を必ずログに記録する。`0`を返して200で応答するため、障害が起きていることがレスポンスから分からない。ログだけが手がかりになる（「6. Application層設計」）。
+
+ログレベルは、業務上の失敗ではなく技術的な障害であるためエラーレベルとする。Rails現行も`Rails.logger.error`で記録している（①「6. データモデル」の「当日の解答件数（Redis）」）。
 
 ---
 
-# 12. GORM / DBクエリ設計
+# 15. GORM / DBクエリ設計
 
-②「17. DB設計方針」の通り、既存Rails DBを継続利用し、Schema変更は行わない。
+**本Contextから発行するクエリはない。**
+
+②「21. DB操作仕様」のとおり、本Contextが所有するテーブルは存在しない。GORMモデルを定義せず、`*gorm.DB`を受け取る構造も持たない（「8. Infrastructure層設計」）。
 
 ## 利用するGORMモデルとテーブルの対応
 
-|GORMモデル|テーブル|備考|
-|-|-|-|
-|`GoalRecord`|`goals`|ダッシュボード表示に必要な属性（id, user_id, title, description, status, due_date）のみを保持する読み取り専用モデル|
+なし。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
-- 条件: `user_id = ?`（current userのID）
-- ソート: `due_date`昇順
-- 件数制限: 上位5件（`LIMIT`相当。ページネーションは行わない。②に追加のページング要件の記載はない）
+本Contextでは定めない。参照手段に渡す条件として相手Contextへ伝える。本機能が必要とする条件は次のとおりである（②「21. DB操作仕様」）。
 
-SQL文そのものはここに記載しない。GORMのメソッドチェーンで組み立てる。
+|要求|内容|伝え方|
+|-|-|-|
+|目標の絞り込み|操作者自身の目標のみ。論理削除済みを除く|`FindUpcomingGoals`の`userID`引数。論理削除の除外は`goal-management`が保証する|
+|目標の並び順|期限の昇順。同値は識別子の昇順|`goal-management`が保証する（同機能③「15. GORM / DBクエリ設計」）|
+|目標の件数|最大5件。ページングなし|`FindUpcomingGoals`の`limit`引数|
+|紐づくタスク|目標ごとに個別に問い合わせず一括で取得する（N+1を避ける）|`goal-management`が保証する（同）|
+|当日の解答件数|操作者自身の、サーバの現在時刻の日付における件数|`FindTodayAnswerCount`の`userID`引数。日付の基準は`question-answering`が決める|
 
-## 既存Schemaへの変更
+## 既存Schemaに対する変更
 
-- ②の通り変更なし。`goals`テーブルの構造変更提案は行わない
+②「20. DB設計方針」のとおり、変更なし。本Contextはスキーマに関わらない。
 
 ---
 
-# 13. テストケース設計
+# 16. テストケース設計
 
-②「18. テスト戦略」を、Transaction Script読み替えルール（「Domain Test」「Repository Test」は対象外、「UseCase Test」→「Application関数 Test」）に従って具体化する。
+②「22. テスト戦略」を、Transaction Script採用に合わせて読み替える。Entityを持たないためDomain Testに相当するものがなく、所有するテーブルがないためStore Testもない。
 
-## Domain Test
+## Model Test
 
-対象外（Transaction Script採用のため、Domain層を設けない）。
+対象外。本Contextに業務ルールを持つModel・Value Objectが存在しない（②「22. テスト戦略」）。
 
-## Application関数 Test（②の「UseCase Test」を読み替え）
+## UseCase Test
+
+`GetDashboard`のテストである。2つの参照手段を差し替えて検証する。
 
 |対象|テストケース|
 |-|-|
-|`ListRecentGoals`|指定した`userID`に紐づく目標のみが返り、他ユーザーの目標が含まれないこと|
-|`ListRecentGoals`|返却される目標が`due_date`昇順に並んでいること|
-|`ListRecentGoals`|対象目標が6件以上存在する場合でも、返却件数が5件に絞り込まれること|
-|`ListRecentGoals`|対象目標が0件の場合、空スライスが返ること（エラーにならないこと）|
-|`ListRecentGoals`|`FindRecentGoalsByUserID`がエラーを返した場合、`ErrFetchRecentGoalsFailed`にラップされて返ること|
+|`GetDashboard`|正常系: 2つの参照結果が`DashboardData`にまとめられること|
+|`GetDashboard`|正常系: 目標が0件のとき、空のスライスと取得した件数を返すこと|
+|`GetDashboard`|正常系: `FindUpcomingGoals`に`limit`として5が渡されること|
+|`GetDashboard`|正常系: `FindUpcomingGoals`・`FindTodayAnswerCount`の双方に操作者の識別子が渡されること|
+|`GetDashboard`|異常系: 当日の解答件数の取得が失敗した場合、エラーを返さず件数を`0`とすること|
+|`GetDashboard`|異常系: 当日の解答件数の取得が失敗した場合、エラーの内容がログに記録されること|
+|`GetDashboard`|異常系: 当日の解答件数の取得が失敗しても、目標の取得結果はそのまま返ること|
+|`GetDashboard`|異常系: 目標の取得が失敗した場合、エラーを返すこと（`0`へ吸収しないこと）|
+|`GetDashboard`|異常系: 目標の取得が失敗した場合、当日の解答件数の取得を呼ばないこと|
 
-## Repository Test
+## Store Test
 
-対象外（Transaction Script採用のため、Repository層を設けない）。②「18. テスト戦略」記載の「検索条件（user_id絞り込み・ソート順・件数制限）の正確性」の検証観点は、上記「Application関数 Test」に統合して検証する。
+対象外。本Contextが所有するテーブルがなく、Store・Repositoryに相当する実装を持たない（②「22. テスト戦略」）。
+
+アダプタ（`infrastructure/contextadapter/`）については、相手Contextの公開操作を呼び出して`dependency.go`の型へ変換することを検証する。
+
+|対象|テストケース|
+|-|-|
+|`GoalSummaryDirectory`の実装|相手Contextの戻り値が`[]GoalSummary`へ変換されること（状態・日付が文字列のまま渡ること）|
+|`GoalSummaryDirectory`の実装|紐づくタスクと単元・コースが入れ子の型へ変換されること|
+|`GoalSummaryDirectory`の実装|相手Contextがエラーを返した場合、ラップして返すこと|
+|`TodayAnswerCountDirectory`の実装|相手Contextの戻り値が整数として返ること|
+|`TodayAnswerCountDirectory`の実装|相手Contextがエラーを返した場合、`0`へ吸収せずエラーを返すこと（吸収は`GetDashboard`の責務）|
 
 ## Handler Test
 
 |対象|テストケース|
 |-|-|
-|`DashboardHandler.GetDashboard`|認証済みユーザーに対して200 OKと目標一覧のJSONが返ること|
-|`DashboardHandler.GetDashboard`|`application.ListRecentGoals`がエラーを返した場合、500が返ること|
+|`DashboardHandler.ShowDashboard`|正常系: 最上位が`goals`と`today_answer_count`の2キーで200が返ること|
+|`DashboardHandler.ShowDashboard`|正常系: **`meta`を返さないこと**（目標管理機能の一覧との違い）|
+|`DashboardHandler.ShowDashboard`|正常系: `goals`の各要素が紐づくタスクを含むこと|
+|`DashboardHandler.ShowDashboard`|正常系: タスクに含まれる単元に`started`が含まれないこと|
+|`DashboardHandler.ShowDashboard`|正常系: `status`・`priority`・日付が文字列で返ること|
+|`DashboardHandler.ShowDashboard`|正常系: 目標が0件のとき`goals`が空配列で返ること|
+|`DashboardHandler.ShowDashboard`|正常系: 当日の解答件数の取得が失敗したとき`today_answer_count`が`0`で200が返ること|
+|`DashboardHandler.ShowDashboard`|異常系: 目標の取得が失敗したとき500と`{"errors": [...]}`が返ること|
+|`DashboardHandler.ShowDashboard`|正常系: リクエストパラメータを付けても無視されること（検証でエラーにしないこと）|
 
 ## Integration Test
 
 |対象|テストケース|
 |-|-|
-|`GET /api/v1/student/dashboard`|エンドポイント経由でダッシュボードの目標一覧（最大5件、due_date昇順）が正しく取得できること|
-|`GET /api/v1/student/dashboard`|未認証・非studentロールでアクセスした場合に401/403が返ること|
+|ダッシュボードの取得|エンドポイント経由で目標と当日の解答件数がまとめて取得できること（②「22. テスト戦略」Integration Test）|
+|件数の制限|目標が6件以上あるとき、期限の近い5件のみ返ること|
+|並び順|期限の昇順で返り、期限が同じ場合は識別子の昇順になること|
+|論理削除|論理削除済みの目標が含まれないこと|
+|認可|未認証・`student`ロール以外のユーザーがアクセスした場合に拒否されること|
+|認可|他の生徒の目標が含まれないこと|
+|解答件数の反映|解答を記録したあとに`today_answer_count`が増えて反映されること|
+|CSRF|GETのためCSRFトークンなしでも成功すること|
 
 ---
 
-# 14. ②からの補足事項
+# 17. ②からの補足事項
 
-②に明記がなく、実装のために追加で判断した内容を以下に記載する。
+②に明記がなく、実装のために追加で判断した内容は以下のとおりである。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|application関数名を`ListRecentGoals`とした|②の業務操作名「GetDashboard」から、アーキテクチャ規約「9. 命名規約」（Transaction Scriptの関数は動詞+対象）に従って命名した。同規約・自動生成プロンプトの構成例と一致する命名である|規約適用による決定（推測ではない）|
-|`GoalSummary`（application DTO）・`GoalRecord`（infrastructure GORMモデル）のフィールド構成|②「16. API互換方針」のResponse項目（id, title, description, status, due_date）および②「6. Entity設計」の記載から導出した|規約・②記載事項からの導出（推測ではない）|
-|`GoalRecord`をdashboard機能側に独自定義し、`goals`テーブルへ直接クエリする構成とした|goal-management側が公開する参照専用インターフェースの詳細（②/③）を本タスクでは参照しておらず、アーキテクチャ規約「6. Context間連携ルール」を踏まえた暫定的な実装方針として補った|推測。goal-management側の実装仕様確認後に見直しの余地あり|
-|上限件数5件を`application`パッケージ内の定数（例：`MaxDashboardGoals`）として定義する方針|②に定数化の指示はないが、業務ルール変更時の影響範囲を限定する（②「2. 設計方針」の保守性方針）ために補った|推測|
-|Application Errorのsentinel error名（`ErrFetchRecentGoalsFailed`）・エラーメッセージ文言|②「14. Error設計」はApplication Errorの責務のみを定義しており、具体的な変数名・文言は記載がないため、コーディング規約「6. エラーハンドリング」に沿って補った|推測|
-|Response DTOのJSONタグ表記（snake_case）|②はレスポンス項目名（id, title, description, status, due_date）のみを定義しており、JSONタグの具体的な表記規則は明記がないため、既存API互換方針に合わせて補った|推測|
-|Handler構成（`DashboardHandler`が`*gorm.DB`を保持し、application関数へ渡す）・ルート登録関数の形|②にPresentation層の実装レベルの構成記載がないため、Ginを前提とした一般的な構成として補った|推測|
-|401/403のHTTP Status Code対応|②「13. Authorization設計」のMiddleware節（認証確認・役割確認）に対応する具体的なStatus Codeの明記がないため、一般的なHTTP認可エラーの慣例として補った|推測|
+|`domain/`・`infrastructure/gormrepo/`・`presentation/request/`を作成しないことにした|②「6. Entity設計」が独自Entityを定義せず、②「21. DB操作仕様」が発行するクエリなしとし、①「5. API / 処理詳細」`#show`がリクエストパラメータを持たないため。規約「4. Bounded Context構成」の「機能で不要なディレクトリは作成しない」に従う|補足（②と①の記載から機械的に決まる）|
+|`context.go`の`NewContext`が`*gorm.DB`を引数に取らない形にした|本ContextにGORMを用いる実装が一切なく、受け取っても使う先がないため。規約「14. 依存関係の組み立て（DI配線）」の例示は`*gorm.DB`を渡す形だが、所有するテーブルがないContextは対象外と解釈した|要確認（DI配線の例示から外れるため、`cmd/server/main.go`での組み立て方とあわせて確認が必要）|
+|`GoalSummary`・`TaskSummary`等の受け渡し用の型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#show`のレスポンスに合わせた|補足|
+|状態・優先度・日付を**文字列**で受け取る形にした|表示形式を所有者側のContextが定める表現に委ねるため（②「7. Value Object設計」）。整数の列挙型や`time.Time`で受け取って本Contextで整形し直すと、同じ目標・タスクが機能によって別の形で返る余地が生まれる|補足（②の方針の具体化）|
+|`FindUpcomingGoals`が`limit`を引数に取る形にした|件数（5件）は本機能の表示仕様であり、相手Contextが決める値ではないため|補足|
+|`DashboardData`（application層の出力）とResponse DTOを別に定義した|`DashboardData`はJSONのキー名や表示形式といったHTTPの関心を持たないため（規約「6. データフロー」）。項目は一致するが、`GoalSummary`にJSONタグを付けてそのまま返す形にはしない|補足（規約の適用）|
+|参照手段が5件を超える件数を返した場合の切り詰めを行わないことにした|`limit`を渡した以上、件数を守るのは相手Contextの責務である。本Contextで隠蔽すると相手Contextの不具合の発見が遅れる|補足|
+|当日の解答件数の失敗を`0`へ吸収する際、エラーの内容をログに記録することにした|`0`を返して200で応答するため、障害が起きていることがレスポンスから分からない。ログだけが手がかりになる（コーディング規約「18. エラーハンドリング」）。Rails現行も`Rails.logger.error`で記録している（①「6. データモデル」）|補足（①の実体に基づく）|
+|吸収を`GetDashboard`に置き、アダプタの側に置かないことにした|吸収するかどうかは集約側の判断である。参照手段の側で`0`を返す形にすると、他の利用者にも同じ吸収が強制される（②「12. UseCase設計」）|補足（②の方針の具体化）|
+|目標の取得が失敗した場合、当日の解答件数の取得を呼ばないことにした|ダッシュボードを組み立てられないことが確定しているため、不要な呼び出しを行わない。②「12. UseCase設計」は処理の順序のみを示しており、早期に返すかは明記していない|補足|
+|`GoalSummaryDirectory`の具体的なシグネチャ|目標管理機能③の`GoalStore.FindByUserID`はページネーション付きであり、`page=1, perPage=5`を渡せば同じ結果が得られる。ただし総件数の`COUNT`が不要であるため、件数制限専用の参照手段を設けるかは所有者側で決める|要確認（目標管理機能の③の追随時に確定する）|
+|`TodayAnswerCountDirectory`の具体的なシグネチャと、「当日」の基準となるタイムゾーン|`question-answering`の②③がまだ作成されていない。Rails現行は`Time.current.to_date`で判定しており、アプリケーションのタイムゾーン設定に依存する（①「6. データモデル」）|要確認（問題解答機能の②③で確定する）|
 
----
+ディレクトリ名・package名（`internal/dashboard/`）、レスポンスの形状（`goals`＋`today_answer_count`、`meta`なし）、HTTPステータス（200・500）、当日の解答件数の失敗を`0`へ吸収する挙動、CSRFの対象外であることは、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
