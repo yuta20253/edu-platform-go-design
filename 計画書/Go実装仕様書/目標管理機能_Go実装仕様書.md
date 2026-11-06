@@ -632,7 +632,7 @@ flowchart TD
 - `TaskRefResponse`の項目は①「5. API / 処理詳細」`#index`のとおり、Rails現行の`TaskSerializer`に合わせる
 - エラーレスポンスは専用structを本書で定義しない。形式は422等が`{"errors": [...]}`、404のみ`{"message": ...}`であり、いずれも集中エラーハンドリングミドルウェアが組み立てる（「14. Error実装方針」、Gin規約「8. エラーハンドリングミドルウェア」）
 
-**②からの補足**: `UnitRefResponse`（タスクに紐づく単元）の項目は、`unit-reference`（単元参照機能）が扱う単元の表現であり、本機能では`task-management` Contextから受け取った値をそのまま入れる。項目の確定は単元参照機能の③に委ねる（バッチ3の対象外）。
+**②からの補足**: `UnitRefResponse`（タスクに紐づく単元）の項目は、`curriculum` Context（コース参照機能・単元参照機能が共有する）が扱う単元の表現であり、本機能では`task-management` Contextから受け取った値をそのまま入れる。項目の確定は単元参照機能の③に委ねる（バッチ3の対象外）。
 
 ## Routing（`presentation/routes.go`）
 
@@ -961,7 +961,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`DeleteGoal`の削除可否判定をトランザクションの外に置いた（②「14. Transaction設計」のとおりトランザクションは`SoftDelete`の内側のみ）|②が`DeleteGoal`も「Handlerの処理単位に対応するStoreメソッド内で開始する」としており、Rails現行の`Goal#soft_delete!`も判定と`update_columns`を囲んでいないため、現行の挙動に合わせた。ただし判定と削除の間に別のタスクが着手されると、`not_started`以外のタスクが紐づいた目標が削除され得る（Rails現行にも同じ競合がある）|要確認（現行踏襲とするか、判定を含めて囲むかは②側で決める事項。囲む場合は②「14. Transaction設計」の変更が必要）|
 |②「3. Bounded Context」の`draft-task` Context（下書きタスク）への参照依存を、具体的な参照手段・Response DTOとしては実装対象に含めなかった|②は参照依存を概念レベルで記載しているが、②「12. UseCase設計」ShowGoalの出力定義（目標とタスク一覧）に下書きタスクが含まれておらず、`TaskDirectory`に相当する参照手段も②「11. Repository設計」に存在しない。②に記載のない出力項目を本書側で新設しないため見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|
 |404の本文をRails現行のまま`{"message": ...}`で維持し、エラーハンドラに404だけの分岐を置いた|フロントエンドを変更しない方針のため。②「17. Error設計」で明記済み。アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」は`errors`形式を定めており、本件はその例外にあたる|補足（規約側に本文の形の例外を明記すべきかは規約で決める事項）|
-|`TaskRefResponse`に含める`units`（`UnitRefResponse`）の項目を確定しなかった|単元の表現は`unit-reference`（単元参照機能）が所有する。本機能は`task-management`から受け取った値をそのまま返すため、項目の確定は同機能の③に委ねる|要確認（単元参照機能の③で確定する。バッチ3の対象外）|
+|`TaskRefResponse`に含める`units`（`UnitRefResponse`）の項目を確定しなかった|単元の表現は`curriculum` Context（コース参照機能・単元参照機能が共有する）が所有する。本機能は`task-management`から受け取った値をそのまま返すため、項目の確定は単元参照機能の③に委ねる|要確認（単元参照機能の③で確定する。バッチ3の対象外）|
 
 上記以外の項目（Bounded Context・Aggregate・Entity/Model構成・Repository（Store）責務・Handler処理の内容・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の大枠）は②の記載内容をそのまま実装レベルに落とし込んだものであり、追加の判断は行っていない。
 
