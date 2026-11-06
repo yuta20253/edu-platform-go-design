@@ -469,7 +469,9 @@ Rails現行は、開始済みの単元を`Task#started_unit_ids`として`questi
 - 呼び出す先: TaskStore
 - 認可: 行わない
 
-**②からの補足**: `UpdateTaskStatus`から`goal-management`の再評価を呼ぶかは本書では定めない。Rails現行では問題の提出の経路（`Student::SubmissionService`）が目標の状態の再評価を自ら呼んでおり（目標管理機能①「7. 状態管理」）、`Student::TaskStatusUpdaterService`は呼んでいない。どちらに寄せるかは問題解答機能の②で決める（「25. 設計判断サマリー」）。
+**`UpdateTaskStatus`は`goal-management`の再評価を呼ばない。** Rails現行では問題の提出の経路（`Student::SubmissionService`）が目標の状態の再評価を自ら呼んでおり（目標管理機能①「7. 状態管理」）、`Student::TaskStatusUpdaterService`は呼んでいない。問題解答機能②もこの分担を維持する（同機能②「3. Bounded Context」）。
+
+呼び出し元が目標の再評価まで責任を持つ形になる。`study-log`が呼ぶ「タスクの着手」は本Contextが再評価を呼ぶが、`question-answering`が呼ぶ「タスクの状態の更新」は呼び出し元が呼ぶ。2つの公開操作で扱いが異なる点に注意する。
 
 ---
 
@@ -933,7 +935,6 @@ Active Record採用のため、規約「3. 設計パターンごとの構造適�
 
 |事項|決めていない理由|決める場所|
 |-|-|-|
-|`UpdateTaskStatus`から`goal-management`の再評価を呼ぶか|Rails現行では問題の提出の経路が自ら再評価を呼んでおり、`TaskStatusUpdaterService`は呼んでいない（「12. UseCase設計」）|問題解答機能の②|
 |404の本文の形を規約の`errors`形式へ揃えるか|フロントエンドを変更しない方針のため本書では維持した。`ApplicationController`の共通ハンドラが決める事項であり、全機能に共通する|規約（揃えるなら規約「15. API規約」に本文の形についても互換優先の例外を明記する必要がある）|
 |Rails現行の3つの挙動（許容値外の優先度名で500、更新時の検証失敗で200、メッセージの重複）をいつ正すか|フロントエンドを変更しない方針のため本書では維持した。正すにはフロントエンドの修正とあわせた判断が必要である（「17. Error設計」の「Rails現行の挙動を維持するもの」）|フロントエンドの修正方針を決める時点|
 |`title`の長さ上限をいつ検証するか|Rails現行は検証せずDBの制約違反で500になる。検証を加えると422に変わるため、フロントエンドを変更しない方針により本書では加えないこととした（「17. Error設計」の「Rails現行の挙動を維持するもの」）|フロントエンドの修正方針を決める時点|
