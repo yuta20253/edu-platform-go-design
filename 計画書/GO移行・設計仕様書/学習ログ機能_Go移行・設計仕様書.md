@@ -49,7 +49,7 @@
 参照のための依存:
 
 - `task-management` Context: 対象タスクが生徒自身のものであることの確認に依存する
-- `unit-reference` Context: 対象単元が指定タスクに紐づいていることの確認に依存する。ただし「タスクに紐づく単元か」という関係は`task-management`が持つため、確認は同Contextの参照手段に対して行う（下記）
+- `curriculum` Context: 対象単元が指定タスクに紐づいていることの確認に依存する。ただし「タスクに紐づく単元か」という関係は`task-management`が持つため、確認は同Contextの参照手段に対して行う（下記）
 - `user` Context: 認証済み生徒の識別に依存する
 
 状態変更を伴う依存:
@@ -68,7 +68,7 @@
 
 ただし、`question-answering`も`task-management`の「タスクの状態の更新」を呼ぶ（タスク管理機能②「3. Bounded Context」）。本Contextが呼ぶのは「タスクの着手」であり、別の操作である。
 
-**②からの補足**: `unit-reference`は単元参照機能のContext名として本書で用いる名前である。同機能の②はまだ作成されていないため、名前はその②の作成時に確定する（「25. 設計判断サマリー」）。
+`curriculum`は、コース参照機能・単元参照機能が共有するContextである（単元参照機能②「3. Bounded Context」）。本Contextは`curriculum`への依存を持たないが、依存関係の整理のうえで言及している。
 
 ---
 
@@ -280,7 +280,7 @@ stateDiagram-v2
 |-|-|-|-|
 |TaskUnitDirectory|`task-management`|指定のタスクが操作者自身のものか、かつ指定の単元がそのタスクに紐づいているか|`#create`・`#update`の対象確認（①「5. API / 処理詳細」）|
 
-Rails現行は`Task.find_by!(id:, user:)`でタスクを取り、`task.units.find(unit_id)`で単元を取っている（①「5. API / 処理詳細」`#create`）。いずれも`task-management`が所有するデータ（`tasks`と`task_units`経由の紐づき）に対する問い合わせであるため、単元の確認も`unit-reference`ではなく`task-management`の参照手段に対して行う。`unit-reference`への依存は、本機能のレスポンスに単元の情報を含めないため発生しない。
+Rails現行は`Task.find_by!(id:, user:)`でタスクを取り、`task.units.find(unit_id)`で単元を取っている（①「5. API / 処理詳細」`#create`）。いずれも`task-management`が所有するデータ（`tasks`と`task_units`経由の紐づき）に対する問い合わせであるため、単元の確認も`curriculum`ではなく`task-management`の参照手段に対して行う。`curriculum`への依存は、本機能のレスポンスに単元の情報を含めないため発生しない。
 
 状態変更を伴う依存:
 
@@ -679,7 +679,6 @@ Active Record採用のため、規約「3. 設計パターンごとの構造適�
 
 |事項|決めていない理由|決める場所|
 |-|-|-|
-|`unit-reference`というContext名|単元参照機能の②がまだ作成されていない。ただし本機能は`unit-reference`への依存を持たないため、名前が確定しなくても本書の設計は変わらない|単元参照機能の②|
 |`task-management`が公開する「タスクの着手」と参照手段の具体的なシグネチャ|同機能の③で確定する（タスク管理機能③「8. Infrastructure層設計」）|タスク管理機能の③|
 |完了済みへの再完了を400から422へ改めるか|Rails現行が400を返しており、フロントエンドを変更しない方針のため本書では維持した|フロントエンドの修正方針を決める時点|
 |404のモデル名が`Unit`・`Study log`と英語になる点をいつ正すか|`ja.yml`の`activerecord.models`に訳を足せば日本語になるが、フロントエンドが文言を表示している可能性があるため触っていない|同上|

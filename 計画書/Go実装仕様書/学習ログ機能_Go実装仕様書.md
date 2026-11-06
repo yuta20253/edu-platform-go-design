@@ -413,7 +413,7 @@ flowchart TD
 
 `VerifyTaskUnit`が2種類のエラーを返し分けるのは、404の本文に入る名称が`タスク`と`Unit`で異なるためである（「3. Domain層設計」のDomain Error）。相手Contextが返すエラーを、本Contextのセンチネルエラーへアダプタの中で変換する。
 
-`unit-reference` Contextへの依存は持たない。本機能のレスポンスに単元の情報を含めず、「タスクに紐づく単元か」という関係は`task-management`が持つためである（②「11. Repository設計」）。Rails現行も`task.units.find(unit_id)`とタスク経由で単元を取っている（①「5. API / 処理詳細」`#create`）。
+`curriculum` Contextへの依存は持たない。本機能のレスポンスに単元の情報を含めず、「タスクに紐づく単元か」という関係は`task-management`が持つためである（②「11. Repository設計」）。Rails現行も`task.units.find(unit_id)`とタスク経由で単元を取っている（①「5. API / 処理詳細」`#create`）。
 
 **②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、`task-management`の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
 
@@ -809,7 +809,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |404のAppErrorに名称を値として保持させ、ミドルウェアがその名称を本文に差し込む形にした|ミドルウェアは全機能で共通であり、機能ごとの名称表を持たせないため|補足（実装方式の具体化）|
 |`TaskStarter`インターフェースの戻り値を`error`のみとした|タスク管理機能③の`StartTask`は変更後の状態を返すが、本Contextは使わない。消費者が必要としない値をインターフェースに持ち込まないため（コーディング規約「7. インターフェース」）|補足|
 |`TaskUnitDirectory.VerifyTaskUnit`が2種類のエラーを返し分ける形にした|タスクと単元で404の名称が異なるため。相手Contextが返すエラーをアダプタの中で本Contextのセンチネルエラーへ変換する|補足|
-|`unit-reference` Contextへの依存を持たせなかった|本機能のレスポンスに単元の情報を含めず、「タスクに紐づく単元か」という関係は`task-management`が持つため。Rails現行も`task.units.find(unit_id)`とタスク経由で単元を取っている（①「5. API / 処理詳細」`#create`）|補足（②「11. Repository設計」に従う）|
+|`curriculum` Contextへの依存を持たせなかった|本機能のレスポンスに単元の情報を含めず、「タスクに紐づく単元か」という関係は`task-management`が持つため。Rails現行も`task.units.find(unit_id)`とタスク経由で単元を取っている（①「5. API / 処理詳細」`#create`）|補足（②「11. Repository設計」に従う）|
 |`StartedAt`を`time.Time`（非ポインタ）、`EndedAt`・`DurationMinutes`を`*int`・`*time.Time`とした|`started_at`はNOT NULLであり未設定を表す必要がない。`ended_at`・`duration_minutes`は完了するまでNULLである（①「6. データモデル」）|補足（①の実体に基づく）|
 |`Duration`型をカラムに対応させず、`Complete`の中で`*int`へ変換する形にした|完了するまで未設定であり、`Scanner`／`driver.Valuer`を実装するより変換を1箇所に閉じ込める方が単純であるため|補足|
 |所要時間が負になる場合の検証を設けなかった|終了時刻は常にサーバの現在時刻であり、開始時刻より前になる経路がない。Rails現行にも検証がない|補足（①の実体に基づく）|
