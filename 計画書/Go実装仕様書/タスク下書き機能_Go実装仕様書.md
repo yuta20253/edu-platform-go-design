@@ -492,12 +492,12 @@ flowchart TD
 |インターフェース|相手Context|メソッド|責務|
 |-|-|-|-|
 |`GoalDirectory`|`goal-management`|`IsOwnedByUser(ctx context.Context, goalID, userID uint) (bool, error)`|指定の目標が操作者自身のものかを返す。作成時の`goal_id`の検証に用いる（①「5. API / 処理詳細」`#create`）|
-|`UnitDirectory`|`unit-reference`|`ExistsAll(ctx context.Context, unitIDs UnitIDSet) (bool, error)`|指定された単元がすべて存在するかを返す|
-||`unit-reference`|`FindUnitsByIDs(ctx context.Context, unitIDs UnitIDSet) ([]UnitRef, error)`|レスポンスに含める単元の情報を返す|
+|`UnitDirectory`|`curriculum`|`ExistsAll(ctx context.Context, unitIDs UnitIDSet) (bool, error)`|指定された単元がすべて存在するかを返す|
+||`curriculum`|`FindUnitsByIDs(ctx context.Context, unitIDs UnitIDSet) ([]UnitRef, error)`|レスポンスに含める単元の情報を返す|
 
 `UnitIDSet`・`UnitRef`（`dependency.go`で定義する）は、それぞれ単元の識別子の集合と、レスポンスに含める単元の情報を表す型である。`UnitRef`のフィールドは識別子・所属コースの識別子・単元名と、所属コースの情報（識別子・レベル番号・レベル名）である（①「5. API / 処理詳細」`#show`）。相手Contextの内部structをそのまま受け取らず、本Contextが必要とする項目だけを持つ型で受け取る（アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）。
 
-**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。`unit-reference`のContext名も単元参照機能の②で確定する（②「25. 設計判断サマリー」）。
+**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
 
 タスク管理機能の③も同じ2つの参照手段を必要とする。インターフェースは各Contextが自身の`dependency.go`に持つため共有しないが、相手Contextが公開する操作は同一のものを呼ぶ。シグネチャを合わせる（同機能③「8. Infrastructure層設計」）。
 
@@ -892,7 +892,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とした|Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本機能に削除操作はなく、`gorm.DeletedAt`を使うと`deleted_at IS NULL`が自動付与され、論理削除済みも返すRails現行の挙動（①「6. データモデル」）が変わる|補足（規約の趣旨に沿った判断。ただし規約に「削除操作を持たないContextでの扱い」の記載はないため、規約側に明記すべきか要確認）|
 |`UnitIDSet`（単元の識別子の集合）という型を本Contextに定義した|存在確認と関連付けの対象が識別子の集合であり、単元の実体を扱う必要がないため。タスク管理機能③と同じ型名を用いるが、Contextごとに定義する（規約「5. Context間連携ルール」）|補足|
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#show`のレスポンスに合わせた|補足|
-|`GoalDirectory` / `UnitDirectory`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。タスク管理機能③と同じ操作を呼ぶため、シグネチャを合わせた|要確認（`goal-management`・`unit-reference`の③の追随時にシグネチャを合わせる）|
+|`GoalDirectory` / `UnitDirectory`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。タスク管理機能③と同じ操作を呼ぶため、シグネチャを合わせた|要確認（`goal-management`・`curriculum`の③の追随時にシグネチャを合わせる）|
 |`CreateDraftTaskBody.Priority`を`*int`とした|`0`が渡された場合（500）と未入力の場合（422）を区別する必要があるため。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない|補足（①の実体に基づく）|
 |Titleの長さをドメインで検証しないことにした|`draft_tasks.title`が`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えるとステータスコードが422へ変わる|補足（②「17. Error設計」の決定に従う）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|

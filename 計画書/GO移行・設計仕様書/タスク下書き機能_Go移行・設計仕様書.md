@@ -47,16 +47,16 @@
 ## 他Contextとの依存関係
 
 - `goal-management` Context: 下書きタスク作成時に、紐づける目標が生徒自身の目標であることの確認に依存する（①「5. API / 処理詳細」`#create`）
-- `unit-reference` Context: 下書きタスク作成時に指定する単元の存在確認、および詳細取得時の単元・コース情報の取得に依存する
+- `curriculum` Context: 下書きタスク作成時に指定する単元の存在確認、および詳細取得時の単元・コース情報の取得に依存する
 - `user` Context: 認証済み生徒の識別と所有権の確認に依存する
 
 本Contextから他Contextへの依存はいずれも参照のみである。他Contextから本Contextを呼ぶ経路は現行仕様に存在しない。
 
-**②からの補足**: `unit-reference`は単元参照機能のContext名として本書で用いる名前である。同機能の②はまだ作成されていないため、名前はその②の作成時に確定する（「25. 設計判断サマリー」）。
+`curriculum`は、コース参照機能・単元参照機能が共有するContextである（単元参照機能②「3. Bounded Context」）。単元はコースに属するマスタデータであり、両機能はいずれもその参照であるためContextを分けていない。
 
 ## 依存する理由
 
-下書きタスクは、目標に紐づく形で作成される（Rails現行仕様書6章`belongs_to :goal`）。また、下書きタスクの詳細表示では、紐づく単元とそのコース情報を含めて返却する業務要件がある（Rails現行仕様書5章のResponse定義）。そのため、作成時には`goal-management`・`unit-reference`への存在確認依存が、詳細取得時には`unit-reference`への参照依存が発生する。ただし、下書きタスク自体の作成・参照が目標やコースの状態を変更することはなく、依存は「存在確認・参照のための依存」に限定される。
+下書きタスクは、目標に紐づく形で作成される（Rails現行仕様書6章`belongs_to :goal`）。また、下書きタスクの詳細表示では、紐づく単元とそのコース情報を含めて返却する業務要件がある（Rails現行仕様書5章のResponse定義）。そのため、作成時には`goal-management`・`curriculum`への存在確認依存が、詳細取得時には`curriculum`への参照依存が発生する。ただし、下書きタスク自体の作成・参照が目標やコースの状態を変更することはなく、依存は「存在確認・参照のための依存」に限定される。
 
 なお、目標管理機能（`goal-management` Context）の②文書では、目標に下書きタスクが紐づき得る旨（Rails現行仕様書`has_many :draft_tasks`）を参照関係として記載しており、本Contextと目標管理機能は互いに整合した形で依存関係を記載している。
 
@@ -247,7 +247,7 @@ classDiagram
     DraftTaskUnit ..> Unit : 参照（存在確認・コース情報表示）
 ```
 
-Goal・Unitは他Context（goal-management Context、Unit/curriculum Context）が所有するデータであり、参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
+Goal・Unitは他Context（`goal-management`・`curriculum`）が所有するデータであり、参照のみ行うため外部参照として示している。Goのstruct定義（フィールドの可視性・タグ等）は③Go実装仕様書で扱う。
 
 ---
 
@@ -297,7 +297,7 @@ Goal・Unitは他Context（goal-management Context、Unit/curriculum Context）�
 |参照手段|相手Context|取得する内容|用途|
 |-|-|-|-|
 |GoalDirectory|`goal-management`|指定の目標が操作者自身のものかどうか|作成時の`goal_id`の検証（①「5. API / 処理詳細」`#create`）|
-|UnitDirectory|`unit-reference`|指定の単元IDがすべて存在するか／レスポンスに含める単元情報（単元名・所属コース）|単元の存在確認と詳細の出力|
+|UnitDirectory|`curriculum`|指定の単元IDがすべて存在するか／レスポンスに含める単元情報（単元名・所属コース）|単元の存在確認と詳細の出力|
 
 タスク管理機能の②も同じ2つの参照手段を必要とする。インターフェースは各Contextが自身の`dependency.go`に持つため共有しないが、相手Contextが公開する操作は同一のものを呼ぶ。
 
