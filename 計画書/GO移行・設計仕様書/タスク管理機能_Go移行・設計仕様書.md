@@ -53,7 +53,7 @@
 本Contextから他Contextへの参照依存:
 
 - `goal-management` Context: タスクが紐づく目標が操作者自身のものかを確認するために依存する（①「5. API / 処理詳細」`#create`）
-- `unit-reference` Context: タスクに紐づける単元の存在確認と、レスポンスに含める単元情報の取得に依存する
+- `curriculum` Context: タスクに紐づける単元の存在確認と、レスポンスに含める単元情報の取得に依存する
 - `question-answering` Context: そのタスクで学習を開始済みの単元を判定するため、解答履歴の有無を参照する（①「5. API / 処理詳細」`#show`・`#update`の`started_unit_ids`）
 - `user` Context: 認証済み生徒の識別と所有権の確認に依存する
 
@@ -68,7 +68,7 @@
 
 逆向きの依存を設けるのは、タスクの状態の変え方を本Contextに閉じ込めるためである。状態を変える手続きを呼び出し側に持たせると、学習ログの記録と問題の提出の2箇所に同じ手続き（状態と完了日時の整合、目標の状態の再評価の呼び出し）が重複し、片方だけが修正される。Rails現行も状態変更を`Student::TaskStatusUpdaterService`・`Student::TaskStartService`に集約しており、同じ責務分担である（①「7. 状態管理」）。
 
-**②からの補足**: `unit-reference`・`study-log`は、単元参照機能・学習ログ機能のContext名として本書で用いる名前である。両機能の②はまだ作成されていないため、名前はそれらの②の作成時に確定する（「25. 設計判断サマリー」）。
+`curriculum`は、コース参照機能・単元参照機能が共有するContextである（単元参照機能②「3. Bounded Context」）。単元はコースに属するマスタデータであり、両機能はいずれもその参照であるためContextを分けていない。`study-log`は学習ログ機能のContextである（同機能②「3. Bounded Context」）。
 
 ## 本Contextが公開する操作
 
@@ -387,7 +387,7 @@ stateDiagram-v2
 |参照手段|相手Context|取得する内容|用途|
 |-|-|-|-|
 |GoalDirectory|`goal-management`|指定の目標が操作者自身のものかどうか|作成時の`goal_id`の検証（①「5. API / 処理詳細」`#create`）|
-|UnitDirectory|`unit-reference`|指定の単元IDがすべて存在するか／レスポンスに含める単元情報（単元名・所属コース）|単元の存在確認と一覧・詳細の出力|
+|UnitDirectory|`curriculum`|指定の単元IDがすべて存在するか／レスポンスに含める単元情報（単元名・所属コース）|単元の存在確認と一覧・詳細の出力|
 |StartedUnitDirectory|`question-answering`|そのタスクで学習を開始済みの単元IDの集合|詳細の`started`と、更新時の「学習開始済みの単元は外せない」判定（①「5. API / 処理詳細」`#show`・`#update`）|
 
 Rails現行は、開始済みの単元を`Task#started_unit_ids`として`question_histories`から直接求めている（①「6. データモデル」）。本設計では解答履歴を所有する`question-answering` Contextの参照手段に委ねる。解答履歴の解釈（どの記録があれば「開始済み」と見なすか）は、その所有者側に置くべき判断であるためである。
@@ -933,7 +933,6 @@ Active Record採用のため、規約「3. 設計パターンごとの構造適�
 
 |事項|決めていない理由|決める場所|
 |-|-|-|
-|`unit-reference`・`study-log`というContext名|単元参照機能・学習ログ機能の②がまだ作成されていない|両機能の②|
 |`UpdateTaskStatus`から`goal-management`の再評価を呼ぶか|Rails現行では問題の提出の経路が自ら再評価を呼んでおり、`TaskStatusUpdaterService`は呼んでいない（「12. UseCase設計」）|問題解答機能の②|
 |404の本文の形を規約の`errors`形式へ揃えるか|フロントエンドを変更しない方針のため本書では維持した。`ApplicationController`の共通ハンドラが決める事項であり、全機能に共通する|規約（揃えるなら規約「15. API規約」に本文の形についても互換優先の例外を明記する必要がある）|
 |Rails現行の3つの挙動（許容値外の優先度名で500、更新時の検証失敗で200、メッセージの重複）をいつ正すか|フロントエンドを変更しない方針のため本書では維持した。正すにはフロントエンドの修正とあわせた判断が必要である（「17. Error設計」の「Rails現行の挙動を維持するもの」）|フロントエンドの修正方針を決める時点|

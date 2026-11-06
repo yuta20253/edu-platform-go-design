@@ -587,14 +587,14 @@ flowchart TD
 |インターフェース|相手Context|メソッド|責務|
 |-|-|-|-|
 |`GoalDirectory`|`goal-management`|`IsOwnedByUser(ctx context.Context, goalID, userID uint) (bool, error)`|指定の目標が操作者自身のものかを返す。作成時の`goal_id`の検証に用いる（①「5. API / 処理詳細」`#create`）|
-|`UnitDirectory`|`unit-reference`|`ExistsAll(ctx context.Context, unitIDs UnitIDSet) (bool, error)`|指定された単元がすべて存在するかを返す|
-||`unit-reference`|`FindUnitsByIDs(ctx context.Context, unitIDs UnitIDSet) ([]UnitRef, error)`|レスポンスに含める単元の情報を返す|
+|`UnitDirectory`|`curriculum`|`ExistsAll(ctx context.Context, unitIDs UnitIDSet) (bool, error)`|指定された単元がすべて存在するかを返す|
+||`curriculum`|`FindUnitsByIDs(ctx context.Context, unitIDs UnitIDSet) ([]UnitRef, error)`|レスポンスに含める単元の情報を返す|
 |`StartedUnitDirectory`|`question-answering`|`FindStartedUnitIDsByTaskID(ctx context.Context, taskID uint) (UnitIDSet, error)`|そのタスクで学習を開始済みの単元の識別子の集合を返す。詳細の`started`と、更新時の「学習開始済みの単元は外せない」判定に用いる（①「5. API / 処理詳細」`#show`・`#update`）|
 |`GoalStatusReevaluator`|`goal-management`|`ReevaluateGoalStatus(ctx context.Context, goalID uint) error`|目標の状態を再評価する。`StartTask`が状態を変えたときに呼ぶ（①「7. 状態管理」）|
 
 `UnitRef`（`dependency.go`で定義する）は、レスポンスに含める単元の情報を受け取る型である。フィールドは識別子・所属コースの識別子・単元名と、所属コースの情報（識別子・レベル番号・レベル名）である（①「5. API / 処理詳細」`#index`）。相手Contextの内部structをそのまま受け取らず、本Contextが必要とする項目だけを持つ型で受け取る（アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）。
 
-**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。`unit-reference`・`study-log`・`question-answering`のContext名も、それぞれの②で確定する（②「25. 設計判断サマリー」）。
+**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
 
 Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_histories`から直接求めているが（①「6. データモデル」）、本書では`question-answering` Contextの参照手段に委ねる。解答履歴の解釈（どの記録があれば「開始済み」と見なすか）はその所有者側に置くべき判断であるためである。
 
@@ -1126,7 +1126,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |Active Record構造を`task.go` / `task_status.go` / `priority.go` / `due_date.go` / `task_unit_link.go` / `task_unit_relation_policy.go` / `errors.go` / `task_store.go` / `task_unit_link_store.go`等に分割した|②が扱う対象（Task本体・状態・優先度・期限・紐づけ・判定）が複数あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断と矛盾しない）|
 |`UnitIDSet`（単元の識別子の集合）という型を本Contextに定義した|`TaskUnitRelationPolicy.Decide`が判定に必要とするのは識別子の集合だけであり、単元の実体を受け取る必要がないため。判定をDBや他Contextの呼び出しから切り離してテストできる形にした|補足（②「8. Domain Service」の責務分担を型として表したもの）|
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#index`のレスポンスに合わせた|補足|
-|`GoalDirectory` / `UnitDirectory` / `StartedUnitDirectory` / `GoalStatusReevaluator`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する|要確認（`goal-management`・`unit-reference`・`question-answering`の③の追随時にシグネチャを合わせる）|
+|`GoalDirectory` / `UnitDirectory` / `StartedUnitDirectory` / `GoalStatusReevaluator`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する|要確認（`goal-management`・`curriculum`・`question-answering`の③の追随時にシグネチャを合わせる）|
 |Titleの長さをドメインで検証しないことにした|`tasks.title`が`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えるとステータスコードが500から422へ変わり、フロントエンドから見える挙動が変わるため、フロントエンドを変更しない方針を優先した|補足（②「17. Error設計」の決定に従う。検証を加えるかは別途の判断）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
 |`Priority`を`iota + 1`で宣言した|`tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
