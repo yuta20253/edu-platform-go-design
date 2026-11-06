@@ -105,6 +105,7 @@ internal/questionanswering/domain/valueobject/judgement.go                 # Jud
 internal/questionanswering/domain/valueobject/time_spent_sec.go            # TimeSpentSec
 internal/questionanswering/domain/valueobject/answered_at.go               # AnsweredAt
 internal/questionanswering/domain/valueobject/task_progress.go             # TaskProgress（タスクのあるべき状態）
+internal/questionanswering/domain/valueobject/id_set.go                    # QuestionIDSet・UnitIDSet（識別子の集合）
 internal/questionanswering/domain/repository/question_history_repository.go
 internal/questionanswering/domain/repository/today_answer_count_repository.go
 internal/questionanswering/domain/service/answer_judge_policy.go           # 正誤判定
@@ -279,7 +280,7 @@ Domain Model採用のため、`domain/repository/`にインターフェースを
 
 `CountAnsweredByTask`だけ除外するのは、提出の判定が教員画面の進捗率と一致する必要があり、Rails現行が同じ集計（`on_active_questions`）を使っているためである（①「10. Rails実装対応表」）。
 
-`QuestionIDSet`・`UnitIDSet`は識別子の集合を表す型である。`domain/repository/`と`dependency.go`の双方から参照するため、`dependency.go`に定義する（「8. Infrastructure層設計」）。
+`QuestionIDSet`・`UnitIDSet`は識別子の集合を表す型である。`domain/valueobject/`に定義し、`domain/repository/`と`dependency.go`の双方がこれを参照する。Domain層がContextディレクトリ直下のpackageを参照しない形にするためである（アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）。
 
 ### TodayAnswerCountRepository（`domain/repository/today_answer_count_repository.go`）
 
@@ -558,7 +559,9 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 
 `CountAnsweredByTask`だけ`questions`と結合する。論理削除された問題に対する解答を進捗から除くためである（①「6. データモデル」の`on_active_questions`）。この結合は`questions`テーブルへのアクセスだが、**件数を数えるための絞り込みであり、問題の内容を読むものではない**。`curriculum`の参照手段に委ねると、解答履歴側の条件と問題側の条件を別のクエリに分けることになり、集計が2段階になる。
 
-**②からの補足（要確認）**: 上記の結合は規約「5. Context間連携ルール」の「相手Contextのデータを利用する場合は、相手Contextが公開する参照手段を呼び出す」に対する例外にあたる。集計の条件として他Contextのテーブルを結合してよいかは規約に定めがない。結合を避ける場合は、`curriculum`から「論理削除されていない問題の識別子の集合」を受け取り、それを条件に数える形になる（「17. ②からの補足事項」）。
+**②からの補足**: 上記の結合は規約「5. Context間連携ルール」の「相手Contextのデータを利用する場合は、相手Contextが公開する参照手段を呼び出す」とは異なる方式である。**集計の絞り込み条件として他Contextのテーブルを結合する場合は、この方式を採る。** 問題の内容を読むのではなく、件数を数えるための絞り込みに限る。
+
+`curriculum`から「論理削除されていない問題の識別子の集合」を受け取って条件に使う方式は採らない。問題数が多いときに集合が大きくなり、集計が2段階になるためである。
 
 ### todayAnswerCountRepository（`infrastructure/rediscounter/today_answer_count_repository.go`）
 
@@ -579,9 +582,17 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 
 有効期限: キーが新規作成された時点で「当日の終わり + 5分」に設定する。`NX`を付けるのは、既に有効期限が付いているキーへの再設定（無駄な通信と日付境界のずれ）を避けるためである（①「9. 非同期処理」）。
 
-**「当日」の基準**: 現在時刻の日付を用いる。Rails現行は`Time.current.to_date`で判定しており、アプリケーションのタイムゾーン設定に依存する（①「6. データモデル」）。Go側も同じタイムゾーンで日付を求める必要がある。現在時刻の取得手段をコンストラクタで受け取るのは、テストで日付境界を再現できるようにするためである。
+**「当日」の基準**: `Asia/Tokyo`における現在時刻の日付を用いる。Rails現行は`Time.current.to_date`で判定しており、アプリケーションのタイムゾーン設定（`config.time_zone = "Asia/Tokyo"`）に従う（①「6. データモデル」）。Go側も同じタイムゾーンで日付を求める。
 
-**②からの補足（要確認）**: Redisクライアントの型と、接続の管理をどこに置くかは②に定めがない。規約「4. Bounded Context構成」も`internal/shared/`配下にRedisのディレクトリを定めていない。本書では`internal/shared/`に置くことを前提とせず、コンストラクタでクライアントを受け取る形にとどめる（「17. ②からの補足事項」）。
+日付の境界がずれると、同じ時刻の解答が別のキーに入りカウンタが分断される。移行期間中にRailsとGoの両系統が同じキーを読み書きするため、基準を揃えることが前提となる。
+
+タイムゾーンをコード中に直接書かず、設定（`internal/shared/config`）から受け取る。Rails側の設定が変わった場合に追随できるようにするためである。
+
+なお、Railsのレコードの保存は`config.active_record.default_timezone = :utc`によりUTCである。日付の判定に用いるタイムゾーンと、`answered_at`等の保存値のタイムゾーンは別の設定である点に注意する。
+
+現在時刻の取得手段をコンストラクタで受け取るのは、テストで日付境界を再現できるようにするためである。
+
+**②からの補足**: Redisクライアントの型と、接続の管理をどこに置くかは②に定めがない。規約「4. Bounded Context構成」も`internal/shared/`配下にRedisのディレクトリを定めていない。本書では`internal/shared/`に置くことを前提とせず、コンストラクタでクライアントを受け取る形にとどめる。接続の管理を複数Contextで共有するかは、Redisを使う他のContextが現れた時点で判断する。本Contextの設計は、クライアントを外から受け取る限りどちらでも成立する。
 
 `Increment`の失敗はこのメソッドから`error`として返す。吸収しない。吸収するかどうかは呼び出し元のUseCaseが決める（「14. Error実装方針」）。
 
@@ -604,8 +615,6 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 
 |型|フィールド|備考|
 |-|-|-|
-|`QuestionIDSet`|問題の識別子の集合|順序を持たず重複を許さない|
-|`UnitIDSet`|単元の識別子の集合|同|
 |`TaskRef`|AlreadyCompleted（`bool`）・GoalID（`*uint`）|提出の判定に必要な最小限。タスクのタイトル等は受け取らない|
 |`QuestionRef`|ID・UnitID・CourseID・QuestionText・Hints（`[]QuestionHintRef`）・Choices（`[]QuestionChoiceRef`）|問題一覧・確認表示のレスポンスに必要な項目。**`CorrectAnswer`を含める**|
 |`QuestionHintRef`|ID・QuestionID・StepNumber・HintText||
@@ -657,9 +666,11 @@ Redisは当日の解答件数の保持先であり、`infrastructure/rediscounte
 
 ### dependency.go
 
-他Contextへの依存を宣言するインターフェース5つと、受け渡し用の型を置く（上記）。`QuestionIDSet`・`UnitIDSet`は`domain/repository/`からも参照するため、ここに置く。
+他Contextへの依存を宣言するインターフェース5つと、受け渡し用の型を置く（上記）。
 
-**②からの補足**: `dependency.go`はContextディレクトリ直下に置くという規約（アーキテクチャ規約「4. Bounded Context構成」）に従うが、そこに定義した型を`domain/repository/`が参照すると、Domain層がContextディレクトリ直下のpackageに依存する。依存の向きとしては`domain/` → 直下となり、規約「2. レイヤー責務と依存方向」が定める「DomainはInfrastructureに依存しない」には反しないが、Domain層が他Contextへの依存を宣言するpackageを参照する形になる。`QuestionIDSet`・`UnitIDSet`を`domain/valueobject/`に置く案もある（「17. ②からの補足事項」）。
+識別子の集合の型（`QuestionIDSet`・`UnitIDSet`）はここに置かず、`domain/valueobject/id_set.go`に置く。`domain/repository/`のインターフェースの引数・戻り値にも現れるため、Domain層の型として扱う方が依存の向きが素直である。`dependency.go`に置くと、Domain層が他Contextへの依存を宣言するpackageを参照することになる（アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）。
+
+`dependency.go`のインターフェースはこの型を`domain/valueobject/`から参照する。
 
 ---
 
@@ -835,7 +846,9 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 
 他機能の③は「ステータスが404なら`message`キー」という分岐を記載しているが（目標管理機能③・タスク管理機能③・学習ログ機能③「14. Error実装方針」）、本機能には`errors`形式の404があるためその分岐では足りない。
 
-**②からの補足（要確認）**: ミドルウェアの共通部分に「404でも`errors`形式を選べる」仕組みが必要になる。全機能に共通する部分の設計であるため、本機能だけで決められない（「17. ②からの補足事項」）。
+**②からの補足**: ミドルウェアの共通部分に「404でも`errors`形式を選べる」仕組みが必要になる。全機能に共通する部分の設計である。
+
+ただし**Rails側で確認表示の独自ハンドラを外し、404の本文の形を機能内で統一する修正を行う方針である。** 修正後は他機能③と同じ「404なら`message`キー」の分岐に揃えられ、この仕組みは不要になる。修正までは本書の仕組みが必要である。
 
 ## Infrastructure Errorのハンドリング方針
 
@@ -893,7 +906,7 @@ Domain Model採用のため、EntityとGORMモデルを分離する（Gorm規約
 - ソートは行わない。問題一覧の並び順は`curriculum`が決める（本Contextは`answered`の付与のみ）
 - ページネーションは行わない。いずれのエンドポイントもページングを持たない（①「5. API / 処理詳細」）
 
-`tasks`・`task_units`・`units`・`question_choices`・`question_hints`・`goals`へは本Contextからクエリを発行しない。相手Contextが公開する参照手段を呼び出す（②「21. DB操作仕様」）。`questions`は`CountAnsweredByTask`の結合のみで触れる（上記の要確認事項）。
+`tasks`・`task_units`・`units`・`question_choices`・`question_hints`・`goals`へは本Contextからクエリを発行しない。相手Contextが公開する参照手段を呼び出す（②「21. DB操作仕様」）。`questions`は`CountAnsweredByTask`の結合のみで触れる。集計の絞り込み条件としての結合であり、問題の内容は読まない（「8. Infrastructure層設計」）。
 
 ## 当日の解答件数（RDBではない）
 
@@ -994,15 +1007,15 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |`courseID`をEntityのフィールドに加えた|`question_histories.course_id`がNOT NULLであり、作成時に単元の所属コースを設定する（同）。復元時の③にはこのフィールドがなかった|補足（①の実体に基づく）|
 |Task・Question・QuestionChoiceをEntityとして定義せず、`dependency.go`の参照用の型とした|いずれも他Contextが所有するデータである（②「3. Bounded Context」）。規約「5. Context間連携ルール」の「相手Contextの内部Entityに直接依存しない」に従う|補足（規約の適用）|
 |「対象が見つからない」ためのエラーを用途ごとに分けた（`ErrTaskNotFound` / `ErrInvalidTask` / `ErrTaskOrUnitNotFound`）|同じ原因でも経路によってステータス（404 / 422）と本文の形（`message` / `errors`）が異なる（②「17. Error設計」）。1つにまとめると表せない|補足（①②の実体に基づく）|
-|`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とした|`QuestionHistory`は`default_scope`を持たず、**用途によって論理削除の扱いが異なる**（①「6. データモデル」）。自動付与が入ると、除外してはいけない経路でも除外され外部仕様が変わる|補足（①の実体に基づく。規約側に「削除操作を持たないContextでの扱い」の記載はないため、規約側に明記すべきか要確認）|
-|`CountAnsweredByTask`で`questions`テーブルと結合することにした|論理削除された問題に対する解答を進捗から除くため（①「6. データモデル」の`on_active_questions`）。**規約「5. Context間連携ルール」に対する例外にあたる。** 集計の条件として他Contextのテーブルを結合してよいかは規約に定めがない|**要確認**（結合を避ける場合は`curriculum`から論理削除されていない問題の識別子の集合を受け取る形になる）|
-|404の本文の形を`AppError`に持たせ、ミドルウェアがそれに従う形にした|本機能は404のうち確認表示だけ`errors`形式である（②「17. Error設計」）。他機能③の「404なら`message`キー」という分岐では足りない|**要確認**（ミドルウェアの共通部分の設計であり、全機能に影響する）|
-|Redisクライアントの型と接続の管理の置き場所を確定しなかった|②に定めがなく、規約「4. Bounded Context構成」も`internal/shared/`配下にRedisのディレクトリを定めていない。本書ではコンストラクタでクライアントを受け取る形にとどめた|**要確認**（規約に定めるべきか）|
+|`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とした|`QuestionHistory`は`default_scope`を持たず、**用途によって論理削除の扱いが異なる**（①「6. データモデル」）。自動付与が入ると、除外してはいけない経路でも除外され外部仕様が変わる|補足（①の実体に基づく。タスク下書き機能③・学習ログ機能③と同じ判断であり、本機能はさらに同じテーブルで用途ごとに扱いが分かれる点が異なる）|
+|`CountAnsweredByTask`で`questions`テーブルと結合することにした|論理削除された問題に対する解答を進捗から除くため（①「6. データモデル」の`on_active_questions`）。規約「5. Context間連携ルール」は相手Contextの参照手段を呼ぶことを定めているが、**集計の絞り込み条件として結合する場合はこの方式を採る**。`curriculum`から論理削除されていない問題の識別子の集合を受け取る方式では、問題数が多いときに集合が大きくなり、集計が2段階になる|補足（結合してよいとする判断。問題の内容を読むのではなく、件数を数えるための絞り込みに限る）|
+|404の本文の形を`AppError`に持たせ、ミドルウェアがそれに従う形にした|本機能は404のうち確認表示だけ`errors`形式である（②「17. Error設計」）。他機能③の「404なら`message`キー」という分岐では足りない。**Rails側で確認表示の独自ハンドラを外し、404の本文の形を機能内で統一する修正を行う方針である。** 修正後は他機能③と同じ分岐に揃えられるが、修正までは本書の仕組みが必要になる|補足（Rails側の修正方針が決まっているため要確認ではない。修正の内容は`tmp/残タスク.md`の「Rails側で修正を検討する点」B5に記載）|
+|Redisクライアントの型と接続の管理の置き場所を確定しなかった|②に定めがなく、規約「4. Bounded Context構成」も`internal/shared/`配下にRedisのディレクトリを定めていない。本書ではコンストラクタでクライアントを受け取る形にとどめる。**当面この形で進める方針である**|補足（置き場所の確定は先送り。本Contextの設計は、クライアントを外から受け取る限りどちらでも成立する）|
 |`infrastructure/rediscounter/`を`gormrepo/`とは別のディレクトリにした|GORMを使わずRedisへアクセスするため。規約「4. Bounded Context構成」は`gormrepo/`を「GORMでDBを読み書きする実装の置き場所」としており、混ぜると区別が崩れる|補足（規約の趣旨に沿った判断）|
-|`QuestionIDSet`・`UnitIDSet`を`dependency.go`に置いた|`domain/repository/`と`dependency.go`の双方から参照するため。ただしDomain層がContextディレクトリ直下のpackageを参照する形になる。`domain/valueobject/`に置く案もある|要確認（依存の向きとしては規約「2. レイヤー責務と依存方向」に反しないが、置き場所の判断は③の裁量に委ねられている）|
+|`QuestionIDSet`・`UnitIDSet`を`domain/valueobject/id_set.go`に置いた|`domain/repository/`のインターフェースの引数・戻り値に現れるため、Domain層の型として扱う方が依存の向きが素直である。`dependency.go`に置くと、Domain層が他Contextへの依存を宣言するpackageを参照することになる（アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）|補足（置き場所の判断。バッチ3の4機能はActive Record採用で`dependency.go`に置いているが、Domain Model採用の本機能はDomain層を持つため扱いが異なる）|
 |キーの構成をRails現行と同じにした|移行期間中に両系統が同じカウンタを読み書きできるようにするため|補足|
 |現在時刻の取得手段をコンストラクタで受け取る形にした|テストで日付境界を再現できるようにするため|補足|
-|「当日」の基準となるタイムゾーンを確定しなかった|Rails現行は`Time.current.to_date`で判定しており、アプリケーションのタイムゾーン設定に依存する（①「6. データモデル」）|要確認（設定値の決め方は本機能で決められない）|
-|`task-management`・`curriculum`・`goal-management`が公開する操作の具体的なシグネチャ|各機能の③で確定する|要確認（`curriculum`は本バッチ、`task-management`・`goal-management`は確定済みのものに合わせる）|
+|「当日」の基準を`Asia/Tokyo`とし、設定から受け取る形にした|Rails現行のアプリケーションのタイムゾーン設定（`config.time_zone = "Asia/Tokyo"`）に合わせる。日付の境界がずれると同じ時刻の解答が別のキーに入り、移行期間中にカウンタが分断される。タイムゾーンをコード中に直接書かないのは、Rails側の設定が変わった場合に追随できるようにするため|補足（Railsの設定に合わせる判断）|
+|他Contextの参照手段・公開操作のシグネチャを本書で確定とした|コーディング規約「7. インターフェース」の「利用側でインターフェースを定義する」に従い、本Contextが必要とする形を`dependency.go`で定め切る。相手Contextが別の形を公開している場合は、アダプタが差を吸収する。相手側の③が確定するのを待たない|補足（規約の適用。`task-management`・`goal-management`の③は確定済みであり、`curriculum`の③は本バッチで作成する）|
 
 `question_histories`の全カラムの型・NULL可否、エンドポイントとステータスコード、レスポンスの形状、トランザクション境界、当日の解答件数のキーと有効期限は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
