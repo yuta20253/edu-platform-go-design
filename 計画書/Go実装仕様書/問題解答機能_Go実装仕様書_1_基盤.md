@@ -25,11 +25,11 @@
 
 ## 本書の位置づけ
 
-本機能の実装ファイルは43であり、1文書あたり30〜35という範囲を超える。そのためスライス編への分割を行う（③自動生成プロンプト「文書の分割」）。
+本機能の実装ファイルは44であり、1文書あたり30〜35という範囲を超える。そのためスライス編への分割を行う（③自動生成プロンプト「文書の分割」）。
 
 |文書|担当|実装|テスト込みの目安|
 |-|-|-|-|
-|`問題解答機能_Go実装仕様書_1_基盤.md`（本書）|なし（Domain層・共通Infrastructure・実装方針）|20|約34|
+|`問題解答機能_Go実装仕様書_1_基盤.md`（本書）|なし（Domain層・共通Infrastructure・実装方針）|21|約35|
 |`問題解答機能_Go実装仕様書_2_問題参照.md`|GET questions・GET confirmation|10|約14|
 |`問題解答機能_Go実装仕様書_3_解答と提出.md`|POST answers・PATCH answers/update・PATCH submission|13|約18|
 
@@ -108,6 +108,7 @@ internal/questionanswering/domain/valueobject/task_progress.go             # Tas
 internal/questionanswering/domain/valueobject/id_set.go                    # QuestionIDSet・UnitIDSet（識別子の集合）
 internal/questionanswering/domain/repository/question_history_repository.go
 internal/questionanswering/domain/repository/today_answer_count_repository.go
+internal/questionanswering/domain/repository/answer_stats_repository.go     # 分析向けの集計（他Contextへ公開）
 internal/questionanswering/domain/service/answer_judge_policy.go           # 正誤判定
 internal/questionanswering/domain/service/task_completion_policy.go        # タスクのあるべき状態の判定
 internal/questionanswering/infrastructure/gormrepo/question_history_model.go
@@ -281,6 +282,38 @@ Domain Model採用のため、`domain/repository/`にインターフェースを
 `CountAnsweredByTask`だけ除外するのは、提出の判定が教員画面の進捗率と一致する必要があり、Rails現行が同じ集計（`on_active_questions`）を使っているためである（①「10. Rails実装対応表」）。
 
 `QuestionIDSet`・`UnitIDSet`は識別子の集合を表す型である。`domain/valueobject/`に定義し、`domain/repository/`と`dependency.go`の双方がこれを参照する。Domain層がContextディレクトリ直下のpackageを参照しない形にするためである（アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）。
+
+### AnswerStatsRepository（`domain/repository/answer_stats_repository.go`）
+
+`learning-analytics`へ公開する集計参照の実装先である（②「11. Repository設計」の「本Contextが他Contextへ公開する参照手段」）。
+
+|メソッド|引数|戻り値|責務|
+|-|-|-|-|
+|`CountAnswers`|`ctx context.Context, userID uint`|`(AnswerCountStats, error)`|その生徒の全期間の解答数と正答数を返す|
+|`CountAnswersForUsers`|`ctx context.Context, userIDs []uint`|`(AnswerCountStats, error)`|指定されたユーザーの解答数と正答数の合計を返す。空の集合ではクエリを発行せず0を返す|
+|`AggregateByUnit`|`ctx context.Context, userID uint`|`([]UnitAnswerStats, error)`|その生徒の解答数・正答数を、コースの識別子と単元の識別子の組ごとに返す。組ごとに最初に解答した日時も返す|
+|`AggregateByCourse`|`ctx context.Context, userID uint, from, to time.Time`|`([]CourseAnswerStats, error)`|その生徒の指定期間内の解答数・正答数を、コースの識別子ごとに返す|
+|`AggregateByUserForCourse`|`ctx context.Context, courseID uint`|`([]UserAnswerStats, error)`|指定のコースに解答履歴を持つユーザーごとの、そのコースでの解答数・正答数を返す|
+|`AggregateByUserForUnit`|`ctx context.Context, unitID uint`|`([]UserAnswerStats, error)`|指定の単元に解答履歴を持つユーザーごとの、その単元での解答数・正答数を返す|
+
+戻り値の型も同じファイルに置く。
+
+|型|フィールド|
+|-|-|
+|`AnswerCountStats`|`Total int`・`Correct int`|
+|`UnitAnswerStats`|`CourseID uint`・`UnitID uint`・`Total int`・`Correct int`・`FirstAnsweredAt time.Time`|
+|`CourseAnswerStats`|`CourseID uint`・`Total int`・`Correct int`|
+|`UserAnswerStats`|`UserID uint`・`Total int`・`Correct int`|
+
+いずれも集計結果を運ぶだけの読み取り専用の値であり、業務ルールも不変条件も持たない。Value Objectではないため`domain/valueobject/`には置かず、Repository Interfaceの戻り値としてインターフェースと同じファイルに置く。`QuestionIDSet`・`UnitIDSet`が`domain/valueobject/`にあるのは、それらが集合としての操作（差分・包含）を持つためである。
+
+**`QuestionHistoryRepository`と分けている理由**: 同じ`question_histories`を読むが、返すのがEntityではなく集計値である。また`QuestionHistoryRepository`は既に7メソッドを持ち、これに6つを足すと利用側が実際には使わないメソッドまで抱えることになる（コーディング規約「6. 構造体・インターフェース設計」の「インターフェースのメソッド数」）。利用側（`context.go`の公開操作）が必要とするものだけを持つインターフェースとして分ける。
+
+**論理削除の扱い**: 6メソッドすべてで**論理削除済みの解答履歴を含む**。Rails現行の分析が`@user.question_histories`をそのまま使い`active`を使っていないためである（②「11. Repository設計」の「分析向けの集計における論理削除の扱い」）。提出の判定（`CountAnsweredByTask`）が除外するのと扱いが逆である点に注意する。
+
+`AggregateByUserForCourse` / `AggregateByUserForUnit`は在籍中かどうかで絞り込まない。`users`と結合しない。絞り込みは呼び出し元が`user` Contextへ委ねる（②「11. Repository設計」の「分析向けの集計が持たない責務」）。
+
+`from`・`to`は日本時間の暦日として受け取る。`answered_at`はUTCで保存されているため、**本Contextが日本時間の1日の範囲（`from`の0時00分00秒〜`to`の23時59分59秒）へ変換して絞り込む。** 保存形式の知識を所有Contextに閉じ込めるためである（分析機能②「3. Bounded Context」の「依存する理由」）。
 
 ### TodayAnswerCountRepository（`domain/repository/today_answer_count_repository.go`）
 
@@ -556,6 +589,16 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 |`FindByQuestionIDs`|上記に加えて`question_id IN (...)`。絞り込まない|
 |`CountAnsweredByTask`|`user_id`・`task_id`で絞り込み、**`deleted_at IS NULL`かつ`questions`と結合して問題の`deleted_at IS NULL`**を条件に件数を数える|
 |`FindStartedUnitIDs`|`user_id`・`task_id`で絞り込み、`unit_id`を重複なく取得。絞り込まない|
+|`CountAnswers`|`user_id`で絞り込み、`COUNT(*)`と`SUM(CASE WHEN is_correct THEN 1 ELSE 0 END)`を1回のクエリで取得。絞り込まない|
+|`CountAnswersForUsers`|`user_id IN (...)`で絞り込み、同じ集計を取得。空の集合ではクエリを発行しない|
+|`AggregateByUnit`|`user_id`で絞り込み、`course_id`・`unit_id`でグループ化して件数・正答数・`MIN(answered_at)`を取得。絞り込まない|
+|`AggregateByCourse`|`user_id`と`answered_at`が期間内で絞り込み、`course_id`でグループ化して件数・正答数を取得。絞り込まない|
+|`AggregateByUserForCourse`|`course_id`で絞り込み、`user_id`でグループ化して件数・正答数を取得。`users`と結合しない。絞り込まない|
+|`AggregateByUserForUnit`|`unit_id`で絞り込み、`user_id`でグループ化して件数・正答数を取得。同上|
+
+分析向けの6メソッドは`question_histories`のみを対象とし、他のテーブルと結合しない。`course_id`・`unit_id`は解答履歴自身が保持しているためである（②「21. DB操作仕様」）。`AggregateByUnit`が`MIN(answered_at)`を返すのは、呼び出し元が理解度の階層を「最初に解答した順」で並べるためである（分析機能②「19. API仕様」の「Railsとの差分」1）。
+
+`AggregateByCourse`の期間の絞り込みは、受け取った日本時間の暦日を、日本時間の「`from`の0時00分00秒」から「`to`の23時59分59秒」に相当する時刻の範囲へ変換して`answered_at`に適用する。暦日のままDATE関数で比較しない。MySQLのタイムゾーン設定に依存しないためである。
 
 `CountAnsweredByTask`だけ`questions`と結合する。論理削除された問題に対する解答を進捗から除くためである（①「6. データモデル」の`on_active_questions`）。この結合は`questions`テーブルへのアクセスだが、**件数を数えるための絞り込みであり、問題の内容を読むものではない**。`curriculum`の参照手段に委ねると、解答履歴側の条件と問題側の条件を別のクエリに分けることになり、集計が2段階になる。
 
@@ -641,8 +684,16 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 |-|-|-|
 |`FindTodayAnswerCount(ctx context.Context, userID uint) (int, error)`|`dashboard`|当日の解答件数を返す（ダッシュボード機能③「8. Infrastructure層設計」の`TodayAnswerCountDirectory`）|
 |`FindStartedUnitIDs(ctx context.Context, userID, taskID uint) ([]uint, error)`|`task-management`|指定のタスクで解答履歴のある単元の識別子を返す（タスク管理機能③「8. Infrastructure層設計」の`StartedUnitDirectory`）|
+|`CountAnswers(ctx context.Context, userID uint) (repository.AnswerCountStats, error)`|`learning-analytics`|全期間の解答数と正答数（分析機能③基盤編「8. Infrastructure層設計」の`AnswerRateDirectory`）|
+|`CountAnswersForUsers(ctx context.Context, userIDs []uint) (repository.AnswerCountStats, error)`|同|ユーザー集合の解答数と正答数の合計（同）|
+|`AggregateAnswersByUnit(ctx context.Context, userID uint) ([]repository.UnitAnswerStats, error)`|同|コースと単元の組ごとの集計（同`UnitAnswerStatsDirectory`）|
+|`AggregateAnswersByCourse(ctx context.Context, userID uint, from, to time.Time) ([]repository.CourseAnswerStats, error)`|同|期間内のコースごとの集計（同`CourseAnswerStatsDirectory`）|
+|`AggregateAnswersByUserForCourse(ctx context.Context, courseID uint) ([]repository.UserAnswerStats, error)`|同|指定コースのユーザーごとの集計（同`RankAnswerStatsDirectory`）|
+|`AggregateAnswersByUserForUnit(ctx context.Context, unitID uint) ([]repository.UserAnswerStats, error)`|同|指定単元のユーザーごとの集計（同）|
 
-いずれも`TodayAnswerCountRepository`・`QuestionHistoryRepository`へ委譲するだけである。業務ルールを持たない。
+いずれも`TodayAnswerCountRepository`・`QuestionHistoryRepository`・`AnswerStatsRepository`へ委譲するだけである。業務ルールを持たない。認可も行わない。HTTPを経由せず他Contextから呼ばれ、どの生徒の集計かは呼び出し元が決めている（分析機能②「16. Authorization設計」）。
+
+分析向けの6つは`repository`packageの型をそのまま返す。`QuestionIDSet`・`UnitIDSet`のような本Context固有の集合型と異なり、集計結果は件数と識別子だけを持つ素の値であり、呼び出し元が自身の型へ変換するのが容易であるためである。
 
 `FindStartedUnitIDs`が返すのは識別子のスライスである。呼び出し元の`task-management`が自身の集合型へ変換する。本Contextの`UnitIDSet`を公開の型に使わない。相手Contextに本Contextの型を持ち込ませないためである。
 
@@ -660,7 +711,7 @@ Redisは当日の解答件数の保持先であり、`infrastructure/rediscounte
 
 受け取るもの: `*gorm.DB`、Redisクライアント、現在時刻の取得手段、`task-management`・`curriculum`・`goal-management`の各Contextへの参照（アダプタの生成に用いる）。
 
-組み立てるもの: Repository実装2つ、アダプタ5つ、Domain Service2つ、UseCase5つ、Handler4つ。
+組み立てるもの: Repository実装2つ（`questionHistoryRepository`が`QuestionHistoryRepository`と`AnswerStatsRepository`の両方を満たす）、アダプタ5つ、Domain Service2つ、UseCase5つ、Handler4つ。
 
 返す`Context`は、ルート登録に必要なHandlerと、他Contextへ公開する2つの参照手段を持つ。
 
@@ -965,6 +1016,20 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |`questionHistoryRepository.CountAnsweredByTask`|**論理削除済みの履歴が除かれること**|
 |`questionHistoryRepository.CountAnsweredByTask`|**論理削除済みの問題に対する履歴が除かれること**|
 |`questionHistoryRepository.FindStartedUnitIDs`|重複なく単元の識別子が返ること、論理削除済みの履歴も含まれること|
+|`questionHistoryRepository.CountAnswers`|解答数と正答数が返ること、**論理削除済みの履歴も含まれること**|
+|`questionHistoryRepository.CountAnswers`|**論理削除済みの問題に対する履歴も含まれること**（`CountAnsweredByTask`と扱いが逆であること）|
+|`questionHistoryRepository.CountAnswers`|他の生徒の履歴が含まれないこと、履歴が0件のとき解答数・正答数がいずれも0になること|
+|`questionHistoryRepository.CountAnswersForUsers`|集合全体の合計が返ること、空の集合でクエリを発行せず0を返すこと|
+|`questionHistoryRepository.AggregateByUnit`|コースと単元の組ごとに集計されること|
+|`questionHistoryRepository.AggregateByUnit`|`FirstAnsweredAt`が組ごとの最も古い解答日時になること|
+|`questionHistoryRepository.AggregateByUnit`|履歴が0件のとき空の結果が返ること|
+|`questionHistoryRepository.AggregateByCourse`|コースごとに集計されること、期間外の履歴が含まれないこと|
+|`questionHistoryRepository.AggregateByCourse`|日本時間の0時台・23時台に解答した履歴が、その暦日の集計に含まれること（UTC保存の日時が暦日をまたぐケース）|
+|`questionHistoryRepository.AggregateByCourse`|期間の両端の日が含まれること|
+|`questionHistoryRepository.AggregateByUserForCourse`|ユーザーごとに集計されること、**在籍の絞り込みを行わないこと**（`users`と結合しないこと）|
+|`questionHistoryRepository.AggregateByUserForCourse`|指定コース以外の履歴が含まれないこと|
+|`questionHistoryRepository.AggregateByUserForUnit`|指定単元以外の履歴が含まれないこと|
+|`questionHistoryRepository`|`QuestionHistoryRepository`と`AnswerStatsRepository`の両方を満たすこと|
 |`todayAnswerCountRepository.Increment`|値が1増えること|
 |`todayAnswerCountRepository.Increment`|キーが新規作成されたときのみ有効期限が設定されること（2回目の加算で有効期限が再設定されないこと）|
 |`todayAnswerCountRepository.Increment`|日付が変わると別のキーになること|
@@ -978,6 +1043,8 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |-|-|
 |`Context.FindTodayAnswerCount`|`TodayAnswerCountRepository.Find`へ委譲し、値をそのまま返すこと|
 |`Context.FindStartedUnitIDs`|`QuestionHistoryRepository.FindStartedUnitIDs`へ委譲し、識別子のスライスを返すこと|
+|分析向けの6つ|`AnswerStatsRepository`の対応するメソッドへ委譲し、`repository`packageの型をそのまま返すこと|
+|分析向けの6つ|認可を行わないこと（操作者の識別を要求しないこと）|
 
 ## UseCase Test / Handler Test / Integration Test
 
@@ -1016,6 +1083,10 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |キーの構成をRails現行と同じにした|移行期間中に両系統が同じカウンタを読み書きできるようにするため|補足|
 |現在時刻の取得手段をコンストラクタで受け取る形にした|テストで日付境界を再現できるようにするため|補足|
 |「当日」の基準を`Asia/Tokyo`とし、設定から受け取る形にした|Rails現行のアプリケーションのタイムゾーン設定（`config.time_zone = "Asia/Tokyo"`）に合わせる。日付の境界がずれると同じ時刻の解答が別のキーに入り、移行期間中にカウンタが分断される。タイムゾーンをコード中に直接書かないのは、Rails側の設定が変わった場合に追随できるようにするため|補足（Railsの設定に合わせる判断）|
+|`learning-analytics`向けの集計を`AnswerStatsRepository`という別のインターフェースに分けた|同じ`question_histories`を読むが、返すのがEntityではなく集計値である。また`QuestionHistoryRepository`は既に7メソッドを持ち、6つを足すと利用側が使わないメソッドまで抱える（コーディング規約「6. 構造体・インターフェース設計」の「インターフェースのメソッド数」）|補足（②「11. Repository設計」の公開参照手段に対する実装方式の具体化）|
+|`AnswerStatsRepository`の実装を`questionHistoryRepository`と同じstructが兼ねる形にした|対象テーブルが同じであり、接続の取得方法も変換方針も同じである。structを分けると同じ`db`を2つ保持することになる。インターフェースを満たすことはブランク識別子への代入でコンパイル時に検証する（コーディング規約「7. インターフェース」の「コンパイル時のインターフェース充足チェック」）|補足|
+|集計結果の型（`AnswerCountStats`等）を`domain/valueobject/`ではなくRepository Interfaceと同じファイルに置いた|集計値を運ぶだけで業務ルールも不変条件も持たず、Value Objectの要件を満たさない。`QuestionIDSet`・`UnitIDSet`が`domain/valueobject/`にあるのは、それらが集合としての操作を持つためである|補足（置き場所の判断）|
+|分析向けの集計で`answered_at`の期間を日本時間の時刻の範囲へ変換する処理を本Contextに置いた|`answered_at`はUTC保存であり、保存形式の知識を所有Contextに閉じ込めるため（分析機能②「3. Bounded Context」）。暦日のままDATE関数で比較するとMySQLのタイムゾーン設定に依存する|補足（②に変換の置き場所の明記がないため、実装のために判断した）|
 |他Contextの参照手段・公開操作のシグネチャを本書で確定とした|コーディング規約「7. インターフェース」の「利用側でインターフェースを定義する」に従い、本Contextが必要とする形を`dependency.go`で定め切る。相手Contextが別の形を公開している場合は、アダプタが差を吸収する。相手側の③が確定するのを待たない|補足（規約の適用。`task-management`・`goal-management`の③は確定済みであり、`curriculum`の③は本バッチで作成する）|
 
 `question_histories`の全カラムの型・NULL可否、エンドポイントとステータスコード、レスポンスの形状、トランザクション境界、当日の解答件数のキーと有効期限は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

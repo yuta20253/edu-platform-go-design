@@ -73,6 +73,7 @@
 
 - `dashboard` Context: 当日の解答件数を参照する（ダッシュボード機能②「11. Repository設計」）
 - `task-management` Context: タスクの単元ごとに学習を開始済みかどうか（解答履歴があるか）を参照する（タスク管理機能②「11. Repository設計」の`StartedUnitDirectory`）
+- `learning-analytics` Context: 正答率・理解度・順位の算出に使う解答履歴の集計を参照する（分析機能②「11. Repository設計」の`question-answering`への参照）
 
 ## 依存する理由
 
@@ -377,8 +378,31 @@ stateDiagram-v2
 |-|-|-|
 |当日の解答件数の取得|`dashboard`|指定の生徒の当日の解答件数を返す（ダッシュボード機能②「11. Repository設計」）|
 |学習開始済みの単元の取得|`task-management`|指定のタスクについて、解答履歴のある単元の識別子の集合を返す（タスク管理機能②「11. Repository設計」の`StartedUnitDirectory`）|
+|解答数・正答数の集計（全期間）|`learning-analytics`|指定の生徒の全期間の解答数と正答数を返す（分析機能③基盤編「8. Infrastructure層設計」の`AnswerRateDirectory`）|
+|解答数・正答数の集計（ユーザー集合）|`learning-analytics`|指定されたユーザーの解答数と正答数の合計を返す（同）|
+|解答数・正答数の集計（コースと単元の組ごと）|`learning-analytics`|指定の生徒の解答数・正答数を、コースの識別子と単元の識別子の組ごとに返す。組ごとに最初に解答した日時も返す（同`UnitAnswerStatsDirectory`）|
+|解答数・正答数の集計（期間内のコースごと）|`learning-analytics`|指定の生徒の指定期間内の解答数・正答数を、コースの識別子ごとに返す（同`CourseAnswerStatsDirectory`）|
+|解答数・正答数の集計（コース・単元のユーザーごと）|`learning-analytics`|指定のコースまたは単元に解答履歴を持つユーザーごとの、そのコース・単元での解答数・正答数を返す（同`RankAnswerStatsDirectory`）|
 
 学習開始済みの単元の判定を本Contextが答えるのは、判定の根拠が解答履歴であり、本Contextが所有しているためである。Rails現行は`Task#started_unit_ids`がタスク側から`question_histories`を直接読んでいるが（タスク管理機能①「6. データモデル」）、本設計では所有者側が答える形に改める。
+
+### 分析向けの集計における論理削除の扱い
+
+**分析向けの5つの集計は、論理削除済みの解答履歴を含む。** 本Contextの他の用途と扱いが異なるため、公開操作の側に明示する。
+
+|用途|論理削除の扱い|理由|
+|-|-|-|
+|提出の判定（`CountAnsweredByTask`）|除外する。さらに問題の論理削除も除外する|Rails現行が`on_active_questions`を使っている（①「10. Rails実装対応表」）|
+|分析向けの5つの集計|**除外しない**|Rails現行の分析が`@user.question_histories`をそのまま使い、`active`を使っていない（分析機能①「5. API / 処理詳細」共通の業務ルール）|
+|その他の参照|除外しない|`QuestionHistory`は既定の絞り込みを持たない（①「6. データモデル」）|
+
+### 分析向けの集計が持たない責務
+
+- 率の算出・順位付け（`learning-analytics`の責務。本Contextは解答数と正答数を返すだけとする）
+- 在籍中ユーザーへの絞り込み（`user`の責務。順位の母集団はユーザーごとの集計を返したうえで、呼び出し元が`user`へ絞り込ませる）
+- 教科への集約（`curriculum`が階層を持つ。本Contextはコースの識別子までで返す）
+
+率を返さないのは、百分率にするか小数第何位で丸めるかが分析の表現の問題であり、本Contextの関心ではないためである（分析機能②「24. 採用しなかった設計」）。
 
 ---
 
@@ -786,6 +810,8 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 
 `tasks`・`task_units`・`units`・`questions`・`question_choices`・`question_hints`・`goals`へは本Contextからクエリを発行しない。相手Contextが公開する参照手段を呼び出す（「11. Repository設計」、規約「5. Context間連携ルール」）。
 
+`learning-analytics`へ公開する5つの集計も`question_histories`のみを対象とする。`course_id`・`unit_id`は解答履歴自身が保持しているため、教材のテーブルと結合せずにコース・単元単位の集計ができる（分析機能①「6. データモデル」）。教科への集約に必要な階層は呼び出し元が`curriculum`から取る。
+
 論理削除の扱いが用途によって異なる点に注意する（①「6. データモデル」）。
 
 |用途|論理削除の扱い|
@@ -900,6 +926,7 @@ RDBのトランザクションに含めることはできない（「14. Transac
 |対象の問題数を問う参照手段の分割の仕方|件数を数えるには「タスクに紐づく単元」を知る必要があるが、その関係は`task-management`が持つ。単元の識別子の集合を受け取って`curriculum`に渡す2段階にするか、他の形にするか|③Go実装仕様書と`curriculum`の③|
 |「当日」の基準となるタイムゾーン|Rails現行は`Time.current.to_date`で判定しており、アプリケーションのタイムゾーン設定に依存する。Go側で同じ基準を使う必要がある|③Go実装仕様書|
 |`task-management`・`goal-management`・`curriculum`が公開する操作の具体的なシグネチャ|各機能の③で確定する|各機能の③|
+|本Contextが`learning-analytics`へ公開する5つの集計の具体的なシグネチャ|消費者側のインターフェースは分析機能③基盤編が定めている。公開側のシグネチャは本機能の③基盤編で確定する|本機能の③基盤編|
 
 ---
 
