@@ -61,6 +61,7 @@
 
 - `study-log` Context: 単元の学習ログを記録した時点で、本Contextが公開する「タスクの着手」操作を呼ぶ（①「5. API / 処理詳細」の「タスクの着手」。`Student::CreateStudyLogService`→`Student::TaskStartService`に対応）
 - `question-answering` Context: 問題の提出時に、本Contextが公開する「タスクの状態の更新」操作を呼ぶ（`Student::TaskStatusUpdaterService`に対応）
+- `learning-analytics` Context: タスク達成率の算出のため、本Contextが公開する「タスク件数の集計」を呼ぶ（分析機能②「11. Repository設計」の`task-management`への参照）
 
 ## 依存する理由
 
@@ -72,12 +73,26 @@
 
 ## 本Contextが公開する操作
 
+状態を変える操作:
+
 |操作|呼び出し元|内容|
 |-|-|-|
 |タスクの着手|`study-log`|未着手のタスクを進行中にする。未着手でなければ何もしない。状態が変わった場合は`goal-management`の「目標の状態の再評価」を呼ぶ|
 |タスクの状態の更新|`question-answering`|指定した状態へ変更し、完了日時を整合させる|
 
+参照のみの操作:
+
+|操作|呼び出し元|内容|
+|-|-|-|
+|タスク件数の集計（全期間）|`learning-analytics`|その生徒のタスクの総件数と完了件数を返す。期限日が未設定のタスクも総件数に含む|
+|タスク件数の集計（期限日の範囲）|`learning-analytics`|その生徒のタスクのうち、期限日が指定期間内にあるものの総件数と完了件数を返す。期限日が未設定のタスクは含まない|
+|タスク件数の集計（ユーザー集合）|`learning-analytics`|指定されたユーザーに属するタスクの総件数と完了件数の合計を返す。学年平均の算出に使う|
+
 いずれもHTTPを経由せず、Goのパッケージとして直接呼ばれる。認可は呼び出し側Contextが行う。
+
+件数の集計は率を返さない。百分率にするか小数第何位で丸めるかは分析の表現の問題であり、本Contextの関心ではない（分析機能②「24. 採用しなかった設計」）。本Contextは「完了したタスク」の定義と論理削除の扱いだけを受け持つ。
+
+**論理削除の扱いは本Contextの他の検索と同じで、論理削除済みのタスクを除外する。** `Task`は`default_scope`で除外しており、Rails現行の分析も`@user.tasks`を通して同じ絞り込みを受けている（分析機能①「5. API / 処理詳細」共通の業務ルール）。
 
 ---
 
@@ -354,6 +369,7 @@ stateDiagram-v2
   - 所有者を問わない取得（他Contextから呼ばれる公開操作が用いる）
   - 作成・更新
   - 状態と完了日時の更新
+  - 件数の集計（総件数と完了件数。他Contextから呼ばれる参照操作が用いる）
 - 保持する検索機能:
   - `user_id`による絞り込み
   - 状態による絞り込み。未指定・未定義の値のときは未着手または進行中に絞り込む（①「5. API / 処理詳細」`#index`）
@@ -399,6 +415,20 @@ Rails現行は、開始済みの単元を`Task#started_unit_ids`として`questi
 |目標の状態の再評価|`goal-management`|タスクの着手で状態が変わったときに呼ぶ（①「7. 状態管理」）|
 
 これも`dependency.go`のインターフェースとして宣言する。状態変更を伴う連携であり、呼び出し側（本Context）の処理単位で順に呼ぶ形とする（規約「5. Context間連携ルール」）。トランザクションの扱いは「14. Transaction設計」で定める。
+
+## 他Contextへ公開する参照手段
+
+「3. Bounded Context」の「本Contextが公開する操作」の参照のみの3操作である。いずれも`TaskStore`の検索として実装する。
+
+|公開する操作|検索条件|返す内容|
+|-|-|-|
+|タスク件数の集計（全期間）|`user_id`、論理削除済みを除外|総件数と完了件数|
+|タスク件数の集計（期限日の範囲）|`user_id`、`due_date`が範囲内、論理削除済みを除外|同|
+|タスク件数の集計（ユーザー集合）|`user_id`が集合に含まれる、論理削除済みを除外|同（集合全体の合計）|
+
+専用のStoreを設けず`TaskStore`に置くのは、対象テーブルが同じ`tasks`であり、論理削除の扱いも本Contextの他の検索と同じであるためである。扱いが分かれる場合は別のStoreへ分ける必要があるが、本Contextではその必要がない。
+
+期限日が未設定のタスクの扱いが操作によって異なる点に注意する。全期間の集計では総件数に含み、期限日の範囲での集計では含まない。Rails現行も期間を指定しないときだけ`@user.tasks`を全件対象にしている（分析機能①「5. API / 処理詳細」`task_completion`・`#show`のタスク達成率）。
 
 ---
 
@@ -836,6 +866,7 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 |Store|対象テーブル|操作種別|主な検索条件|結合|ページネーション/ソート|
 |-|-|-|-|-|-|
 |TaskStore|tasks|参照・作成・更新|`user_id`、状態、`deleted_at IS NULL`|紐づく単元を一括取得（`Preload`または`Joins`）|`due_date`昇順、ページネーションあり|
+|TaskStore（公開する参照操作）|tasks|参照（件数の集計）|`user_id`または`user_id`の集合、`due_date`の範囲（指定がある場合）、`deleted_at IS NULL`|なし|不要。件数のみを返す|
 |TaskUnitLinkStore|task_units|参照・一括作成・一括削除|`task_id`、`unit_id`|なし|不要|
 
 `goals`・`units`・解答履歴（`question_histories`）へは本Contextからクエリを発行しない。相手Contextが公開する参照手段を呼び出す（「11. Repository設計」の「他Contextの参照手段」、規約「5. Context間連携ルール」）。
@@ -929,7 +960,8 @@ Active Record採用のため、規約「3. 設計パターンごとの構造適�
 | Domain Service | TaskUnitRelationPolicy | 紐づけの差分と可否を、DBを経由しない純粋な判定として検証できるため |
 | 他Contextの参照 | `dependency.go`のインターフェース + アダプタ | 規約「5. Context間連携ルール」に従い、他Contextのテーブルを直接読まないため |
 | Authorization | Middleware + Storeの検索条件 | 認証と所有権の確認を分離して管理しやすい |
-| 公開操作 | `StartTask` / `UpdateTaskStatus` | 状態の変え方を本Contextに閉じ込めるため |
+| 公開操作（状態変更） | `StartTask` / `UpdateTaskStatus` | 状態の変え方を本Contextに閉じ込めるため |
+| 公開操作（参照） | タスク件数の集計を3つ（全期間・期限日の範囲・ユーザー集合） | 「完了したタスク」の定義と論理削除の扱いを本Contextに残すため。率は返さない |
 
 ## 本書で決めていない事項
 

@@ -550,6 +550,9 @@ flowchart TD
 |`Create`|`ctx context.Context, task *Task`|`error`|Taskレコードの新規作成。`status`は`TaskStatusNotStarted`（0）、`estimated_time`は`0`で作成する（①「5. API / 処理詳細」`#create`）|
 |`Update`|`ctx context.Context, task *Task`|`error`|idに一致するTaskレコードの`title`・`content`・`priority`・`due_date`・`memo`列を更新する。`goal_id`・`status`・`completed_at`は更新しない（①「5. API / 処理詳細」`#update`）|
 |`UpdateStatus`|`ctx context.Context, id uint, status TaskStatus, completedAt *time.Time`|`error`|対象レコードの`status`・`completed_at`列のみを更新する（公開操作が用いる）|
+|`CountTasks`|`ctx context.Context, userID uint`|`(TaskCountStats, error)`|`user_id`で絞り、総件数と`status`が`completed`の件数を数える。期限日が未設定のタスクも総件数に含む。公開する参照操作が用いる（②「11. Repository設計」の「他Contextへ公開する参照手段」）|
+|`CountTasksByDueDate`|`ctx context.Context, userID uint, from, to time.Time`|`(TaskCountStats, error)`|`user_id`と`due_date`が`from`〜`to`の範囲（両端を含む）で絞り、総件数と完了件数を数える。`due_date`がNULLのタスクは範囲条件により除かれる|
+|`CountTasksForUsers`|`ctx context.Context, userIDs []uint`|`(TaskCountStats, error)`|`user_id IN (...)`で絞り、集合全体の総件数と完了件数を数える。空の集合を受け取った場合はクエリを発行せず0件を返す|
 
 `status`の絞り込みは、`status`が`nil`のとき「未着手または進行中」を条件とする。Handlerが`ParseTaskStatus`に失敗した場合も`nil`を渡すため、未定義の値が指定されたときもこの条件になる（①「5. API / 処理詳細」`#index`の`by_status`）。
 
@@ -559,7 +562,15 @@ flowchart TD
 
 単元の表示用の情報（単元名・所属コース）は`tasks`との結合では取得しない。`units`は他Contextが所有するため、`UnitDirectory`経由で取得する（②「11. Repository設計」）。`TaskWithUnits`が持つのは識別子の集合までとする。
 
+3つの件数集計はいずれも`deleted_at IS NULL`を`gorm.DeletedAt`によりGORMが自動付与する。本Contextの他の検索と扱いが同じであるため、専用のStoreへ分けない（②「11. Repository設計」の「他Contextへ公開する参照手段」）。
+
+`TaskCountStats`（`dependency.go`で定義する）は`Total int`・`Completed int`を持つ。率を含めない。百分率にするか小数第何位で丸めるかは呼び出し元（`learning-analytics`）が決める（分析機能②「24. 採用しなかった設計」）。
+
+件数は`COUNT`で数え、レコードを読み込まない。総件数と完了件数を1回のクエリで得るため、`COUNT(*)`と`SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END)`に相当する集計を1つのクエリで発行する（Gorm規約「0. 本プロジェクトでの採用方針」）。
+
 ②「11. Repository設計」に明記のとおり、業務ルール判定・認可判定はStoreに持たせない。所有権の確認は「idとuser_idが一致するレコードを取得できるか」というクエリ条件として表現し、判定ロジック自体はHandler側の処理順序で扱う。
+
+件数集計は所有者でスコープするが、認可は行わない。他Contextから呼ばれる参照操作であり、どの生徒の集計かは呼び出し元が決めている（分析機能②「16. Authorization設計」）。
 
 ### TaskUnitLinkStore（`task_unit_link_store.go`）
 
@@ -632,6 +643,20 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 3. `TaskStore.UpdateStatus`で`status`・`completed_at`を更新する
 
 `goal-management`の再評価は呼ばない。Rails現行では問題の提出の経路（`Student::SubmissionService`）が目標の状態の再評価を自ら呼んでおり、`Student::TaskStatusUpdaterService`は呼んでいないためである（②「12. UseCase設計」の補足）。この分担を変えるかは問題解答機能の②で決める。
+
+## 他Contextへ公開する参照操作（`context.go`）
+
+②「11. Repository設計」の「他Contextへ公開する参照手段」の3つである。`TaskStore`のメソッドを`Context`のメソッドとして公開する（アーキテクチャ規約「5. Context間連携ルール」の「Active Record採用時はStoreの参照系メソッド」）。
+
+|メソッド|委譲先|呼び出し元|
+|-|-|-|
+|`CountTasks(ctx context.Context, userID uint) (TaskCountStats, error)`|`TaskStore.CountTasks`|`learning-analytics`|
+|`CountTasksByDueDate(ctx context.Context, userID uint, from, to time.Time) (TaskCountStats, error)`|`TaskStore.CountTasksByDueDate`|同|
+|`CountTasksForUsers(ctx context.Context, userIDs []uint) (TaskCountStats, error)`|`TaskStore.CountTasksForUsers`|同|
+
+いずれも委譲するだけである。`StartTask`・`UpdateTaskStatus`と同じく認可を行わない（②「16. Authorization設計」の「公開操作の認可」）。
+
+`from`・`to`は日本時間の暦日として受け取る。`due_date`はDATE型であり時刻を持たないため、タイムゾーンの変換は行わず日付としてそのまま比較する（分析機能③基盤編「8. Infrastructure層設計」）。
 
 ## 外部連携実装
 
@@ -1006,6 +1031,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 - 紐づく単元の識別子は`Preload`で一括取得する。タスクごとに問い合わせるN+1を避けるためである（Railsは`includes(units: :course)`で同じことを行っている。①「5. API / 処理詳細」`#index`）
 - `TaskStore.Update`: `title`・`content`・`priority`・`due_date`・`memo`列のみを更新する
 - `TaskStore.UpdateStatus`: `status`・`completed_at`列のみを更新する
+- `TaskStore.CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`: `COUNT`で総件数と完了件数を1回のクエリで数える。レコードを読み込まない。`deleted_at IS NULL`は`gorm.DeletedAt`によりGORMが自動付与する。`CountTasksByDueDate`は`due_date`が範囲内のものに限るため、`due_date`がNULLのタスクは除かれる。`CountTasksForUsers`は空の集合ではクエリを発行しない
 - `TaskUnitLinkStore.Add` / `Remove`: `task_id`と`unit_id`の組で一括作成・一括削除する。空の集合ではクエリを発行しない
 - 単元の表示用の情報（単元名・所属コース）と学習開始済みの判定は、`units`・`question_histories`への直接クエリではなく他Contextの参照手段経由で取得する（②「21. DB操作仕様」）
 
@@ -1066,6 +1092,17 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`TaskStore.Create`|Taskが作成され、`status`が0、`estimated_time`が0で保存されること|
 |`TaskStore.Update`|`title`・`content`・`priority`・`due_date`・`memo`が更新され、`goal_id`・`status`・`completed_at`が変わらないこと|
 |`TaskStore.UpdateStatus`|`status`・`completed_at`のみが更新されること|
+|`TaskStore.CountTasks`|総件数と完了件数が返ること|
+|`TaskStore.CountTasks`|**期限日が未設定のタスクも総件数に含まれること**|
+|`TaskStore.CountTasks`|論理削除済みのタスクが除かれること|
+|`TaskStore.CountTasks`|他の生徒のタスクが含まれないこと|
+|`TaskStore.CountTasks`|タスクが0件のとき総件数・完了件数がいずれも0になること|
+|`TaskStore.CountTasksByDueDate`|期限日が範囲の両端にあるタスクが含まれること|
+|`TaskStore.CountTasksByDueDate`|**期限日が未設定のタスクが含まれないこと**|
+|`TaskStore.CountTasksByDueDate`|期限日が範囲外のタスクが含まれないこと|
+|`TaskStore.CountTasksForUsers`|集合全体の総件数と完了件数の合計が返ること|
+|`TaskStore.CountTasksForUsers`|空の集合でクエリを発行せず0件を返すこと|
+|`TaskStore.CountTasksForUsers`|論理削除済みのタスクが除かれること|
 |`TaskUnitLinkStore.Add`|指定された単元分のレコードが作成されること|
 |`TaskUnitLinkStore.Add`|空の集合でクエリを発行しないこと|
 |`TaskUnitLinkStore.Remove`|指定された単元のレコードのみが削除されること|
@@ -1114,6 +1151,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |CSRF|`POST` / `PATCH`でCSRFトークンが不正な場合に拒否されること（Gin規約「5. CSRF対策」）|
 |状態の変化|`StartTask`の呼び出しによってタスクが進行中になり、一覧・詳細のレスポンスに反映されること|
 |状態の変化|`StartTask`の呼び出しによって紐づく目標の状態も再評価されること|
+|公開する参照操作|`learning-analytics`からタスク件数の集計が呼ばれて正しい結果を返すこと（全期間・期限日の範囲・ユーザー集合の3つ）|
 
 ---
 
@@ -1128,6 +1166,9 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#index`のレスポンスに合わせた|補足|
 |`GoalDirectory` / `UnitDirectory` / `GoalStatusReevaluator`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。コーディング規約「7. インターフェース」のとおり利用側で定め、相手側が別の形を公開している場合はアダプタが差を吸収する|補足（`goal-management`の③は確定済み。`curriculum`の③はバッチ4で作成する）|
 |`StartedUnitDirectory`のシグネチャに`userID`を含めた|解答履歴は生徒ごとに記録されるため、タスクの識別子だけでは対象が決まらない。`question-answering`が公開する`FindStartedUnitIDs(ctx, userID, taskID)`に対応する（問題解答機能③「8. Infrastructure層設計」）|補足（相手Contextの③で確定した形に合わせた）|
+|`learning-analytics`へ公開する3つの件数集計を専用のStoreに分けず`TaskStore`に置いた|対象テーブルが同じ`tasks`であり、論理削除の扱いも本Contextの他の検索と同じであるため。学習ログ機能③は論理削除の扱いが分かれるため別のStore（`StudyLogStatsStore`）へ分けているが、本Contextではその必要がない。分けるとファイル数が増え、本書がテスト込み35という上限を超える|補足（②「11. Repository設計」の「他Contextへ公開する参照手段」に従った実装方式の具体化）|
+|件数集計で総件数と完了件数を1回のクエリで得る形にした|2回のクエリに分けると、間に更新が入った場合に完了件数が総件数を上回りうる。`COUNT(*)`と条件付きの`SUM`を1つの集計で発行する|補足|
+|`TaskCountStats`に率を含めない形にした|百分率にするか小数第何位で丸めるかは分析の表現の問題であり、本Contextの関心ではない（分析機能②「24. 採用しなかった設計」）。また学年平均は集団全体の合計から求める定義であり、率を返すと合計に戻せない|補足（分析機能②の決定に従う）|
 |Titleの長さをドメインで検証しないことにした|`tasks.title`が`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えるとステータスコードが500から422へ変わり、フロントエンドから見える挙動が変わるため、フロントエンドを変更しない方針を優先した|補足（②「17. Error設計」の決定に従う。検証を加えるかは別途の判断）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
 |`Priority`を`iota + 1`で宣言した|`tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
