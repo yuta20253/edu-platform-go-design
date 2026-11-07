@@ -461,6 +461,15 @@ GORMを用いる実装を一切持たないため、`*gorm.DB`を受け取る構
 
 `user`ではなく`master-data`へ問うのは、`grades`テーブルを所有しているのが同Contextであり、`user`が公開するユーザーの基本属性に含まれるのは学年の識別子までであるためである（②「3. Bounded Context」の「依存する理由」）。
 
+`master-data`が公開する操作との対応は次のとおりである（共通マスタ参照機能③基盤編「8. Infrastructure層設計」）。
+
+|本Contextのメソッド|`master-data`の公開操作|
+|-|-|
+|`FindGradeYear(ctx, gradeID)`|`FindGrades(ctx, []uint{gradeID})`を呼び、返った`GradeRef`の年次を取り出す。結果が空なら`nil`を返す|
+|`FindGradeIDsByYear(ctx, year)`|同名の`FindGradeIDsByYear`をそのまま呼ぶ|
+
+`FindGradeYear`に対応する専用の公開操作を`master-data`に設けない。同Contextは「学年の属性の取得」（識別子の集合を受け取り、年次・表示名・所属高校の識別子を含む属性を返す）を公開しており、年次だけを返す操作を重ねて持たないためである（共通マスタ参照機能②「3. Bounded Context」の「実在確認のための専用操作を設けない」と同じ考え方）。1件分の集合を渡して1件を取り出す変換はアダプタが担う。
+
 ## 他Contextの参照手段の実装（アダプタ）
 
 `dependency.go`で宣言したインターフェースの実装である。相手Contextが公開する参照手段へ委譲し、本Contextから相手のテーブルへクエリを発行しない（アーキテクチャ規約「5. Context間連携ルール」）。GORMに依存せず相手Contextの公開操作を呼ぶアダプタであるため`infrastructure/contextadapter/`に置く（同「4. Bounded Context構成」）。
@@ -774,9 +783,11 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 |`question-answering`|全期間の解答数・正答数、ユーザー集合の解答数・正答数、コースと単元の組ごとの解答数・正答数（最初の解答日時を含む）、期間内のコースごとの解答数・正答数、指定コース／単元のユーザーごとの解答数・正答数|
 |`curriculum`|コースIDからの教科（`FindCourseSubjects`）。単元名・コース名・レベル番号は既存の`FindUnitsByIDs`で得られるため、単元の階層専用の操作は設けない|
 |`user`|学年の識別子の取得、指定した学年に属するユーザーID、在籍中ユーザーへの絞り込み。いずれも既存の`GetUserAttributes`・`SearchUsers`で満たせる（ユーザー基盤機能②「3. Bounded Context」）|
-|`master-data`|学年の識別子から年次、年次から学年の識別子の集合。**同Contextの②③はまだ作成されていない**|
+|`master-data`|学年の属性の取得（年次を含む）・年次による学年の検索。いずれも共通マスタ参照機能②「11. Repository設計」の公開参照手段として定義済み|
 
 いずれも**参照のみ**であり、所有Contextの状態を変更しない。分析が論理削除済みの解答履歴を含めて集計する点（他機能と扱いが異なる）は、`question-answering`側の参照手段に明記する必要がある。
+
+**6つの所有Contextすべてで公開参照手段が定義済みである。** `master-data`はバッチ5（共通マスタ参照機能）で、他の5つはバッチ3・バッチ4でそれぞれ定義した。
 
 所有Context側で確定した公開操作名は次のとおりである。アダプタはこれらを呼ぶ。
 
@@ -790,5 +801,6 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 |`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `ForUnit`|`question-answering`の同名の2操作（同）|
 |`CurriculumDirectory.FindCourseSubjects`|`curriculum`の`FindCourseSubjects`（コース参照機能③「6. Application層設計」）|
 |`CurriculumDirectory.FindUnitHierarchies`|`curriculum`の`FindUnitsByIDs`と`FindCourseSubjects`をアダプタが組み合わせる（上記「他Contextの参照手段の実装（アダプタ）」）|
-|`UserGradeDirectory` / `ActiveUserDirectory`の3操作|`user`の`GetUserAttributes`（学年の識別子）と`SearchUsers`（学年IDの集合で絞り込み／ID指定・有効のみ）。新しい公開操作は不要（ユーザー基盤機能③「3. 公開する操作」）|
-|`GradeDirectory`の2操作|`master-data`が公開する操作。**同Contextの②③はまだ作成されていない**|
+|`UserGradeDirectory` / `ActiveUserDirectory`の3操作|`user`の`GetUserAttributes`（学年の識別子）と`SearchUsers`（学年IDの集合で絞り込み／ID指定・有効のみ）。新しい公開操作は不要（ユーザー基盤機能③「3. 公開操作の定義」）|
+|`GradeDirectory.FindGradeYear`|`master-data`の`FindGrades`に1件分の集合を渡し、返った属性の年次を取り出す（共通マスタ参照機能③基盤編「8. Infrastructure層設計」）|
+|`GradeDirectory.FindGradeIDsByYear`|`master-data`の同名の操作（同）|
