@@ -25,7 +25,7 @@
 ②が設計した`curriculum` Bounded ContextのTransaction Script実装のうち、以下を対象とする。
 
 - コース一覧のエンドポイント（GET /api/v1/student/courses）
-- **`curriculum`が他Contextへ公開する5つの参照手段**（②「11. Repository設計」）
+- **`curriculum`が他Contextへ公開する6つの参照手段**（②「11. Repository設計」）
 - `context.go`・`dependency.go`・`presentation/routes.go`
 
 ## Contextを共有する機能との分担
@@ -34,7 +34,7 @@
 
 |文書|担当|
 |-|-|
-|`コース参照機能_Go実装仕様書.md`（本書）|コース一覧のエンドポイント、**他Contextへ公開する5つの参照手段**、`context.go`・`dependency.go`・`routes.go`|
+|`コース参照機能_Go実装仕様書.md`（本書）|コース一覧のエンドポイント、**他Contextへ公開する6つの参照手段**、`context.go`・`dependency.go`・`routes.go`|
 |`単元参照機能_Go実装仕様書.md`|単元詳細のエンドポイント（GET /api/v1/student/tasks/:task_id/units/:id）|
 
 **他Contextへ公開する参照手段の実装は本書に集約する。** 単元参照機能③では繰り返さない。②も同じ構成である（②「11. Repository設計」）。
@@ -85,7 +85,7 @@ internal/curriculum/
 
 ## 作成するファイル一覧
 
-本書が担当するものは以下の14である。
+本書が担当するものは以下の15である。
 
 ```
 internal/curriculum/context.go                                 # NewContext（依存関係の組み立てと公開操作）
@@ -94,6 +94,7 @@ internal/curriculum/application/list_courses.go                # ListCourses（�
 internal/curriculum/application/unit_directory.go              # 単元の存在確認・単元情報の取得（公開操作）
 internal/curriculum/application/question_directory.go          # 単元の問題一覧・解答対象の確認（公開操作）
 internal/curriculum/application/question_count.go              # 問題数の集計（公開操作）
+internal/curriculum/application/subject_directory.go           # コースの教科の取得（公開操作）
 internal/curriculum/infrastructure/gormquery/course_query.go   # コース一覧の検索
 internal/curriculum/infrastructure/gormquery/unit_query.go     # 単元の検索（存在確認・単元情報・詳細）
 internal/curriculum/infrastructure/gormquery/question_query.go # 問題の検索（一覧・解答対象・件数）
@@ -105,7 +106,7 @@ internal/curriculum/presentation/response/course_response.go
 internal/curriculum/presentation/routes.go
 ```
 
-上の一覧は15行だが、`routes.go`は`curriculum` Context全体のルートを登録する。本書が担当するため、本書の実装ファイル数は14＋`routes.go`の15として数える。
+上の一覧は16行だが、`routes.go`は`curriculum` Context全体のルートを登録する。本書が担当するため、本書の実装ファイル数は15＋`routes.go`の16として数える。
 
 単元参照機能が担当するものは以下の5である（同機能③「2. ディレクトリ構成」）。
 
@@ -121,7 +122,7 @@ internal/curriculum/presentation/response/unit_response.go
 
 ## 文書の分割
 
-行わない。Context全体の実装ファイルは19であり、テストが付くもの（application層の関数5つ・検索関数3つ・アダプタ1つ・Handler2つの11）を加えると30となる。1文書あたり30〜35という範囲に収まる（③自動生成プロンプト「ファイル数の見積り」）。
+行わない。Context全体の実装ファイルは20であり、テストが付くもの（application層の関数6つ・検索関数3つ・アダプタ1つ・Handler2つの12）を加えると32となる。1文書あたり30〜35という範囲に収まる（③自動生成プロンプト「ファイル数の見積り」）。
 
 GORMモデル・Response DTO・`routes.go`・`dependency.go`にはテストを付けない（同）。
 
@@ -201,10 +202,12 @@ GORMモデル・Response DTO・`routes.go`・`dependency.go`にはテストを�
 |同|`FindUnitQuestions`|単元の問題一覧の取得（公開操作）|
 |同|`FindQuestionForAnswer`|解答対象の確認（公開操作）|
 |同|`CountQuestions`|問題数の集計（公開操作）|
+|同|`FindCourseSubjects`|コースの教科の取得（公開操作）|
 |型|`CourseWithUnits`|コースと紐づく単元（`ListCourses`の戻り値）|
 |型（`dependency.go`）|`UnitInfo`|他Contextへ渡す単元の情報|
 |型（`dependency.go`）|`QuestionInfo`・`QuestionChoiceInfo`・`QuestionHintInfo`|他Contextへ渡す問題の情報|
 |型（`dependency.go`）|`AnswerTargetInfo`|他Contextへ渡す解答対象の情報|
+|型（`dependency.go`）|`CourseSubjectInfo`|他Contextへ渡すコースの教科の情報|
 
 ---
 
@@ -280,7 +283,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 
 ### 他Contextへ公開する操作
 
-②「11. Repository設計」の5つである。いずれも検索関数を呼ぶだけであり、手続きを持たない。
+②「11. Repository設計」の6つである。いずれも検索関数を呼ぶだけであり、手続きを持たない。
 
 |関数|シグネチャ|呼び出し元|
 |-|-|-|
@@ -289,6 +292,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |`FindUnitQuestions`|`(ctx context.Context, unitID uint) ([]QuestionInfo, error)`|`question-answering`|
 |`FindQuestionForAnswer`|`(ctx context.Context, unitID, questionID, questionChoiceID uint) (AnswerTargetInfo, error)`|同|
 |`CountQuestions`|`(ctx context.Context, unitIDs []uint) (int, error)`|同|
+|`FindCourseSubjects`|`(ctx context.Context, courseIDs []uint) ([]CourseSubjectInfo, error)`|`learning-analytics`|
 
 **識別子の集合を`[]uint`で受け取る。** 呼び出し元が持つ集合型（`UnitIDSet`）をそのまま受け取らない。相手Contextの型を本Contextに持ち込まないためである（②「11. Repository設計」）。
 
@@ -303,6 +307,8 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |`FindUnitQuestions(ctx, unitID uint) ([]QuestionRef, error)`（問題解答機能③）|`FindUnitQuestions(ctx, unitID uint) ([]QuestionInfo, error)`|戻り値を`QuestionInfo`→`QuestionRef`へ|
 |`FindQuestionForAnswer(ctx, unitID, questionID, questionChoiceID uint) (AnswerTargetRef, error)`（同）|同じ引数。戻り値は`AnswerTargetInfo`|戻り値を`AnswerTargetInfo`→`AnswerTargetRef`へ|
 |`CountQuestions(ctx, UnitIDSet) (int, error)`（同）|`CountQuestions(ctx, []uint) (int, error)`|呼び出し元のアダプタが`UnitIDSet`→`[]uint`へ|
+|`CurriculumDirectory.FindCourseSubjects(ctx, []uint) ([]CourseSubject, error)`（分析機能③基盤編）|`FindCourseSubjects(ctx, []uint) ([]CourseSubjectInfo, error)`|戻り値を`CourseSubjectInfo`→`CourseSubject`へ|
+|`CurriculumDirectory.FindUnitHierarchies(ctx, []uint) ([]UnitHierarchy, error)`（同）|`FindUnitsByIDs`と`FindCourseSubjects`の組み合わせ|呼び出し元のアダプタが2つの公開操作を呼び、単元の情報と教科を突き合わせて`UnitHierarchy`を組み立てる|
 
 引数・戻り値の項目は一致している。型名が異なるのはContext境界をまたぐためであり、設計上の食い違いではない。
 
@@ -315,6 +321,10 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 **②からの補足（要確認）**: 呼び出し元の問題解答機能③は`ErrInvalidQuestion`と`ErrInvalidQuestionChoice`を区別して返す（同③「14. Error実装方針」）。本Contextが区別しないため、呼び出し元のアダプタがどちらかを選べない。本書では「問題の不存在」として扱うことを想定するが、Rails現行は`@unit.questions.find_by(id:)`で問題を先に確認し、選択肢は別の検証（`validate_question_choice_relation`）で確認している（問題解答機能①「5. API / 処理詳細」`#create`）。**2つの操作に分ける方がRails現行に近い**（「17. ②からの補足事項」）。
 
 `CountQuestions`は、受け取った単元の識別子に属する問題の件数を返す。**論理削除を除外しない**（②「11. Repository設計」の「公開操作における論理削除の扱い」）。
+
+`FindCourseSubjects`は、受け取ったコースの識別子が属する教科を返す。論理削除を除外しない（同）。分析機能は論理削除済みの解答履歴も集計対象に含むため、除外すると論理削除済みのコースに紐づく履歴の教科が引けなくなる（分析機能③基盤編「17. ②からの補足事項」4）。該当しない識別子は戻り値に含めない。エラーにしない。
+
+**分析機能が必要とする単元の階層（単元名・コース名・レベル番号・教科）は、本Contextに専用の操作を設けない。** `FindUnitsByIDs`が単元名・コースの識別子・レベル番号・レベル名を返し、`FindCourseSubjects`が教科を返すため、呼び出し元のアダプタが2つを突き合わせれば足りる。同じ項目を返す操作を重ねて持たないためである。
 
 ---
 
@@ -407,6 +417,7 @@ sequenceDiagram
 |-|-|-|-|
 |`FindAllCourses`|`ctx context.Context`|`([]courseModel, error)`|`courses`の全件取得。`units`を`Preload`で一括取得する（N+1を避ける）。**`deleted_at`を条件に含めない**|
 |`FindCoursesBySubjectName`|`ctx context.Context, name string`|`([]courseModel, error)`|`subjects`と結合し、`subjects.name`の完全一致で絞り込む。同じく`units`を一括取得し、`deleted_at`を条件に含めない|
+|`FindCourseSubjects`|`ctx context.Context, courseIDs []uint`|`([]courseSubjectModel, error)`|`courses.id IN (...)`で絞り、`subjects`と結合して教科の識別子・教科名を得る。`units`は取得しない。`deleted_at`を条件に含めない|
 
 ソートは行わない。並び順を指定しない（①「5. API / 処理詳細」`#index`）。ページネーションも行わない。
 
@@ -437,7 +448,7 @@ sequenceDiagram
 |モデル|テーブル|備考|
 |-|-|-|
 |`courseModel`|`courses`|Gorm規約「2. 複数形のテーブル名」の既定命名規則で一致する|
-|`subjectModel`|`subjects`|同。絞り込みの結合にのみ用いる|
+|`subjectModel`|`subjects`|同。科目名による絞り込みと、コースの教科の取得の結合に用いる|
 |`unitModel`|`units`|同|
 |`questionModel`|`questions`|同|
 |`questionChoiceModel`|`question_choices`|同|
@@ -445,7 +456,7 @@ sequenceDiagram
 
 いずれも`DeletedAt`に**`gorm.DeletedAt`を使わず`*time.Time`とする**。詳細は「15. GORM / DBクエリ設計」に記載する。
 
-`unitWithCourseModel`・`answerTargetModel`は結合結果を受け取る型である。テーブルに対応しないため`TableName()`を持たない。
+`unitWithCourseModel`・`answerTargetModel`・`courseSubjectModel`は結合結果を受け取る型である。テーブルに対応しないため`TableName()`を持たない。
 
 ## 外部連携実装
 
@@ -465,9 +476,9 @@ sequenceDiagram
 
 受け取るもの: `*gorm.DB`、`task-management` Contextへの参照（単元参照機能のアダプタの生成に用いる）。
 
-組み立てるもの: 検索関数3ファイル分、application層の関数6つ（本書の5つ＋単元参照機能の1つ）、Handler2つ（同）。
+組み立てるもの: 検索関数3ファイル分、application層の関数7つ（本書の6つ＋単元参照機能の1つ）、Handler2つ（同）。
 
-返す`Context`は、ルート登録に必要なHandler2つと、**他Contextへ公開する5つの操作**を持つ。
+返す`Context`は、ルート登録に必要なHandler2つと、**他Contextへ公開する6つの操作**を持つ。
 
 公開する操作は`Context`のメソッドとして定める。
 
@@ -478,6 +489,7 @@ sequenceDiagram
 |`FindUnitQuestions(ctx, unitID uint) ([]QuestionInfo, error)`|`application.FindUnitQuestions`|
 |`FindQuestionForAnswer(ctx, unitID, questionID, questionChoiceID uint) (AnswerTargetInfo, error)`|`application.FindQuestionForAnswer`|
 |`CountQuestions(ctx, unitIDs []uint) (int, error)`|`application.CountQuestions`|
+|`FindCourseSubjects(ctx, courseIDs []uint) ([]CourseSubjectInfo, error)`|`application.FindCourseSubjects`|
 
 いずれも委譲するだけである。業務ルールを持たない。
 
@@ -492,6 +504,7 @@ sequenceDiagram
 |`QuestionChoiceInfo`|ID・QuestionID・ChoiceNumber・ChoiceText|同|
 |`QuestionHintInfo`|ID・QuestionID・StepNumber・HintText|同|
 |`AnswerTargetInfo`|CourseID・SelectedChoiceNumber・CorrectAnswer|同|
+|`CourseSubjectInfo`|CourseID・SubjectID・SubjectName|`learning-analytics`|
 
 `UnitInfo`がコースのレベル番号・レベル名を含むのは、呼び出し元がレスポンスに含めるためである（タスク管理機能③「8. Infrastructure層設計」の`UnitRef`）。
 
@@ -640,7 +653,7 @@ HTTPを経由しないため、API仕様としては記載しない。シグネ�
 
 ## 呼び出し側トランザクションの引き継ぎ
 
-**他Contextが開始したトランザクションの内側から呼ばれる場合がある。** 公開する5つの操作は他Contextから呼ばれるため、呼び出し元がトランザクションを開始している可能性がある。
+**他Contextが開始したトランザクションの内側から呼ばれる場合がある。** 公開する6つの操作は他Contextから呼ばれるため、呼び出し元がトランザクションを開始している可能性がある。
 
 各検索関数は`gormtx.DBFromContext(ctx, db)`で接続を取得する。トランザクション中であればその接続を、そうでなければ通常の接続を使う（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」）。
 
@@ -673,7 +686,7 @@ HTTPを経由しないため、API仕様としては記載しない。シグネ�
 
 ## 公開操作の入力の検証
 
-公開する5つの操作は、受け取った識別子の形式を検証しない。**呼び出し元が検証を済ませている前提である**（②「16. Authorization設計」）。
+公開する6つの操作は、受け取った識別子の形式を検証しない。**呼び出し元が検証を済ませている前提である**（②「16. Authorization設計」）。
 
 `ExistsAllUnits`が空の集合を受け取った場合は真を返す。「すべて存在する」が空集合に対して成り立つためである（「6. Application層設計」）。これも検証ではなく、判定の定義である。
 
@@ -693,7 +706,7 @@ HTTPを経由しないため、API仕様としては記載しない。シグネ�
 
 ## 公開操作の認可
 
-公開する5つの操作は**認可を行わない**（②「16. Authorization設計」）。
+公開する6つの操作は**認可を行わない**（②「16. Authorization設計」）。
 
 いずれもマスタデータの参照であり、操作者によって結果が変わらない。呼び出し元Contextが自身の認可を済ませている前提である。
 
@@ -787,7 +800,7 @@ GORMが返すエラーは`fmt.Errorf`でラップして返す（コーディン�
 - ソートを行わない。並び順を指定しない（①「5. API / 処理詳細」`#index`）
 - ページネーションを行わない。いずれの検索も全件または1件である
 
-`subjects`は絞り込みの結合にのみ用いる。レスポンスに含めないため、項目を取得しない。
+`subjects`はコース一覧の絞り込みと、コースの教科の取得（`FindCourseSubjects`）の結合に用いる。コース一覧のレスポンスには含めないため、そこでは項目を取得しない。
 
 `tasks`・`task_units`・`question_histories`へは本Contextからクエリを発行しない。いずれも他Contextが所有する（②「21. DB操作仕様」）。
 
@@ -838,6 +851,10 @@ application層の関数のテストである。検索関数を差し替えて検
 |`CountQuestions`|正常系: 指定された単元に属する問題の件数が返ること|
 |`CountQuestions`|正常系: **論理削除された問題も数えること**（②「11. Repository設計」）|
 |`CountQuestions`|正常系: 空の集合で0を返すこと|
+|`FindCourseSubjects`|正常系: コースの識別子ごとに教科の識別子・教科名が返ること|
+|`FindCourseSubjects`|正常系: 存在しない識別子を含む場合、存在するものだけが返ること（エラーにしないこと）|
+|`FindCourseSubjects`|正常系: **論理削除されたコースの教科も返ること**（②「11. Repository設計」）|
+|`FindCourseSubjects`|正常系: 空の集合で空のスライスを返すこと|
 
 ## Store Test
 
@@ -857,6 +874,8 @@ application層の関数のテストである。検索関数を差し替えて検
 |`FindAnswerTarget`|問題が単元に属さない組み合わせで該当なしが返ること|
 |`FindAnswerTarget`|選択肢が問題のものでない組み合わせで該当なしが返ること|
 |`CountQuestionsByUnitIDs`|件数が返ること、**論理削除済みの問題も数えること**|
+|`FindCourseSubjects`|`subjects`と結合して教科の識別子・教科名が取得できること、**論理削除済みのコースも返ること**|
+|`FindCourseSubjects`|`units`を取得しないこと|
 |全検索関数|`gormtx.DBFromContext`で接続を取得すること（トランザクションの内側から呼ばれた場合に同じ接続を使うこと）|
 
 ## Handler Test
@@ -885,6 +904,7 @@ application層の関数のテストである。検索関数を差し替えて検
 |CSRF|GETのためCSRFトークンなしでも成功すること|
 |公開操作|`task-management`から単元の存在確認が呼ばれて正しい結果を返すこと|
 |公開操作|`question-answering`から問題の一覧・解答対象の確認・問題数の集計が呼ばれて正しい結果を返すこと|
+|公開操作|`learning-analytics`からコースの教科の取得が呼ばれて正しい結果を返すこと|
 |ルート|コース一覧と単元詳細の2つのエンドポイントが登録されていること|
 
 ---
@@ -910,4 +930,4 @@ application層の関数のテストである。検索関数を差し替えて検
 |`routes.go`を本書の担当とし、単元参照機能のルートも登録する形にした|Context全体のルートを1ファイルで登録するため。`dependency.go`も同様に本書が作成し、単元参照機能が追加する|補足（実装の順序に基づく整理。本書 → 単元参照機能の順に実装する）|
 |`gormtx.DBFromContext`を使う形にした|現時点でトランザクションの内側から呼ばれる経路はないが、将来に備える。使わない理由がない（「11. Transaction実装方針」）|補足|
 
-ディレクトリ名・package名（`internal/curriculum/`）、レスポンスの形状（最上位が配列・全カラムを含む・`meta`なし・科目を含まない）、ステータスコード、論理削除を除外しない扱い、公開する5つの操作のシグネチャは、いずれも規約・①・②に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
+ディレクトリ名・package名（`internal/curriculum/`）、レスポンスの形状（最上位が配列・全カラムを含む・`meta`なし・科目を含まない）、ステータスコード、論理削除を除外しない扱い、公開する6つの操作のシグネチャは、いずれも規約・①・②に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

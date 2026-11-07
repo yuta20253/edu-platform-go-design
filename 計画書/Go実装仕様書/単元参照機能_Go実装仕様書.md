@@ -24,14 +24,14 @@
 
 |文書|担当|
 |-|-|
-|`コース参照機能_Go実装仕様書.md`|コース一覧のエンドポイント、**他Contextへ公開する5つの参照手段**、`context.go`・`dependency.go`・`routes.go`|
+|`コース参照機能_Go実装仕様書.md`|コース一覧のエンドポイント、**他Contextへ公開する6つの参照手段**、`context.go`・`dependency.go`・`routes.go`|
 |`単元参照機能_Go実装仕様書.md`（本書）|単元詳細のエンドポイント（GET /api/v1/student/tasks/:task_id/units/:id）|
 
 コース参照機能③が定めるもの（本書では繰り返さない）:
 
 - ディレクトリ構成とContext全体のファイル一覧
 - GORMモデルと検索関数（`infrastructure/gormquery/`）
-- 他Contextへ公開する5つの参照手段
+- 他Contextへ公開する6つの参照手段
 - `context.go`・`dependency.go`・`presentation/routes.go`
 
 **実装の順序はコース参照機能③ → 本書とする。** 本書が使う検索関数（`FindUnitByID`）と、`dependency.go`・`routes.go`を同機能③が作成するためである。
