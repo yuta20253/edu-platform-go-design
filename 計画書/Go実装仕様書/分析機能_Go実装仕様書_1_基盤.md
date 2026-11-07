@@ -21,7 +21,7 @@
 機能全体で共通して使うものを対象とする。
 
 - `context.go`（依存関係の組み立て）・`dependency.go`（他Contextへの依存を宣言するインターフェースと受け渡し用の型）
-- `infrastructure/contextadapter/`配下の5つのアダプタ（`task-management`・`study-log`・`question-answering`・`curriculum`・`user`への参照）
+- `infrastructure/contextadapter/`配下の6つのアダプタ（`task-management`・`study-log`・`question-answering`・`curriculum`・`user`・`master-data`への参照）
 - application層のうち、両エンドポイントが共有する算出関数（集計期間の確定・率の算出）
 - `presentation/routes.go`
 - Transaction・Validation・Authorization・Errorの実装方針（機能全体で共通）
@@ -80,6 +80,7 @@ internal/learninganalytics/presentation/response/
 |`internal/learninganalytics/infrastructure/contextadapter/answer_stats_directory.go`|1（本書）|`question-answering`への参照アダプタ|
 |`internal/learninganalytics/infrastructure/contextadapter/curriculum_directory.go`|1（本書）|`curriculum`への参照アダプタ|
 |`internal/learninganalytics/infrastructure/contextadapter/user_directory.go`|1（本書）|`user`への参照アダプタ|
+|`internal/learninganalytics/infrastructure/contextadapter/grade_directory.go`|1（本書）|`master-data`への参照アダプタ|
 |`internal/learninganalytics/presentation/routes.go`|1（本書）|ルーティング登録|
 |`internal/learninganalytics/application/get_analytics.go`|2|分析タイプの判定と算出への分岐|
 |`internal/learninganalytics/application/task_completion.go`|2|`task_completion`の算出|
@@ -99,11 +100,11 @@ internal/learninganalytics/presentation/response/
 
 ## 文書の分割
 
-実装ファイルは25である。テストが付くもの（Transaction Scriptの関数11・アダプタ5・Handler2の合計18）を加えると43となり、1文書あたり30〜35という範囲を超えるため分割する。
+実装ファイルは26である。テストが付くもの（Transaction Scriptの関数11・アダプタ6・Handler2の合計19）を加えると45となり、1文書あたり30〜35という範囲を超えるため分割する。
 
 |文書|担当|実装|テスト込みの目安|
 |-|-|-|-|
-|`分析機能_Go実装仕様書_1_基盤.md`|共通の算出関数・アダプタ・ルーティング・実装方針|10|17|
+|`分析機能_Go実装仕様書_1_基盤.md`|共通の算出関数・アダプタ・ルーティング・実装方針|11|19|
 |`分析機能_Go実装仕様書_2_分析取得・期間サマリ.md`|両エンドポイントのapplication関数・Presentation層|15|26|
 
 Handlerは2つあるが、スライスに割るといずれもテスト込みで12〜14にとどまり小さすぎるため、1つのスライス編にまとめる（③自動生成プロンプト「2. ディレクトリ構成」の「スライスの切り方」）。
@@ -170,14 +171,19 @@ classDiagram
         +FindUnitHierarchies(ctx, []uint) ([]UnitHierarchy, error)
         +FindCourseSubjects(ctx, []uint) ([]CourseSubject, error)
     }
-    class GradeDirectory {
+    class UserGradeDirectory {
         <<interface>>
-        +FindGradeYear(ctx, uint) (*int, error)
-        +FindUserIDsByGradeYear(ctx, int) ([]uint, error)
+        +FindGradeID(ctx, uint) (*uint, error)
+        +FindUserIDsByGradeIDs(ctx, []uint) ([]uint, error)
     }
     class ActiveUserDirectory {
         <<interface>>
         +FilterActiveUserIDs(ctx, []uint) ([]uint, error)
+    }
+    class GradeDirectory {
+        <<interface>>
+        +FindGradeYear(ctx, uint) (*int, error)
+        +FindGradeIDsByYear(ctx, int) ([]uint, error)
     }
 
     class taskStatsDirectory
@@ -185,6 +191,7 @@ classDiagram
     class answerStatsDirectory
     class curriculumDirectory
     class userDirectory
+    class gradeDirectory
 
     TaskStatsDirectory <|.. taskStatsDirectory
     StudyLogDirectory <|.. studyLogDirectory
@@ -193,8 +200,9 @@ classDiagram
     CourseAnswerStatsDirectory <|.. answerStatsDirectory
     RankAnswerStatsDirectory <|.. answerStatsDirectory
     CurriculumDirectory <|.. curriculumDirectory
-    GradeDirectory <|.. userDirectory
+    UserGradeDirectory <|.. userDirectory
     ActiveUserDirectory <|.. userDirectory
+    GradeDirectory <|.. gradeDirectory
 
     class AnalyticsService {
         -TaskStatsDirectory taskStats
@@ -202,8 +210,9 @@ classDiagram
         -UnitAnswerStatsDirectory unitAnswerStats
         -RankAnswerStatsDirectory rankAnswerStats
         -CurriculumDirectory curriculum
-        -GradeDirectory grade
+        -UserGradeDirectory userGrade
         -ActiveUserDirectory activeUser
+        -GradeDirectory grade
         +GetAnalytics(ctx, uint, AnalyticsQuery) (any, error)
     }
     class SummaryService {
@@ -219,8 +228,9 @@ classDiagram
     AnalyticsService ..> UnitAnswerStatsDirectory
     AnalyticsService ..> RankAnswerStatsDirectory
     AnalyticsService ..> CurriculumDirectory
-    AnalyticsService ..> GradeDirectory
+    AnalyticsService ..> UserGradeDirectory
     AnalyticsService ..> ActiveUserDirectory
+    AnalyticsService ..> GradeDirectory
     SummaryService ..> StudyLogDirectory
     SummaryService ..> TaskStatsDirectory
     SummaryService ..> CourseAnswerStatsDirectory
@@ -229,7 +239,7 @@ classDiagram
 
 `AnalyticsService`・`SummaryService`は、依存をコンストラクタで受け取るための入れ物である。業務ルールを持つstructではなく、Transaction Scriptの関数をメソッドとして束ねたものである（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」のTransaction Script節が「1つの業務操作を1つの関数として`application/`直下に置く」と定めるのに対し、依存の受け渡し手段としてstructを使う。ダッシュボード機能③と同じ扱い）。
 
-インターフェースを機能ごとに小さく分けているのは、コーディング規約「6. 構造体・インターフェース設計」の「インターフェースのメソッド数は3メソッド以内を目安にする。それを超える場合は、利用側が実際に必要とするメソッドだけを持つ小さなインターフェースに分割する」に従うためである。`question-answering`への参照は切り口が5つあるため、利用する算出処理ごとに3つのインターフェースへ分け、実装は1つのアダプタが満たす。
+インターフェースを機能ごとに小さく分けているのは、コーディング規約「6. 構造体・インターフェース設計」の「インターフェースのメソッド数は3メソッド以内を目安にする。それを超える場合は、利用側が実際に必要とするメソッドだけを持つ小さなインターフェースに分割する」に従うためである。`question-answering`への参照は切り口が5つあるため、利用する算出処理ごとに3つのインターフェースへ分け、実装は1つのアダプタが満たす。`user`への参照も、所属の参照（`UserGradeDirectory`）と在籍の絞り込み（`ActiveUserDirectory`）で関心が異なるため分ける。
 
 ---
 
@@ -434,13 +444,31 @@ GORMを用いる実装を一切持たないため、`*gorm.DB`を受け取る構
 
 |インターフェース|メソッド|責務|
 |-|-|-|
-|`GradeDirectory`|`FindGradeYear(ctx context.Context, userID uint) (*int, error)`|その生徒の学年の年次を返す。学年が設定されていない場合は`nil`を返す（同 `grade_average`）|
-||`FindUserIDsByGradeYear(ctx context.Context, year int) ([]uint, error)`|指定された年次の学年に属するユーザーIDを返す。在籍中かどうかで絞り込まない（同）|
+|`UserGradeDirectory`|`FindGradeID(ctx context.Context, userID uint) (*uint, error)`|その生徒が属する学年の識別子を返す。学年が設定されていない場合は`nil`を返す（同 `grade_average`）|
+||`FindUserIDsByGradeIDs(ctx context.Context, gradeIDs []uint) ([]uint, error)`|指定された学年に属するユーザーIDを返す。在籍中かどうかで絞り込まない（同）|
 |`ActiveUserDirectory`|`FilterActiveUserIDs(ctx context.Context, userIDs []uint) ([]uint, error)`|渡されたユーザーIDのうち、在籍中（論理削除されていない）のものを返す（同 `course_rank` / `unit_rank`）|
 
-`FindUserIDsByGradeYear`が在籍中で絞り込まず、`FilterActiveUserIDs`を別のメソッドにしているのは、学年平均の母集団が論理削除済みユーザーを含み、順位の母集団は含まないというRails現行の非対称を、呼び出し側で明示できるようにするためである（②「11. Repository設計」`user`への参照）。
+`FindUserIDsByGradeIDs`が在籍中で絞り込まず、`FilterActiveUserIDs`を別のインターフェースにしているのは、学年平均の母集団が論理削除済みユーザーを含み、順位の母集団は含まないというRails現行の非対称を、呼び出し側で明示できるようにするためである（②「11. Repository設計」`user`への参照）。
 
-学年の年次は学校ごとに独立しているが、`FindUserIDsByGradeYear`は学校で絞り込まない。学校をまたいで年次だけで集めるのがRails現行の振る舞いである（②「19. API仕様」の「変更しないもの」）。
+学年の識別子の集合を受け取る形にしているのは、学年が学校ごとに独立しており、同じ年次の学年が学校の数だけ存在するためである。学校をまたいで年次だけで集めるのがRails現行の振る舞いである（②「19. API仕様」の「変更しないもの」）。
+
+### `master-data`への参照
+
+|インターフェース|メソッド|責務|
+|-|-|-|
+|`GradeDirectory`|`FindGradeYear(ctx context.Context, gradeID uint) (*int, error)`|指定された学年の年次を返す。学年が存在しない場合は`nil`を返す（同 `grade_average`）|
+||`FindGradeIDsByYear(ctx context.Context, year int) ([]uint, error)`|指定された年次を持つ学年の識別子を返す。学校で絞り込まない（同）|
+
+`user`ではなく`master-data`へ問うのは、`grades`テーブルを所有しているのが同Contextであり、`user`が公開するユーザーの基本属性に含まれるのは学年の識別子までであるためである（②「3. Bounded Context」の「依存する理由」）。
+
+`master-data`が公開する操作との対応は次のとおりである（共通マスタ参照機能③基盤編「8. Infrastructure層設計」）。
+
+|本Contextのメソッド|`master-data`の公開操作|
+|-|-|
+|`FindGradeYear(ctx, gradeID)`|`FindGrades(ctx, []uint{gradeID})`を呼び、返った`GradeRef`の年次を取り出す。結果が空なら`nil`を返す|
+|`FindGradeIDsByYear(ctx, year)`|同名の`FindGradeIDsByYear`をそのまま呼ぶ|
+
+`FindGradeYear`に対応する専用の公開操作を`master-data`に設けない。同Contextは「学年の属性の取得」（識別子の集合を受け取り、年次・表示名・所属高校の識別子を含む属性を返す）を公開しており、年次だけを返す操作を重ねて持たないためである（共通マスタ参照機能②「3. Bounded Context」の「実在確認のための専用操作を設けない」と同じ考え方）。1件分の集合を渡して1件を取り出す変換はアダプタが担う。
 
 ## 他Contextの参照手段の実装（アダプタ）
 
@@ -456,7 +484,8 @@ GORMを用いる実装を一切持たないため、`*gorm.DB`を受け取る構
 `curriculumDirectory.FindUnitHierarchies`は、`curriculum`が公開する`FindUnitsByIDs`（単元名・コースの識別子・レベル番号・レベル名）と`FindCourseSubjects`（コースの識別子からの教科）の2つを呼び、コースの識別子で突き合わせて`UnitHierarchy`を組み立てる。`curriculum`側に単元から教科までを一度に返す専用の操作を設けないのは、`FindUnitsByIDs`が既に公開されており、同じ項目を返す操作を重ねて持たないためである（コース参照機能③「6. Application層設計」の「呼び出し側の型との対応」）。
 
 これは例外的に、アダプタが委譲と型変換に加えて2つの結果の突き合わせを行う。`curriculum`側の操作をこの1件のために増やすより、消費者側で組み立てる方が影響が小さいためである。`FindCourseSubjects`で教科が引けなかったコースに属する単元は、結果に含めない。
-|`user_directory.go`|`userDirectory`＋`NewUserDirectory(userContext *user.Context) *userDirectory`|`GradeDirectory`・`ActiveUserDirectory`|
+|`user_directory.go`|`userDirectory`＋`NewUserDirectory(userContext *user.Context) *userDirectory`|`UserGradeDirectory`・`ActiveUserDirectory`|
+|`grade_directory.go`|`gradeDirectory`＋`NewGradeDirectory(masterDataContext *masterdata.Context) learninganalytics.GradeDirectory`|`GradeDirectory`|
 
 1つのstructが複数のインターフェースを満たす場合（`answer_stats_directory.go`・`user_directory.go`）は、コンストラクタの戻り値をインターフェースにできないため具象型を返す。コーディング規約「7. インターフェース」の「実装側は可能な限り具象型を返す」に沿う。インターフェースを満たすことはブランク識別子への代入でコンパイル時に検証する（同「コンパイル時のインターフェース充足チェック」）。
 
@@ -480,13 +509,13 @@ var _ learninganalytics.AnswerRateDirectory = (*answerStatsDirectory)(nil)
 
 |項目|内容|
 |-|-|
-|関数|`NewContext(taskContext *taskmanagement.Context, studyLogContext *studylog.Context, qaContext *questionanswering.Context, curriculumContext *curriculum.Context, userContext *user.Context) *Context`|
-|組み立てる内容|5つのアダプタを生成し、`AnalyticsService`・`SummaryService`へ注入する。Handlerへ両Serviceを注入する|
+|関数|`NewContext(taskContext *taskmanagement.Context, studyLogContext *studylog.Context, qaContext *questionanswering.Context, curriculumContext *curriculum.Context, userContext *user.Context, masterDataContext *masterdata.Context) *Context`|
+|組み立てる内容|6つのアダプタを生成し、`AnalyticsService`・`SummaryService`へ注入する。Handlerへ両Serviceを注入する|
 |公開するもの|ルーティング登録に必要なHandlerのみ|
 
 `*gorm.DB`を引数に取らない。本Contextに永続化の対象がないためである（「Infrastructure関数」節）。
 
-本Contextから他Contextへの参照依存のみであり、他Contextから本Contextへの依存は存在しない（②「3. Bounded Context」）。そのため`main.go`での組み立て順は、依存する5つのContextより後になる。
+本Contextから他Contextへの参照依存のみであり、他Contextから本Contextへの依存は存在しない（②「3. Bounded Context」）。そのため`main.go`での組み立て順は、依存する6つのContextより後になる。
 
 ---
 
@@ -573,7 +602,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 
 リクエストにユーザーIDを含めないことで、所有権チェックを書く必要自体をなくす。`course_id`・`unit_id`は集計範囲の指定であり、他人のデータへの参照にはならない。
 
-順位・学年平均では他の生徒の集計値を扱うが、Response DTOへは出さない。`UserAnswerStats`・`FindUserIDsByGradeYear`の戻り値は順位と平均の算出にのみ使い、レスポンスに含めない（②「16. Authorization設計」）。
+順位・学年平均では他の生徒の集計値を扱うが、Response DTOへは出さない。`UserAnswerStats`・`FindUserIDsByGradeIDs`の戻り値は順位と平均の算出にのみ使い、レスポンスに含めない（②「16. Authorization設計」）。
 
 ---
 
@@ -687,12 +716,15 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 ||4つのインターフェースをすべて満たす|
 |`curriculumDirectory`|渡したIDに対応しない要素が戻り値に含まれない（エラーにしない）|
 ||空のIDスライスを渡した場合、所有Contextを呼ばずに空を返す|
-|`userDirectory`|`FindGradeYear`が学年未設定のとき`nil`を返す|
-||`FindUserIDsByGradeYear`が在籍の絞り込みを行わない|
-||`FilterActiveUserIDs`が在籍中のIDのみを返す|
+|`userDirectory`|`FindGradeID`が学年未設定のとき`nil`を返す|
+||`FindUserIDsByGradeIDs`が在籍の絞り込みを行わない（`user`の`SearchUsers`へ「無効化済みを含む」を渡す）|
+||`FilterActiveUserIDs`が在籍中のIDのみを返す（同「有効のみ」を渡す）|
+||空の学年ID・ユーザーIDの集合で`user`を呼ばずに空を返す|
 ||2つのインターフェースをすべて満たす|
+|`gradeDirectory`|`FindGradeYear`が学年の年次を返す。学年が存在しないとき`nil`を返す|
+||`FindGradeIDsByYear`が学校で絞り込まず、同じ年次の学年の識別子をすべて返す|
 
-空のIDスライスを渡した場合に所有Contextを呼ばない扱いは、`curriculumDirectory`・`userDirectory`・`CountTasksForUsers`・`CountAnswersForUsers`に共通して適用する。解答履歴やタスクが0件の生徒では、後続の問い合わせに渡すIDが空になるためである（**②からの補足**。「17. ②からの補足事項」参照）。
+空のIDスライスを渡した場合に所有Contextを呼ばない扱いは、`curriculumDirectory`・`userDirectory`・`gradeDirectory`・`CountTasksForUsers`・`CountAnswersForUsers`に共通して適用する。解答履歴やタスクが0件の生徒では、後続の問い合わせに渡すIDが空になるためである（**②からの補足**。「17. ②からの補足事項」参照）。
 
 ## Handler Test
 
@@ -722,7 +754,7 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 
 - 判断した内容: `To`を確定させた後に`From`を補うため、`to`のみ指定した場合の`From`は「指定した`To`の6日前」になる。Rails現行は「今日の6日前」になる
 - 判断理由: Rails現行の振る舞いは、`from`の既定値が`to`の確定値を参照していないことによるものである（①「5. API / 処理詳細」`#show`）。指定した`to`と対応しない期間が返るため、そのまま再現すると「指定した終了日より後の日付が集計期間に含まれない一方、開始日が終了日より後になりうる」という状態が生じる。②「19. API仕様」の「変更しないもの」にはこの項目を挙げているが、そこで維持すると述べているのは「指定した期間と実際の集計期間が一致しない組み合わせが生じうる」という性質であり、`from`の既定値が`to`を参照するかどうかまでは定めていない。本実装は`To`を基準に`From`を補う形とする
-- 推測かどうか: **②からの補足**。②に`from`の既定値が`to`を参照するかの明記がないため、実装のために判断した。`from`・`to`の両方を指定する呼び出し（フロントエンドの通常の呼び出し）では差分が生じない。`to`のみを指定する呼び出しがフロントエンドに存在するかは未確認であり、存在する場合はRails現行と結果が変わる
+- 推測かどうか: **②からの補足**。②に`from`の既定値が`to`を参照するかの明記がないため、実装のために判断した。`from`・`to`の両方を指定する呼び出しでは差分が生じない。フロントエンドは`from`・`to`を常に両方そろえて送信するか、両方とも送信しないかのいずれかであり（`periodToSearchParams`）、`to`のみを指定する経路は存在しない
 
 ## 4. `curriculum`の参照で引けない階層を結果から落とす
 
@@ -750,9 +782,12 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 |`study-log`|学習した日（日本時間の日付）の一覧、期間内の日別学習時間合計|
 |`question-answering`|全期間の解答数・正答数、ユーザー集合の解答数・正答数、コースと単元の組ごとの解答数・正答数（最初の解答日時を含む）、期間内のコースごとの解答数・正答数、指定コース／単元のユーザーごとの解答数・正答数|
 |`curriculum`|コースIDからの教科（`FindCourseSubjects`）。単元名・コース名・レベル番号は既存の`FindUnitsByIDs`で得られるため、単元の階層専用の操作は設けない|
-|`user`|学年の年次、年次に属するユーザーID、在籍中ユーザーへの絞り込み|
+|`user`|学年の識別子の取得、指定した学年に属するユーザーID、在籍中ユーザーへの絞り込み。いずれも既存の`GetUserAttributes`・`SearchUsers`で満たせる（ユーザー基盤機能②「3. Bounded Context」）|
+|`master-data`|学年の属性の取得（年次を含む）・年次による学年の検索。いずれも共通マスタ参照機能②「11. Repository設計」の公開参照手段として定義済み|
 
 いずれも**参照のみ**であり、所有Contextの状態を変更しない。分析が論理削除済みの解答履歴を含めて集計する点（他機能と扱いが異なる）は、`question-answering`側の参照手段に明記する必要がある。
+
+**6つの所有Contextすべてで公開参照手段が定義済みである。** `master-data`はバッチ5（共通マスタ参照機能）で、他の5つはバッチ3・バッチ4でそれぞれ定義した。
 
 所有Context側で確定した公開操作名は次のとおりである。アダプタはこれらを呼ぶ。
 
@@ -766,4 +801,6 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 |`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `ForUnit`|`question-answering`の同名の2操作（同）|
 |`CurriculumDirectory.FindCourseSubjects`|`curriculum`の`FindCourseSubjects`（コース参照機能③「6. Application層設計」）|
 |`CurriculumDirectory.FindUnitHierarchies`|`curriculum`の`FindUnitsByIDs`と`FindCourseSubjects`をアダプタが組み合わせる（上記「他Contextの参照手段の実装（アダプタ）」）|
-|`GradeDirectory` / `ActiveUserDirectory`の3操作|`user`が公開する操作。**同Contextの②③にまだ反映していない**|
+|`UserGradeDirectory` / `ActiveUserDirectory`の3操作|`user`の`GetUserAttributes`（学年の識別子）と`SearchUsers`（学年IDの集合で絞り込み／ID指定・有効のみ）。新しい公開操作は不要（ユーザー基盤機能③「3. 公開操作の定義」）|
+|`GradeDirectory.FindGradeYear`|`master-data`の`FindGrades`に1件分の集合を渡し、返った属性の年次を取り出す（共通マスタ参照機能③基盤編「8. Infrastructure層設計」）|
+|`GradeDirectory.FindGradeIDsByYear`|`master-data`の同名の操作（同）|
