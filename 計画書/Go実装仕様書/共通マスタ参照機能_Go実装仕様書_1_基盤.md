@@ -450,7 +450,7 @@ flowchart TD
 |`Search`|`ctx context.Context, prefectureID *uint, keyword string, limit int`|`([]highSchoolModel, error)`|`prefecture_id`で絞り込む。**`prefectureID`が`nil`の場合も`prefecture_id IS NULL`として条件を適用する。** `keyword`が空でなければ`name`に対する部分一致を加える。`name`昇順、`limit`件に制限する|
 |`FindByIDs`|`ctx context.Context, ids []uint`|`([]highSchoolModel, error)`|`id IN (...)`で取得する|
 
-**`prefectureID`が`nil`のときも条件を適用する点が本検索の要である。** `high_schools.prefecture_id`は未設定を許さないカラムであるため、条件が`prefecture_id IS NULL`となり結果が0件になる。Rails現行の`HighSchoolsQuery#filter_prefecture`が引数の有無を問わず`where(prefecture_id: id)`を適用しているためである（①「5. API / 処理詳細」`Api::V1::HighSchoolsController#index`）。
+**`prefectureID`が`nil`のときも条件を適用する点が本検索の要である。** `high_schools.prefecture_id`は未設定を許さないカラムであるため、条件が`prefecture_id IS NULL`となり結果が0件になる。都道府県の指定を必須とする仕様であり（②「19. API仕様」の「仕様として維持するもの」）、Rails現行の`HighSchoolsQuery#filter_prefecture`も引数の有無を問わず`where(prefecture_id: id)`を適用している（①「5. API / 処理詳細」`Api::V1::HighSchoolsController#index`）。
 
 `HighSchool.by_prefecture`（未指定なら絞り込まないモデルのスコープ）は本機能のエンドポイントが使っていない。同じ振る舞いの検索を本Contextに持たない（②「23. Railsとの責務対応」）。`school-directory`は未指定なら絞り込まない参照を自前で持つ（管理者高校学年参照機能③「8. Infrastructure層設計」）。
 
