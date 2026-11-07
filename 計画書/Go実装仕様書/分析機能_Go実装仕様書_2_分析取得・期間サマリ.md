@@ -237,7 +237,7 @@ classDiagram
 |項目|内容|
 |-|-|
 |メソッド|`(s *AnalyticsService) GetAnalytics(ctx context.Context, userID uint, q AnalyticsQuery) (*AnalyticsResult, error)`|
-|受け取る依存|`TaskStatsDirectory`・`AnswerRateDirectory`・`UnitAnswerStatsDirectory`・`RankAnswerStatsDirectory`・`CurriculumDirectory`・`GradeDirectory`・`ActiveUserDirectory`|
+|受け取る依存|`TaskStatsDirectory`・`AnswerRateDirectory`・`UnitAnswerStatsDirectory`・`RankAnswerStatsDirectory`・`CurriculumDirectory`・`UserGradeDirectory`・`ActiveUserDirectory`・`GradeDirectory`|
 
 分析タイプの定数:
 
@@ -303,19 +303,23 @@ AnalyticsTypeUnitRank           = "unit_rank"
 
 処理ステップ:
 
-1. `GradeDirectory.FindGradeYear`で生徒の学年の年次を取得する
+1. `UserGradeDirectory.FindGradeID`で生徒が属する学年の識別子を取得する
 2. `nil`の場合は`ErrGradeNotSet`を返す（ガード節）
-3. `GradeDirectory.FindUserIDsByGradeYear`で同じ年次に属するユーザーIDを取得する
-4. `AnswerRateDirectory.CountAnswers`で生徒自身の解答数・正答数を取得する
-5. `TaskStatsDirectory.CountTasks`で生徒自身のタスク件数・完了件数を取得する
-6. ユーザーIDが空の場合、平均はいずれも`0`とし、7・8を呼ばない（基盤編「17. ②からの補足事項」5）
-7. `AnswerRateDirectory.CountAnswersForUsers`で母集団の解答数・正答数の合計を取得する
-8. `TaskStatsDirectory.CountTasksForUsers`で母集団のタスク件数・完了件数の合計を取得する
-9. それぞれ`Percentage`で率を求め、`GradeAverageData`を組み立てて返す
+3. `GradeDirectory.FindGradeYear`でその学年の年次を取得する。`nil`の場合も`ErrGradeNotSet`を返す
+4. `GradeDirectory.FindGradeIDsByYear`で同じ年次を持つ学年の識別子の集合を取得する。学校で絞り込まない
+5. `UserGradeDirectory.FindUserIDsByGradeIDs`でそれらの学年に属するユーザーIDを取得する
+6. `AnswerRateDirectory.CountAnswers`で生徒自身の解答数・正答数を取得する
+7. `TaskStatsDirectory.CountTasks`で生徒自身のタスク件数・完了件数を取得する
+8. ユーザーIDが空の場合、平均はいずれも`0`とし、9・10を呼ばない（基盤編「17. ②からの補足事項」5）
+9. `AnswerRateDirectory.CountAnswersForUsers`で母集団の解答数・正答数の合計を取得する
+10. `TaskStatsDirectory.CountTasksForUsers`で母集団のタスク件数・完了件数の合計を取得する
+11. それぞれ`Percentage`で率を求め、`GradeAverageData`を組み立てて返す
+
+学年の識別子から年次、年次から学年の識別子の集合という2段の変換を挟むのは、学年が学校ごとに独立しており、同じ年次の学年が学校の数だけ存在するためである。Rails現行が学校を絞らず年次だけで母集団を作っているため、この形でないと母集団が一致しない（②「3. Bounded Context」の「依存する理由」）。`grades`を所有しているのは`master-data`であり、`user`が公開するのは学年の識別子までである。
 
 母集団の平均を、集団全体の合計から求めている点に注意する。生徒ごとの率を平均したものではない（①「5. API / 処理詳細」`grade_average`）。手順7・8で合計を受け取ってから率にすることでこの定義を満たす。
 
-母集団には生徒自身も含まれる。`FindUserIDsByGradeYear`の結果から自分を除外しない（同）。
+母集団には生徒自身も含まれる。`FindUserIDsByGradeIDs`の結果から自分を除外しない（同）。
 
 ### courseRank / unitRank（`application/rank.go`）
 
@@ -562,10 +566,14 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[gradeAverage] --> B[FindGradeYear]
+    A[gradeAverage] --> A1[FindGradeID]
+    A1 --> A2{学年が設定されているか}
+    A2 -- いいえ --> E500[ErrGradeNotSet / 500]
+    A2 -- はい --> B[FindGradeYear]
     B --> C{年次が取得できたか}
-    C -- いいえ --> E500[ErrGradeNotSet / 500]
-    C -- はい --> D[FindUserIDsByGradeYear]
+    C -- いいえ --> E500
+    C -- はい --> C1[FindGradeIDsByYear]
+    C1 --> D[FindUserIDsByGradeIDs]
     D --> E[CountAnswers / CountTasks で自分の集計]
     E --> F{母集団が空か}
     F -- はい --> G[平均はいずれも0]
@@ -831,7 +839,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 
 本書のHandlerはいずれも、操作者のユーザーIDを`context.Context`から取り出してapplication層へ渡す。リクエストからユーザーIDを受け取らない。
 
-`UserAnswerStats`・`FindUserIDsByGradeYear`の戻り値はResponse DTOへ出さない。順位と平均の算出にのみ使う（②「16. Authorization設計」）。
+`UserAnswerStats`・`FindUserIDsByGradeIDs`の戻り値はResponse DTOへ出さない。順位と平均の算出にのみ使う（②「16. Authorization設計」）。
 
 ---
 
@@ -903,8 +911,10 @@ Transaction Script採用のため、application関数内のガード節で検証
 |`gradeAverage`|自分の正答率・タスク達成率を返す|
 ||学年平均が集団全体の合計から求められる（生徒ごとの率の平均ではない）|
 ||母集団が空のとき平均が0になり、`CountAnswersForUsers`・`CountTasksForUsers`を呼ばない|
-||学年が未設定のとき`ErrGradeNotSet`を返す|
-||母集団に自分が含まれる（`FindUserIDsByGradeYear`の結果から自分を除外しない）|
+||学年が未設定のとき（`FindGradeID`が`nil`）`ErrGradeNotSet`を返す|
+||学年は設定されているが年次が取得できないとき`ErrGradeNotSet`を返す|
+||母集団に自分が含まれる（`FindUserIDsByGradeIDs`の結果から自分を除外しない）|
+||母集団が同じ年次の複数の学年（他校を含む）にまたがって集まること|
 |`courseRank`|正答率の降順に並び、自分の位置が順位になる|
 ||自分が母集団にいないとき`Rank`が`nil`、`TotalUsers`が母集団の人数になる|
 ||`courseID`が`nil`のとき参照手段を呼ばず、`Rank`が`nil`・`TotalUsers`が0になる|
