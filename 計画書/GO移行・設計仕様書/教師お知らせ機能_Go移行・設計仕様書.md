@@ -6,28 +6,36 @@
 
 ## 機能概要
 
-教師が対象ユーザー向けにお知らせを作成・公開・閲覧できる機能である。Rails現行仕様では、お知らせを下書き（draft）として作成し、公開予約（scheduled）や公開（published）へ状態を進める運用となっている。お知らせには「誰に見せるか」を表す対象（全ユーザー・権限別・学年別・学校別・個人別）を複数指定でき、閲覧側では対象条件に自身が合致するお知らせのみが表示される。
+教員が、自校の生徒・教員に向けたお知らせを作成・更新し、自分に配信されたお知らせも読めるようにする機能である（①「1. 機能概要」）。
+
+提供する操作は6つである（①「2. 機能一覧」）。
+
+- お知らせ一覧取得（`tab=authored` で「自分が作成した」「自分に配信された」を切り替える）
+- お知らせ詳細取得
+- 新規作成フォームの選択肢取得
+- 編集フォームの内容取得
+- お知らせ作成
+- お知らせ更新
+
+**配信先の指定を伴う点が本機能の中心である。** 全員・権限別・学年別・学校別・ユーザー個別の5種類から1件以上を指定し、教員が作成したお知らせは自校内にのみ配信される。担当学年が制限されている教員は、自分の学年に絞り込める配信先しか指定できない。
 
 ## 利用者
 
-- `teacher` ロールのユーザー（教師）
-- 作成者本人のみが自身のお知らせを更新できる
+`teacher` ロールのユーザー（教員）のみ（①「8. 権限制御」）。
 
 ## 業務上の目的
 
-- 教師から生徒・教員などへ向けた情報発信を、下書き・予約・公開という段階を踏んで安全に行う
-- 対象を柔軟に指定し、必要な範囲にのみお知らせを届ける
-- 誤った状態遷移（例: 公開済みを下書きへ戻す等）を防ぎ、公開情報の一貫性を保つ
+教員が担当する生徒・同僚へ連絡を届けられるようにすること。配信範囲を自校内（学年制限があればその学年内）に限ることで、教員の権限を越えた連絡が行われないようにすること。
 
 ---
 
 # 2. 設計方針
 
-- 責務分離: HTTP入出力、入力形式検証、対象指定の業務検証、状態遷移ルール、永続化を明確に分離する
-- 保守性: 「draft → scheduled → published」という状態遷移ルールと、公開日時の整合性ルールをドメイン側に集約し、Controller/Formに散らばっている現行ロジックを一箇所に統合する
-- テスト容易性: 状態遷移や対象指定ルールをドメイン層で単体テスト可能な形にする
-- API互換性: 既存フロントエンドとの接続を維持するため、エンドポイント・リクエスト構造・レスポンス構造は概ね維持する
-- 拡張性: 将来的に対象条件の種類が増えた場合や、公開時の通知連携が必要になった場合に対応しやすい構造とする
+- **配信範囲の決め方をドメインに集約する**: 「誰に届くか」は配信先の指定で決まる。指定できる配信先の制約（自校内であること、学年制限）と、保存時に自校へ絞り込む規則を、いずれもドメイン層の判定として表す。Controllerに散らさない。
+- **状態遷移をEntityに閉じ込める**: 下書き・予約・配信済みの遷移規則と、配信済みが編集できないという制約をEntityが持つ。遷移の可否を呼び出し側が判定しない。
+- **Contextを共有する3機能で定義を1つにする**: `announcement` Contextはお知らせ機能・教師お知らせ機能・管理者お知らせ管理機能の3文書が共有する（規約「4. Bounded Context構成」が例として挙げている）。**Domain層の定義（Aggregate・Entity・Value Object・状態遷移・Domain Service・Repository）は本書に集約し、他の2文書では繰り返さない。**
+- **API互換性を維持する**: URL・HTTPメソッド・レスポンス項目名・HTTPステータスをRails現行から変えない。フロントエンドを変更しない方針のため、Rails現行の振る舞いに不合理な点があっても本移行では踏襲し、Rails側の修正課題として別に管理する（「19. API仕様」の「Railsとの差分」）。
+- **テスト容易性**: 配信先の制約判定・状態遷移・自校への絞り込みを、DBや他Contextの呼び出しから切り離した判定として表す。入力に対する可否だけを検証できるようにする。
 
 ---
 
@@ -35,26 +43,69 @@
 
 ## Context名
 
-- announcement（お知らせ管理コンテキスト）
+- `announcement`
+
+## Contextを共有する機能
+
+本Contextは**3つの機能文書が共有する**（規約「4. Bounded Context構成」の「命名規則」が例として挙げている）。
+
+|機能|担当するエンドポイント|採用パターン|
+|-|-|-|
+|お知らせ機能|GET /student/announcements、GET /student/announcements/:id|Transaction Script|
+|教師お知らせ機能（本書）|GET・POST /teacher/announcements、GET /teacher/announcements/:id、GET /teacher/announcements/new、GET /teacher/announcements/:id/edit、PATCH /teacher/announcements/:id|Domain Model|
+|管理者お知らせ管理機能|GET・POST /admin/announcements、GET・PATCH・DELETE /admin/announcements/:id、POST /admin/announcements/:id/publish、GET /admin/high_schools/:id/announcements|Domain Model|
+
+3機能はいずれも同じ`announcements`・`announcement_targets`を扱い、同じ状態遷移・同じ配信先の仕組みに従う。利用者ロールが違うだけで業務の対象が同じであるため、Contextを分けない。
+
+**Contextディレクトリの構成は、採用されている最も複雑なパターン（Domain Model）に合わせる**（規約「4. Bounded Context構成」の「1つのContextに複数の設計パターンが混在する場合」）。お知らせ機能の参照処理もusecase層を経由する。
+
+**Domain層の定義は本書に集約する。** Aggregate・Entity・Value Object・状態遷移・Domain Service・Repositoryを本書で定め、お知らせ機能②・管理者お知らせ管理機能②では繰り返さない。本書を正本とするのは、配信先の5種類と学年制限という最も複雑な業務ルールを本機能が扱うためである。
 
 ## Contextの責務
 
-- お知らせ本体（タイトル・本文・状態・公開日時）のライフサイクル管理
-- お知らせ対象（誰に届けるか）の管理
-- 教師が閲覧可能なお知らせの絞り込み
-- 自身が作成したお知らせ（システムが自動生成した通知を除く）の管理
-- システムが自動生成した通知（面談・クラス編成申請の通知等）かどうか（`system_generated`）の保持。システム通知の作成処理は、通知の発行元の機能が本Contextの公開する作成処理を呼び出して行い、本機能の対象外とする。システム通知は、発行者に通知の当事者（教師または生徒）が設定されるため、「自身が作成したお知らせ」から区別する必要がある
+- お知らせ（件名・本文・状態・配信日時・予約日時・発行者）の保持と、作成・更新・削除・配信
+- 配信先の保持と、配信範囲の決定
+- 状態遷移（下書き・予約・配信済み）の規則の適用
+- 利用者ごとの「自分に配信されたお知らせ」の判定と提供
+- 予約状態のお知らせを予約日時に配信済みへ切り替えること（管理者お知らせ管理機能②「18. Domain Event」）
+
+## 持たない責務
+
+|持たない責務|所有するContext|
+|-|-|
+|ユーザーの所属（学校・学年）・ロール・在籍状態の定義|`user`（ユーザー基盤機能②「3. Bounded Context」）|
+|学年・高校マスタの保持|`master-data`（共通マスタ参照機能②「3. Bounded Context」）|
+|教員の権限設定（担当学年の制限）の保持|`teacher-permission`（教師権限管理機能②「3. Bounded Context」）|
+|生徒一覧の画面向けの絞り込み・並び替え|`student-directory`（教師生徒参照機能②「3. Bounded Context」）|
+|承認・却下等の通知の発生契機|`school-class`・`interview-request`等。本Contextは通知の作成手段を公開する|
 
 ## 他Contextとの依存関係
 
-- User Context: 発信者（publisher）および閲覧者の識別、`high_school_id` / `user_role_id` / `grade_id` の参照に依存する
-- School Context（学年・学校情報）: 対象指定時の学年・学校の存在確認、同校判定に依存する
-- Teacher Permission Context: 対象指定時、`own_grade` 権限を持つ教師が自身の学年以外を指定できないようにする制約判定に依存する
-- Teacher Dashboard Context: ダッシュボード側から本Contextへ、公開中お知らせの参照が行われる（本Contextが提供する側）
+本Contextから他Contextへの参照依存のみである。状態変更を伴う依存は持たない。
+
+|依存先Context|参照する内容|根拠|
+|-|-|-|
+|`user`|操作者の識別・所属校・学年・ロール。配信先に指定されたユーザーの所属校とロール・学年。権限の選択肢|①「5. API / 処理詳細」`#create`の配信先の検証、`#new`の選択肢|
+|`master-data`|配信先に指定された学年の実在と所属校。学年の選択肢（表示名を含む）|同|
+|`teacher-permission`|操作者の担当学年の制限|同 `#new`・`#create`の学年制限の制約|
+|`student-directory`|新規作成フォームの生徒一覧（所属校・学年・キーワードで絞り込み、氏名カナ昇順、ページネーション）|同 `#new`|
+
+## 他Contextから本Contextへの依存
+
+|呼び出し元Context|用途|
+|-|-|
+|`school-class`・`interview-request`等|承認・却下・申請発生の通知を作成する（システム生成のお知らせ）|
+|`admin-dashboard`|最近のお知らせの参照（管理者ダッシュボード機能②）|
+
+システム生成のお知らせの作成手段は本Contextが公開する。呼び出し元は件名・本文・配信先を渡し、**下書きを経ずに配信済みで作成される**（①「10. Rails実装対応表」の`Common::CreateSystemAnnouncementService`）。
 
 ## 依存する理由
 
-お知らせの対象指定・閲覧制御は、教師自身の所属学校・学年・権限情報を前提として成立する。これらの情報はお知らせContextの外側（User/School/Teacher Permission Context）が真正な情報源であるため、お知らせContextはそれらを参照のみ行い、自身では保持しない。
+お知らせの配信範囲は、利用者の所属（学校・学年・ロール）と突き合わせて決まる。本Contextは配信先の指定を保持するが、利用者がどの学校・学年・ロールに属するかを定義していない。そのため`user`・`master-data`への参照依存が生じる。
+
+教員が指定できる配信先の制約は、担当学年の制限に依存する。制限の有無を定義しているのは`teacher-permission`であるため、同Contextへ問う。
+
+生徒一覧を`student-directory`へ委ねるのは、ページネーション・キーワード検索・並び替えを伴う画面向けの一覧であり、同機能が既に自前の参照モデルとして持っているためである（ユーザー基盤機能②「3. Bounded Context」が`users`について定めた方針に従う）。
 
 ---
 
@@ -66,34 +117,31 @@ Domain Model
 
 ## 判断根拠
 
-お知らせ（Announcement）は、Rails実装において明示的な状態遷移ルール（`draft → scheduled/published`、`scheduled → published`、`published → 遷移不可`）と、状態に付随する整合性ルール（`scheduled` では `scheduled_at` が未来日時であること、`published` 遷移時に `published_at` を自動設定すること）を持つ。これは単なるCRUD対象ではなく、状態そのものに業務的な意味と制約があるエンティティである。
+②Go移行・設計仕様書_自動生成プロンプトの「Domain Model採用基準」が挙げる条件を満たす。
 
-また、対象指定（AnnouncementTarget）についても、「`own_grade` 権限の教師は自身の学年のみ指定できる」「指定先の学年・ユーザーは同校でなければならない」といった、単純な入力チェックでは表現しきれない業務ルールが存在する。これらは複数のエンティティ（発信者の権限、対象の学年・ユーザー）にまたがる判断であり、手続き的に書くとロジックが分散しやすい。
+- **Entityが状態を持つ**: お知らせは下書き・予約・配信済みの3状態を持つ（①「7. 状態管理」）
+- **状態遷移ルールが存在する**: 下書き → 予約・配信済み、予約 → 配信済みのみ許される。配信済みからは遷移できず、編集・削除もできない。許されない組み合わせは拒否する
+- **複数の業務ルールがEntityに関連する**: 予約日時が未来であること、配信済みになると配信日時が設定されること、配信済みは編集・削除できないこと、配信先が1件以上あること、配信先の種類ごとに必要な項目が異なること
+- **将来的な機能追加が想定される**: 配信先の種類の追加、配信の取り消し、既読管理などが考えられる。状態と配信範囲の規則が1か所にあれば追加の影響を限定できる
+- **Entityへ振る舞いを集約することで保守性が向上する**: Rails現行は状態遷移の検証をモデルのConcernに、配信先の検証をFormのConcernに、自校への絞り込みをServiceに分散させている。これらは「誰に、いつ届くか」という1つの業務領域であり、Entityと集約に集めた方が追いやすい
 
-以上より、以下の理由からDomain Modelを採用する。
+単純CRUDではない。配信先の指定が5種類あり、種類ごとに必要な項目と制約が異なる。加えて学年制限のある教員には別の制約が重なる（①「5. API / 処理詳細」`#create`）。
 
-- Entityが明確な状態（draft/scheduled/published）を持つ
-- 状態遷移ルールが存在し、不正な遷移を防ぐ必要がある
-- 対象指定に関する複数の業務ルールがAnnouncement/AnnouncementTargetに関連する
-- 将来的に対象条件の種類や通知連携などの拡張が見込まれる
-- 状態遷移・対象ルールをEntity/Domain Serviceに集約することで、UseCase・Handlerが薄く保守しやすくなる
+**本Contextを共有する3機能のうち、本機能と管理者お知らせ管理機能がDomain Modelを採用する。** お知らせ機能はTransaction Scriptで足りるが、Contextの構成はDomain Modelに合わせる（規約「4. Bounded Context構成」）。
 
 ## 採用しなかったパターン
 
 ### Transaction Script
 
-- 状態遷移ルールや対象指定ルールをUseCase内の手続きとして書くと、同種の判定が作成・更新の両方に重複しやすい
-- 業務ルールが「今回はこう書いた」という手続きに埋没し、再利用・テストがしにくくなる
+状態遷移の規則と配信先の制約を関数内のガード節で表すことになる。作成・更新・配信・削除の各関数に同じ判定が重複し、片方だけが修正される余地が生まれる。Rails現行がまさにその構造であり、状態遷移の検証と配信先の検証が別のファイルに分かれている。
 
 ### Active Record
 
-- 状態遷移の正しさを保証する責務をモデルの単純な属性更新に任せると、不正な状態遷移が容易に発生しうる
-- 対象指定の業務ルール（同校制約・学年スコープ制約）はモデルの属性検証だけでは表現しづらく、責務が肥大化しやすい
+structと永続化操作を同じpackageに置く形では、お知らせと配信先の整合（配信先の全件入れ替え、1件以上あること）を保証する単位を表現できない。また状態遷移の規則をStoreの操作の前後に置くことになり、遷移の可否がEntityから読めなくなる。規約「3. 設計パターンごとの構造適用方針」のActive Record節も、対象を「複雑な状態遷移がない機能」としている。
 
 ### Event Sourcing
 
-- 現行仕様は「現在の状態」を管理すれば業務要件を満たしており、状態遷移の全履歴を再構築する要件は明示されていない
-- 監査目的での変更履歴管理が必要になった場合に検討すべきであり、現時点では過剰な設計である
+状態変化の履歴・監査そのものが業務価値を持つ要件がない。お知らせは現在の状態と配信日時が分かれば足り、いつ下書きから予約に変わったかを遡る要件はない。
 
 ---
 
@@ -101,443 +149,1020 @@ Domain Model
 
 ## Aggregate Root
 
-- Announcement
+`Announcement`（お知らせ）
 
 ## Aggregateに含めるEntity
 
-- Announcement（本体）
-- AnnouncementTarget（対象指定、複数件）
+- `Announcement`（Aggregate Root）
+- `AnnouncementTarget`（配信先）。1件以上
 
 ## Aggregate境界
 
-- お知らせ本体とその対象指定群を1つの整合性単位として扱う
-- 対象指定は必ずお知らせに従属し、単独で存在しない
-- 対象先として参照される学年・ユーザー・学校・権限情報はAggregateの外部参照であり、Aggregateには含めない
+お知らせと、その配信先の全件を1つの境界とする。
+
+境界に含めない:
+
+- 発行者（`users`）。識別子のみを保持する
+- 配信先に指定されたユーザー・学年・権限・高校。いずれも識別子のみを保持する
 
 ## 整合性を保証する単位
 
-- 作成時: Announcement本体と対象指定群を同時に整合させる（対象未指定は作成不可）
-- 更新時: 状態遷移と公開日時の整合性を1つの単位として保証する
+次の不変条件を、この境界の中で保証する。
 
-理由: 対象指定はお知らせの一部であり、お知らせ抜きに対象指定だけが存在することは業務上あり得ないため、1つのAggregateとして扱うことでデータの整合性を保証しやすくなる。
+|不変条件|理由|
+|-|-|
+|配信先が1件以上ある|配信先のないお知らせは誰にも届かず、存在する意味がない（①「5. API / 処理詳細」`#create`の配信先は必須）|
+|配信先の種類ごとに必要な項目が揃っている|学年別なら学年と権限、ユーザー個別ならユーザーが必要（同）|
+|状態と配信日時が整合している|配信済みなら配信日時が設定されている（①「7. 状態管理」）|
+|状態と予約日時が整合している|予約なら予約日時が設定され、未来日時である（同）|
+|配信済みのお知らせは変更されない|編集・削除・再配信のいずれもできない（同）|
+
+配信先の更新が**差分ではなく全件入れ替え**であるのは、この境界の設計と整合する。配信先を個別に追加・削除する操作を公開せず、お知らせを通して配信先の集合を置き換える（①「5. API / 処理詳細」`#update`）。
+
+**Aggregateの定義は本書を正本とする。** お知らせ機能②・管理者お知らせ管理機能②は本節を参照する。
 
 ---
 
 # 6. Entity設計
 
-## Announcement
+## Announcement（お知らせ。Aggregate Root）
 
-- 役割: お知らせ本体を表す中心的なドメイン概念
-- ライフサイクル: 作成（draft）→ 予約（scheduled）または直接公開（published）→ 公開（published）
-- 状態変化:
-  - draft → scheduled
-  - draft → published
-  - scheduled → published
-  - published からは遷移不可
-- 保持する責務:
-  - タイトル・本文・発信者・状態・公開日時・予約日時を保持する
-  - システムが自動生成した通知かどうか（`system_generated`。作成後は変更しない。教師が作成するお知らせは常に偽）を保持する
-  - 許可された状態遷移のみを受け付ける
-  - `scheduled` 状態では公開予定日時が未来日時であることを保証する
-  - `published` へ遷移した際に公開日時を確定させる
-- 判断根拠: 状態そのものが業務的な意味を持ち、遷移の正しさを保証する責務が本Entityに強く関連するため
+- 役割: 配信する内容（件名・本文）と、いつ誰に届けるか（状態・予約日時・配信日時・配信先）を保持する
+- ライフサイクル: 作成 → （更新・状態遷移）→ 配信済み。配信済みになると変更できない。配信済みでない間は削除できる
+- 状態変化: 下書き・予約・配信済みの3状態。遷移は「10. 状態遷移図」のとおり
+- 保持する責務
+  - 状態遷移の可否の判定
+  - 配信済みかどうかによる変更可否の判定
+  - 状態が配信済みに変わるときの配信日時の設定
+  - 予約状態における予約日時の必須と未来日時の検証
+  - 配信先の集合の保持と、1件以上あることの保証
+  - 配信先の全件入れ替え
+- 判断根拠: 「いつ配信されるか」と「誰に配信されるか」はどちらもお知らせ固有の判断であり、同じEntityに置くことで状態と配信範囲が食い違わないようにする
 
-## AnnouncementTarget
+保持する属性（概要）: 識別子・件名・本文・状態・配信日時・予約日時・発行者の識別子・システム生成かどうか・配信先の集合。
 
-- 役割: お知らせの対象条件（誰に届けるか）を表す概念
-- ライフサイクル: お知らせ作成時に登録され、以降は変更されない（現行仕様では対象の更新APIはない）
-- 状態変化: なし（作成のみ）
-- 保持する責務:
-  - 対象種別（全ユーザー/権限別/学年別/学校別/個人別）と、それに応じた参照先（学年・権限・学校・ユーザー）を保持する
-  - 対象種別に応じて必要な参照先が過不足なく設定されていることを保持する
-- 判断根拠: 対象種別ごとに必要な参照先が異なり、単なる外部キーの集合ではなく業務的な組み合わせルールを持つため
+**システム生成かどうかは属性として保持する。** 教師お知らせ機能の一覧（`authored`）が除外に使い、本Contextが通知の作成手段を公開するためである（①「5. API / 処理詳細」`#index`）。
 
-## 参照専用の外部概念（Grade / User / TeacherPermission / HighSchool）
+## AnnouncementTarget（配信先）
 
-- 役割: 対象指定や閲覧制御の判定材料として参照する
-- 判断根拠: これらは他Contextが真正な管理主体であり、お知らせContextでは書き込みを行わない参照専用の情報として扱う
+- 役割: お知らせが誰に届くかを1件分表す
+- ライフサイクル: お知らせに従属する。お知らせの作成・更新で作られ、お知らせの削除と更新で削除される。単独で存在しない
+- 状態変化: 持たない
+- 保持する責務
+  - 配信先の種類と、種類ごとに必要な項目が揃っていることの検証
+  - 自校への絞り込みの適用（全員・権限別に発行者の所属校を付与する）
+- 判断根拠: 種類ごとに使う項目が異なるため、「この種類ならこの項目が必要」という判定を配信先自身に持たせる。Rails現行はこの判定をFormのConcernと配信先を組み立てるServiceに分けているが、どちらも配信先1件の妥当性に関する判断である
+
+保持する属性（概要）: 識別子・配信先の種類・権限の識別子・学年の識別子・高校の識別子・ユーザーの識別子。いずれの識別子も未設定を許す（①「6. データモデル」）。
+
+**識別子を持つためEntityとして扱う。** 編集フォームのレスポンスに配信先の識別子を含めるため（①「5. API / 処理詳細」`#edit`）、識別子のない値として扱えない。ただしAggregate内部でのみ参照され、単独で取得・更新する操作は公開しない。
+
+**Entity設計は本書を正本とする。**
 
 ---
 
 # 7. Value Object設計
 
-## AnnouncementStatus
+## AnnouncementStatus（お知らせの状態）
 
-- 採用理由: 状態を文字列のまま扱うと、許可されない遷移（例: published → draft）が実装のあちこちで再チェックされ、抜け漏れが起きやすいため
-- 独自ルール:
-  - draft / scheduled / published のいずれかのみ許容する
-  - 遷移可能な状態の組み合わせ（draft→scheduled/published、scheduled→published）のみ許可する
-- Entity属性ではなくValue Objectにする理由: 状態遷移という業務ルールそのものを型として表現し、Announcement Entityから遷移判定ロジックを再利用しやすくするため
+- 採用理由: 3つの既知の値しか取らず、値どうしの遷移に規則がある。整数で保持されるが（①「6. データモデル」）、整数のまま扱うと範囲外の値や許されない遷移を防げない
+- 独自ルール: 下書き・予約・配信済みの3値のみ。遷移の可否を自身が判定する（下書き → 予約・配信済み、予約 → 配信済み、配信済み → なし）
+- Entity属性ではなくValue Objectにする理由: 遷移の可否という規則が値に属する。Entityのメソッドとして書くこともできるが、3機能が同じ規則を使うため、値の側に置いて取り違えを防ぐ
 
-## ScheduledAt / PublishedAt
+## ScheduledAt（予約日時）
 
-- 採用理由: 単なる日時ではなく、「予約時は未来日時が必須」「公開時は自動確定される」という業務ルールを伴うため
-- 独自ルール:
-  - `scheduled` 状態のときのみ未来日時であることを検証する
-  - `published` への遷移時に未設定であれば現在時刻を設定する
-- Entity属性ではなくValue Objectにする理由: 日時の妥当性判定ロジックを型に閉じ込め、Entity本体の判断ロジックを簡潔に保つため
+- 採用理由: 「予約状態のときに必須」「未来日時であること」という規則を持つ。未設定を許す日時であり、単なる`time.Time`では規則を表せない
+- 独自ルール: 未設定を許す。状態が予約のときは必須かつ未来日時（①「5. API / 処理詳細」`#create`）。手動配信では消される
+- Entity属性ではなくValue Objectにする理由: 検証が状態と組み合わさるため、状態と一緒に判定する入口を設ける
 
-## TargetCriteria（対象種別＋参照先の組）
+## DeliveryTargetType（配信先の種類）
 
-- 採用理由: 対象種別（all_users/by_role/by_grade/by_school/by_user）ごとに必要な参照先の組み合わせが異なり、誤った組み合わせを防ぐ必要があるため
-- 独自ルール:
-  - `by_role` / `by_grade` は権限（user_role_id）の指定を要する
-  - `by_grade` は学年（grade_id）の指定を要する
-  - `by_user` はユーザー（user_id）の指定を要する
-  - `by_school` は発信者の所属校を参照する
-- Entity属性ではなくValue Objectにする理由: 種別と参照先の整合性を単体で検証できるようにし、AnnouncementTarget Entityの責務を「保持」に集中させるため
+- 採用理由: 5つの既知の値しか取らず、種類ごとに必要な項目が決まる。整数で保持されるが、範囲外の値を防ぐ必要がある
+- 独自ルール: 全員・権限別・学年別・学校別・ユーザー個別の5値。種類ごとに必要な項目の組み合わせを自身が示す。自校への絞り込みの対象になる種類（全員・権限別）を自身が示す
+- Entity属性ではなくValue Objectにする理由: 「この種類なら何が必要か」「この種類は自校絞り込みの対象か」という規則が値に属する
 
 ## Value Objectを採用しないもの
 
-- タイトル・本文: 文字列としての意味が強く、独自の業務ルールを持たないため、Value Object化は不要とする
+|概念|理由|
+|-|-|
+|件名・本文|長さの上限（件名255文字、本文10,000文字）はあるが、他の規則を持たない。Entityの属性として検証する|
+|配信日時|状態が配信済みに変わるときに設定されるだけで、値自身に規則がない|
+|発行者の識別子・配信先の各識別子|他Contextが所有する実体への参照であり、本Contextで規則を持たない|
+|システム生成かどうか|真偽値であり規則を持たない|
+
+**Value Object設計は本書を正本とする。**
 
 ---
 
 # 8. Domain Service
 
-## AnnouncementTargetingPolicy
+## TargetDeliverabilityPolicy（配信先の指定可否の判定）
 
-- 責務: 対象指定（TargetCriteria群）が、発信者の権限・所属校を踏まえて妥当かどうかを判定する
-  - `own_grade` 権限の教師は、自身の学年以外を `by_grade` で指定できない
-  - `by_grade` で指定する学年、`by_user` で指定するユーザーは、発信者と同校でなければならない
-- Entityへ持たせない理由: 判定には発信者の権限情報（Teacher Permission Context）、参照先の学年・ユーザー情報（School/User Context）という、AnnouncementもAnnouncementTargetも単体では保持しない外部情報が必要なため
-- 判断根拠: 複数Context・複数Entityにまたがる業務ルールをUseCaseに直接書くと、作成処理に業務ロジックが埋没するため、独立したDomain Serviceとして切り出し、テストと再利用を容易にする
+- 責務: 指定された配信先の集合が、発行者にとって指定できるものかを判定する
+  - 配信先に指定された学年・ユーザーが発行者と同じ高校に属するか
+  - 担当学年が制限されている教員の場合、学年で絞り込める配信先に限られているか、学年・ユーザーが自分の学年のものか
+- Entityへ持たせない理由: 判定には、配信先の指定だけでなく**発行者の所属校・学年制限、指定されたユーザーの所属校とロール・学年、指定された学年の所属校という外部情報**が必要である。これらは`user`・`master-data`・`teacher-permission`が所有しており、Entityが参照すると他Contextへの依存をDomain層が抱えることになる
+- 判断根拠: 外部情報を引数として受け取る純粋な判定にすることで、DBや他Contextの呼び出しから切り離してテストできる
 
-## AnnouncementVisibilityPolicy
+判定の内容は①「5. API / 処理詳細」`#create`の「配信先の検証」「学年制限のある教員の制約」のとおりである。
 
-- 責務: 教師が閲覧可能なお知らせかどうか（対象条件に自身が合致するか）を判定するための条件を表現する
-- Entityへ持たせない理由: 判定は「閲覧者側の属性」と「お知らせ側の対象条件」の突き合わせであり、Announcement Entity単体の責務ではなく、検索条件として扱う方が自然なため
-- 判断根拠: 現行のRails実装では `for_user` スコープとしてSQL条件に変換されており、Goでも同様に検索条件（Repositoryへの問い合わせ条件）として表現する方が、大量データに対する効率的な絞り込みと整合する。したがってこのポリシーはドメインルールの「意味」を定義する役割にとどめ、実際の絞り込み実行はRepositoryに委ねる
+**この判定は本機能と管理者お知らせ管理機能で使い方が異なる。** 管理者が作成するお知らせは配信先が「全員」1件で固定され、自校への絞り込みも行わないため、判定の対象にならない（管理者お知らせ管理機能②「8. Domain Service」）。
+
+## 追加で必要としないService
+
+|検討した判定|持たせない理由|
+|-|-|
+|状態遷移の可否|`AnnouncementStatus`が自身で判定できる。外部情報を必要としない|
+|配信済みかどうかによる変更可否|`Announcement`が自身の状態から判定できる|
+|自校への絞り込みの適用|`AnnouncementTarget`が、発行者の所属校を受け取って自身に適用できる。種類ごとの対象は`DeliveryTargetType`が示す|
+|「自分に配信されたか」の判定|利用者の所属と配信先を突き合わせる検索であり、Repositoryの検索条件として表現する（「11. Repository設計」）。全件を読み込んで判定する形にはしない|
+
+**Domain Service設計は本書を正本とする。**
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
+
+```mermaid
+classDiagram
+    class Announcement {
+        <<Aggregate Root>>
+        +ID
+        +Title
+        +Content
+        +AnnouncementStatus Status
+        +PublishedAt
+        +ScheduledAt ScheduledAt
+        +PublisherID
+        +SystemGenerated
+        +AnnouncementTarget[] Targets
+        +ChangeStatus(AnnouncementStatus)
+        +UpdateContent(title, content)
+        +ReplaceTargets(AnnouncementTarget[])
+        +IsEditable() bool
+        +Publish()
+    }
+    class AnnouncementTarget {
+        +ID
+        +DeliveryTargetType Type
+        +UserRoleID
+        +GradeID
+        +HighSchoolID
+        +UserID
+        +ScopeToHighSchool(highSchoolID)
+    }
+    class AnnouncementStatus {
+        <<Value Object>>
+        +Draft / Scheduled / Published
+        +CanTransitionTo(AnnouncementStatus) bool
+        +IsPublished() bool
+    }
+    class ScheduledAt {
+        <<Value Object>>
+        +値（未設定を許す日時）
+        +IsFuture() bool
+    }
+    class DeliveryTargetType {
+        <<Value Object>>
+        +AllUsers / ByRole / ByGrade / BySchool / ByUser
+        +RequiredFields() []string
+        +IsSchoolScoped() bool
+    }
+    class TargetDeliverabilityPolicy {
+        <<Domain Service>>
+        +Verify(targets, publisherContext) error
+    }
+    class AnnouncementRepository {
+        <<interface>>
+        +Save(Announcement)
+        +FindByID(id)
+        +FindByIDAndPublisher(id, publisherID)
+        +FindDeliveredTo(viewer, page) 
+        +FindAuthoredBy(publisherID, page)
+        +Delete(Announcement)
+    }
+
+    Announcement "1" *-- "1..*" AnnouncementTarget : Aggregate境界
+    Announcement --> AnnouncementStatus
+    Announcement --> ScheduledAt
+    AnnouncementTarget --> DeliveryTargetType
+    TargetDeliverabilityPolicy ..> AnnouncementTarget
+    AnnouncementRepository ..> Announcement
+```
+
+`Announcement`が`AnnouncementTarget`を保持し、配信先を外から直接操作できない形にする。配信先の入れ替えは`ReplaceTargets`を通す。
+
+`TargetDeliverabilityPolicy`は発行者の文脈（所属校・学年制限）と指定されたユーザー・学年の情報を引数で受け取る。他Contextへの参照をDomain層に持ち込まない（「8. Domain Service」）。
+
+**クラス図は本書を正本とする。** 管理者お知らせ管理機能②は、同機能が使うUseCaseとの関係のみを示す。
+
+---
+
+# 10. 状態遷移図
+
+```mermaid
+stateDiagram-v2
+    [*] --> draft : 作成（状態未指定・draft）
+    [*] --> scheduled : 作成（scheduled。予約日時が必須かつ未来）
+    [*] --> published : 作成（published。配信日時が設定される）
+
+    draft --> scheduled : 更新（予約日時が必須かつ未来）
+    draft --> published : 更新 / 手動配信
+    scheduled --> published : 更新 / 手動配信 / 予約配信の自動切替
+
+    published --> [*] : 遷移先なし（編集・削除・再配信も不可）
+
+    note right of draft
+        削除できる
+    end note
+    note right of scheduled
+        削除できる
+        予約日時を過ぎると自動で配信済みになる
+    end note
+    note right of published
+        編集・削除できない
+        配信日時が設定されている
+    end note
+```
+
+禁止される組み合わせ:
+
+|遷移|扱い|
+|-|-|
+|予約 → 下書き|拒否する|
+|配信済み → 下書き・予約|拒否する|
+|配信済み → 配信済み（再配信）|手動配信では「すでに配信済みです」として拒否する|
+
+遷移に伴う副作用:
+
+|遷移|副作用|
+|-|-|
+|→ 配信済み|配信日時が未設定であれば現在時刻を設定する。既に設定されている場合は上書きしない|
+|手動配信による → 配信済み|**予約日時を消す**（管理者お知らせ管理機能①「5. API / 処理詳細」`#publish`）|
+|自動切替による予約 → 配信済み|**予約日時を消さない**（同①「9. 非同期処理」）|
+
+手動配信と自動切替で予約日時の扱いが異なる点は、Rails現行の振る舞いである。移行でも維持する（「19. API仕様」の「変更しないもの」）。
+
+**状態遷移図は本書を正本とする。**
+
+---
+
+# 11. Repository設計
 
 ## AnnouncementRepository
 
-- 管理対象: Announcement, AnnouncementTarget
-- 責務:
-  - 教師が閲覧可能な公開中お知らせの検索（対象条件による絞り込み）
-  - 自身が作成したお知らせの検索（システムが自動生成した通知を除く）
-  - お知らせ本体と対象指定群の作成
-  - お知らせの状態・公開予定日時の更新
-- 保持する検索機能:
-  - 閲覧可能条件による絞り込み（AnnouncementVisibilityPolicyの条件を反映）
-  - 作成者による絞り込み（authoredタブ。システムが自動生成した通知を除く）
-  - 公開状態による絞り込み
-  - 公開日時降順のページネーション
-  - 上位N件取得（ダッシュボード向け）
-- 保持しない責務:
-  - 状態遷移の可否判定
-  - 対象指定の妥当性判定
-- 判断根拠: 永続化と検索条件の実行に責務を限定し、業務ルールの判断はEntity/Domain Serviceに残すため
+- 管理対象: `Announcement` Aggregate（お知らせと配信先の全件）
+- 責務
+  - Aggregateの保存（配信先の入れ替えを含む）
+  - Aggregateの取得
+  - 利用者ごとの「自分に配信されたお知らせ」の検索
+  - 発行者ごとのお知らせの検索
+  - Aggregateの削除
+- 保持する検索機能
 
-## 外部参照Repository（Grade / User / UserRole / TeacherPermission）
+|検索|条件|用途|
+|-|-|-|
+|識別子による取得|識別子|管理者お知らせ管理機能の詳細・更新・削除・配信|
+|識別子と発行者による取得|識別子、発行者の識別子|本機能の編集フォーム・更新。所有権の確認をクエリ条件として実現する|
+|配信されたお知らせの検索|**利用者の所属（学校・学年・ロール）と識別子を配信先と突き合わせる**。状態が配信済み。配信日時の降順（同値は識別子の降順）。ページネーション|お知らせ機能・本機能の一覧・詳細|
+|発行者が作成したお知らせの検索|発行者の識別子、システム生成でないもの。配信日時の降順（同値は識別子の降順）。ページネーション|本機能の一覧（`authored`）|
+|発行者のロールによる検索|発行者のロールが管理者であるもの。件名の部分一致・状態・作成日時の降順・ページネーション|管理者お知らせ管理機能の一覧|
+|高校を配信先に含むお知らせの検索|配信先の高校が一致するもの。作成日時の降順。ページネーション|管理者お知らせ管理機能の高校別一覧|
+|予約日時を過ぎた予約の検索|状態が予約、予約日時が現在時刻以前|予約配信の自動切替|
 
-- 管理対象: 各Contextが所有するエンティティ（お知らせContextからは参照のみ）
-- 責務:
-  - 対象指定の妥当性判定に必要な存在確認・同校確認・権限確認のための参照を提供する
-- 保持しない責務:
-  - 対象指定の可否そのものの判断（AnnouncementTargetingPolicyが担う）
-- 判断根拠: 他Contextの所有物に対する書き込みを行わず、参照のみに責務を限定するため
+- 保持しない責務
+  - 配信先の単独の取得・更新・削除（Aggregateを通す）
+  - 配信先の指定可否の判定（`TargetDeliverabilityPolicy`の責務）
+  - 状態遷移の可否の判定（`AnnouncementStatus`の責務）
+  - 生徒・学年・権限の選択肢の取得（他Contextの責務）
+- 判断根拠: 配信範囲の突き合わせは件数が多くなりうるため、全件を読み込んでアプリケーション側で判定しない。検索条件として表現する
 
----
+### 配信されたお知らせの検索について
 
-# 10. UseCase設計
+「自分に配信されたか」の判定は、配信先の5種類それぞれの条件を満たすものを集め、重複を除いてからお知らせと突き合わせる形で行う（①「5. API / 処理詳細」`#index`の配信先の突き合わせ）。
 
-## ListAnnouncementsUseCase
+- 条件を満たす配信先が複数あっても、お知らせは1件として返す
+- 識別子の集合を条件に入れる形にはしない。Rails現行も、派生テーブルとして結合する形を選んでいる（①「10. Rails実装対応表」）。件数が増えたときの評価の仕方が変わるためである
+- **論理削除済みの発行者のお知らせも返す。** 発行者の在籍状態で絞り込まない（①「6. データモデル」）
 
-- 目的: `authored` タブでは自身が作成したお知らせ一覧（システムが自動生成した通知を除く）、それ以外では閲覧可能な公開中お知らせ一覧を取得する
-- 入力: current user, tab, page
-- 出力: お知らせ一覧とページ情報
-- トランザクション範囲: 読み取りのみ、トランザクションは不要
-- 呼び出すRepository:
-  - AnnouncementRepository
-- 判断根拠: 単一条件での検索・ページネーションのみであり、書き込みを伴わないため
+**Repository設計は本書を正本とする。**
 
-## ShowAnnouncementUseCase
+## 他Contextの参照手段
 
-- 目的: 指定お知らせの詳細を取得する
-- 入力: current user, announcement id
-- 出力: お知らせ詳細（対象情報・発信者情報を含む）
-- トランザクション範囲: 読み取りのみ
-- 呼び出すRepository:
-  - AnnouncementRepository
-- 判断根拠: 公開中かつ閲覧可能なお知らせのみを対象とする単純な参照処理であるため
+本Contextの`dependency.go`にインターフェースとして宣言し、実装は相手Contextの公開操作へ委譲するアダプタに閉じ込める（規約「4. Bounded Context構成」・「5. Context間連携ルール」）。
 
-## CreateAnnouncementUseCase
+|参照手段|相手Context|取得する内容|用途|
+|-|-|-|-|
+|ユーザー属性の参照|`user`|指定されたユーザーの所属校・ロール・学年。操作者の所属校・学年・ロール|配信先の検証、配信範囲の突き合わせ（①「5. API / 処理詳細」`#create`・`#index`）|
+|学年の参照|`master-data`|指定された学年の実在と所属高校。高校配下の学年一覧（表示名を含む）|配信先の検証、`#new`の選択肢|
+|権限の選択肢の参照|`user`|権限の一覧。管理者・保護者を除く|`#new`の選択肢|
+|学年制限の参照|`teacher-permission`|操作者の担当学年の制限。制限がない場合はその旨|`#new`・`#create`の学年制限の制約|
+|生徒一覧の参照|`student-directory`|所属校・学年・キーワードで絞り込んだ生徒の一覧（氏名カナ昇順・ページネーション）|`#new`の選択肢|
 
-- 目的: お知らせを下書きとして作成し、対象指定を登録する
-- 入力: current user, title, content, target criteria list
-- 出力: 作成結果
-- トランザクション範囲: Announcement本体とAnnouncementTarget群の作成を1トランザクションで扱う
-- 呼び出すRepository:
-  - AnnouncementRepository（作成）
-  - Grade / User / UserRole 参照Repository（対象妥当性判定のための存在確認・同校確認）
-- 判断根拠: AnnouncementTargetingPolicyによる判定結果を踏まえ、お知らせ本体と対象指定を一貫して作成する必要があるため
+生徒一覧を他Contextへ委ねるのは、ページネーション・キーワード検索・並び替えを伴う画面向けの一覧であるためである（「3. Bounded Context」の「依存する理由」）。
 
-## UpdateAnnouncementStatusUseCase
+## 本Contextが他Contextへ公開する操作
 
-- 目的: 自身が作成したお知らせの状態・公開予定日時を更新する
-- 入力: current user, announcement id, 更新後status, scheduled_at
-- 出力: 更新結果
-- トランザクション範囲: Announcementの状態更新を1トランザクションで扱う
-- 呼び出すRepository:
-  - AnnouncementRepository
-- 判断根拠: 状態遷移の可否はAnnouncement Entityが判定し、UseCaseは所有者確認と永続化のみを担当するため
+|公開する操作|呼び出し元|内容|
+|-|-|-|
+|システム生成のお知らせの作成|`school-class`・`interview-request`等|件名・本文・配信先を受け取り、**下書きを経ずに配信済みで**お知らせを作成する。システム生成として記録する|
+|最近のお知らせの参照|`admin-dashboard`|管理者ダッシュボードに表示するお知らせを返す（管理者ダッシュボード機能②）|
+
+システム生成のお知らせの作成を公開操作とするのは、通知の発生契機が他Contextにあり、作り方（配信済みで作る、システム生成として記録する）は本Contextの責務であるためである。
 
 ---
 
-# 11. Transaction設計
+# 12. UseCase設計
 
-## Transaction開始位置
+本機能のUseCaseを整理する。Aggregate・Repositoryは「5. Aggregate設計」「11. Repository設計」のとおりである。
 
-- UseCaseの開始時にトランザクションを開始する（書き込みを伴うUseCaseのみ）
+## ListAnnouncements
 
-## Transaction終了位置
+- 目的: タブの指定によって、自分に配信されたお知らせと自分が作成したお知らせを切り替えて取得する
+- 入力: 操作者の識別子・所属校・学年・ロール、タブの指定、ページ番号、1ページあたりの件数
+- 出力: お知らせの一覧とページ情報。**タブによって項目が変わる**
+- トランザクション範囲: 読み取りのみのため不要
+- 呼び出すRepository: `AnnouncementRepository`（配信されたお知らせの検索 / 発行者が作成したお知らせの検索）
+- 判断根拠: タブの判定が「どちらの検索を呼ぶか」だけであるため、1つのUseCaseの中で分岐させる。URLを分けるとフロントエンドの変更が必要になる
 
-- CreateAnnouncementUseCase では、Announcement本体と全対象指定の作成が完了した時点でコミットする
-- UpdateAnnouncementStatusUseCase では、状態更新が完了した時点でコミットする
-- ListAnnouncementsUseCase / ShowAnnouncementUseCase ではトランザクションを使用しない
+タブが`authored`のときはシステム生成を除外する（①「5. API / 処理詳細」`#index`）。
+
+## ShowAnnouncement
+
+- 目的: 自分に配信された配信済みのお知らせ1件を取得する
+- 入力: 操作者の識別子・所属校・学年・ロール、お知らせの識別子
+- 出力: お知らせ（件名・本文・配信日時・発行者）
+- トランザクション範囲: 不要
+- 呼び出すRepository: `AnnouncementRepository`（配信されたお知らせの検索）
+- 判断根拠: 一覧と同じ絞り込みで1件を取得する。**自分が作成したお知らせでも、自分に配信されていなければ取得できない**（①「5. API / 処理詳細」`#show`）
+
+## GetAnnouncementFormOptions
+
+- 目的: 配信先として指定できる学年・権限・生徒の一覧と、操作者の学年制限を取得する
+- 入力: 操作者の識別子・所属校、キーワード、ページ番号、1ページあたりの件数
+- 出力: 学年の一覧、権限の一覧、生徒の一覧とページ情報、学年制限
+- トランザクション範囲: 不要
+- 呼び出す先: 学年制限の参照（`teacher-permission`）、学年の参照（`master-data`）、権限の選択肢の参照（`user`）、生徒一覧の参照（`student-directory`）
+- 判断根拠: 4つの参照結果を1つのレスポンスへまとめるだけであり、本Contextのデータを読まない。**本Contextが所有するお知らせに触れないUseCaseである**
+
+学年制限がある場合は学年の選択肢をその学年のみに絞る。権限の選択肢から管理者・保護者を除く（①「5. API / 処理詳細」`#new`）。
+
+## GetAnnouncementForEdit
+
+- 目的: 自分が作成した編集可能なお知らせと、その配信先を取得する
+- 入力: 操作者の識別子、お知らせの識別子
+- 出力: お知らせ（件名・本文・状態・予約日時）と配信先の全件。**ユーザー個別の配信先にはユーザーの氏名を含む**
+- トランザクション範囲: 不要
+- 呼び出すRepository: `AnnouncementRepository`（識別子と発行者による取得）
+- 呼び出す参照手段: ユーザー属性の参照（`user`。配信先のユーザーの氏名）
+- 判断根拠: 所有権の確認を検索条件で行う。編集可能でない（配信済み）場合は取得できないものとして扱い、`404`を返す（①「5. API / 処理詳細」`#edit`）
+
+## CreateAnnouncement
+
+- 目的: 件名・本文・配信先・配信方法を指定してお知らせを作成する
+- 入力: 操作者の識別子・所属校、件名、本文、状態、予約日時、配信先の指定の配列
+- 出力: 作成したお知らせの識別子と、状態に応じたメッセージの種別
+- トランザクション範囲: **お知らせと配信先の作成を1つのトランザクションで行う**
+- 呼び出すRepository: `AnnouncementRepository`（保存）
+- 呼び出す参照手段: 学年制限の参照、ユーザー属性の参照、学年の参照
+- 処理
+  1. 操作者の学年制限を取得する
+  2. 配信先に指定されたユーザー・学年の情報を取得する
+  3. `TargetDeliverabilityPolicy`で配信先の指定可否を判定する
+  4. 配信先を組み立て、全員・権限別には操作者の所属校を付与する。学校別は操作者の所属校を使う
+  5. お知らせを組み立てる。状態が未指定なら下書きとする
+  6. Aggregateを保存する
+- 判断根拠: 配信先の判定に必要な外部情報をUseCaseが集め、判定自体はDomain Serviceに委ねる。Domain層が他Contextを参照しない形を保つ
+
+## UpdateAnnouncement
+
+- 目的: 自分が作成した編集可能なお知らせの内容・配信先・配信方法を更新する
+- 入力: 操作者の識別子・所属校、お知らせの識別子、件名、本文、状態、予約日時、配信先の指定の配列
+- 出力: なし（成功のメッセージのみ）
+- トランザクション範囲: **お知らせの更新と配信先の入れ替えを1つのトランザクションで行う**
+- 呼び出すRepository: `AnnouncementRepository`（識別子と発行者による取得、保存）
+- 呼び出す参照手段: 作成と同じ
+- 処理
+  1. 識別子と発行者でAggregateを取得する。該当しなければ不存在として扱う
+  2. お知らせが編集可能であることを確認する。配信済みなら拒否する
+  3. 作成と同じ手順で配信先の指定可否を判定する
+  4. 内容・状態・予約日時を更新する。状態遷移の可否はEntityが判定する
+  5. 配信先を全件入れ替える
+  6. Aggregateを保存する
+- 判断根拠: 配信先の入れ替えとお知らせの更新が1つの整合性単位であるため、同じトランザクションに収める（「5. Aggregate設計」）
+
+**配信済みの編集を拒否する扱いが`edit`と異なる。** 編集フォームの取得は`404`、更新は`422`である。Rails現行の振る舞いであり維持する（「19. API仕様」の「変更しないもの」）。
+
+---
+
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図
+
+### CreateAnnouncement
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant M as Middleware
+    participant H as Handler
+    participant U as CreateAnnouncement UseCase
+    participant TP as teacher-permission
+    participant US as user
+    participant MD as master-data
+    participant P as TargetDeliverabilityPolicy
+    participant R as AnnouncementRepository
+
+    C->>M: POST /api/v1/teacher/announcements
+    M->>M: 認証・teacherロール判定
+    M->>H: 認証済み
+    H->>H: Request DTOへバインド・形式の検証
+    H->>U: 実行（操作者・件名・本文・状態・予約日時・配信先）
+    U->>TP: 操作者の学年制限を取得
+    TP-->>U: 制限（なければその旨）
+    U->>US: 配信先のユーザーの所属校・ロール・学年を取得
+    US-->>U: ユーザー属性
+    U->>MD: 配信先の学年の実在と所属校を取得
+    MD-->>U: 学年属性
+    U->>P: 配信先の指定可否を判定
+    alt 指定できない配信先がある
+        P-->>U: 判定エラー
+        U-->>H: 業務ルール違反
+        H-->>C: 422
+    else 指定できる
+        P-->>U: 可
+        U->>U: 配信先を組み立て、全員・権限別に操作者の所属校を付与
+        U->>U: Announcement Aggregateを組み立て（状態未指定なら下書き）
+        U->>R: 保存（トランザクション内）
+        R-->>U: 保存した識別子
+        U-->>H: 識別子と状態
+        H-->>C: 201（状態に応じたメッセージと識別子）
+    end
+```
+
+### UpdateAnnouncement
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant H as Handler
+    participant U as UpdateAnnouncement UseCase
+    participant R as AnnouncementRepository
+    participant P as TargetDeliverabilityPolicy
+    participant A as Announcement Aggregate
+
+    C->>H: PATCH /api/v1/teacher/announcements/:id
+    H->>U: 実行（操作者・識別子・内容・配信先）
+    U->>R: 識別子と発行者で取得
+    alt 該当なし（他の教員のもの・存在しない）
+        R-->>U: 不存在
+        U-->>H: 不存在
+        H-->>C: 404
+    else 該当あり
+        R-->>U: Aggregate
+        U->>A: 編集可能か
+        alt 配信済み
+            A-->>U: 不可
+            U-->>H: 業務ルール違反
+            H-->>C: 422（配信済みのお知らせは編集できません）
+        else 編集可能
+            U->>P: 配信先の指定可否を判定
+            P-->>U: 可
+            U->>A: 内容・状態・予約日時を更新
+            alt 許されない状態遷移
+                A-->>U: 遷移エラー
+                U-->>H: 業務ルール違反
+                H-->>C: 422
+            else 許される
+                U->>A: 配信先を全件入れ替え
+                U->>R: 保存（トランザクション内）
+                U-->>H: 成功
+                H-->>C: 200（お知らせを更新しました。）
+            end
+        end
+    end
+```
+
+### ListAnnouncements（タブの切り替え）
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant H as Handler
+    participant U as ListAnnouncements UseCase
+    participant R as AnnouncementRepository
+
+    C->>H: GET /api/v1/teacher/announcements?tab=
+    H->>U: 実行（操作者の所属・タブ・ページ）
+    alt tab=authored
+        U->>R: 発行者が作成したお知らせの検索（システム生成を除く）
+        R-->>U: 一覧と総件数
+        U-->>H: 作成分の項目（状態・予約日時を含む。発行者を含まない）
+    else それ以外
+        U->>R: 配信されたお知らせの検索（配信済みのみ）
+        R-->>U: 一覧と総件数
+        U-->>H: 受信分の項目（発行者を含む。状態・予約日時を含まない）
+    end
+    H-->>C: 200（タブに応じた項目とページ情報）
+```
+
+## 処理フロー図
+
+### 配信先の指定可否の判定
+
+```mermaid
+flowchart TD
+    S[配信先の集合] --> E{1件以上あるか}
+    E -- いいえ --> NG1[配信先を入力してください]
+    E -- はい --> A{配列として受け取れるか}
+    A -- いいえ --> NG2[配列で指定してください]
+    A -- はい --> T{すべて既知の種類か}
+    T -- いいえ --> NG3[不正なtarget_typeが含まれています]
+    T -- はい --> F{種類ごとに必要な項目が揃っているか}
+    F -- いいえ --> NG4[学年・権限・ユーザーの指定エラー]
+    F -- はい --> X{指定された学年・ユーザーが実在するか}
+    X -- いいえ --> NG5[存在しない学年・権限・ユーザーです]
+    X -- はい --> S1{指定された学年・ユーザーが発行者と同じ高校か}
+    S1 -- いいえ --> NG6[他校の学年・ユーザーは指定できません]
+    S1 -- はい --> R{発行者に学年制限があるか}
+    R -- いいえ --> OK[指定できる]
+    R -- はい --> R1{全員・権限別・学校別が含まれていないか}
+    R1 -- 含まれる --> NG7[学年が制限されているため指定できない配信先です]
+    R1 -- 含まれない --> R2{学年別はすべて自分の学年か}
+    R2 -- いいえ --> NG8[指定できない学年です]
+    R2 -- はい --> R3{ユーザー個別はすべて自分の学年の生徒か}
+    R3 -- いいえ --> NG9[指定できないユーザーです]
+    R3 -- はい --> OK
+```
+
+### 自校への絞り込みの適用
+
+```mermaid
+flowchart TD
+    S[配信先1件] --> T{種類は何か}
+    T -- 全員 --> SC1[発行者の所属校を付与する]
+    T -- 権限別 --> SC1
+    T -- 学校別 --> SC2[指定値ではなく発行者の所属校を使う]
+    T -- 学年別 --> NC[指定された学年をそのまま使う]
+    T -- ユーザー個別 --> NC2[指定されたユーザーをそのまま使う]
+    SC1 --> OUT[保存する属性が決まる]
+    SC2 --> OUT
+    NC --> OUT
+    NC2 --> OUT
+```
+
+全員・権限別に所属校を付与するのは、付与しないと他校の利用者にも配信されるためである（①「5. API / 処理詳細」`#create`の「自校内への絞り込み」）。
+
+---
+
+# 14. Transaction設計
+
+- **Transaction開始位置**: UseCase
+- **Transaction終了位置**: UseCase
 
 ## 理由
 
-- 1回の業務操作（作成・更新）に対して、お知らせと対象指定の整合性を保つため
-- UseCase単位で境界を統一することで、テスト・保守のしやすさを確保するため
+規約「11. Transaction実装パターン（TransactionManager）」の基本方針（UseCase単位）に従う。
+
+|UseCase|トランザクション|理由|
+|-|-|-|
+|`CreateAnnouncement`|**使う**|お知らせと配信先（1件以上）の作成が複数の書き込みにまたがる。配信先のないお知らせが残らないようにする|
+|`UpdateAnnouncement`|**使う**|お知らせの更新・配信先の全件削除・配信先の作成が複数の書き込みにまたがる。配信先が空の状態で止まらないようにする|
+|`ListAnnouncements`・`ShowAnnouncement`・`GetAnnouncementFormOptions`・`GetAnnouncementForEdit`|使わない|読み取りのみ|
+
+`UpdateAnnouncement`では、取得したAggregateに対する**排他ロック**を取る。配信先の入れ替え中に同じお知らせが別のリクエストで更新されると、配信先が混ざる可能性があるためである（①「5. API / 処理詳細」`#update`）。
+
+他Contextの参照手段の呼び出しは、トランザクションの外で行う。配信先の検証に必要な情報の取得であり、本Contextの書き込みと原子性を保証する関係にないためである。`TargetDeliverabilityPolicy`の判定もトランザクションの外で行う。
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
-- 型チェック: HTTP入力の型（文字列・配列・真偽値等）を検証する
-- 必須チェック: title / content / announcement_targets（配列かつ非空）を検証する
-- フォーマットチェック: target_typeが定義済みの値であるかの形式的な検証、scheduled_atの日付形式検証
+- 型チェック: `id` が整数として解釈できること。`scheduled_at` が日時として解釈できること。`announcement_targets` が配列であること
+- 必須チェック: `announcement` オブジェクトが存在すること
+- フォーマットチェック: `page`・`per_page` が整数として解釈できること
+
+**配信先が配列であることの検証はPresentation層に置く。** Rails現行はFormで検証しているが（①「5. API / 処理詳細」`#create`）、「配列として受け取れるか」は入力の形式の問題であり、業務ルールではない。
 
 ## Domain
 
-- 業務ルール: `own_grade` 権限の教師が自身の学年以外を指定していないか、対象の学年・ユーザーが同校かどうか（AnnouncementTargetingPolicy）
-- 状態チェック: 状態遷移が許可された組み合わせかどうか（Announcement Entity）
-- 整合性チェック: `scheduled` 状態での公開予定日時の未来日時チェック、`published` 遷移時の公開日時確定
+- 業務ルール
+  - 件名が入力されていること、255文字以内であること
+  - 本文が入力されていること、10,000文字以内であること
+  - 状態が既知の3値のいずれかであること
+  - 予約状態のとき、予約日時が設定され未来日時であること
+  - 配信先が1件以上あること
+  - 配信先の種類ごとに必要な項目が揃っていること
+  - 配信先に指定された学年・ユーザーが発行者と同じ高校に属すること
+  - 学年制限のある教員が、指定できる配信先に限られていること
+- 状態チェック
+  - 状態遷移が許される組み合わせであること
+  - 配信済みのお知らせを編集しようとしていないこと
+- 整合性チェック
+  - 配信先の入れ替え後も1件以上あること
 
-## 責務分離
+## バリデーション仕様
 
-- Presentationは「入力の形式が正しいか」を担当する
-- Domainは「業務的に妥当か（誰に配信してよいか、状態を進めてよいか）」を担当する
-- これにより、フロントエンドの入力仕様変更と業務ルール変更を独立して扱える
+|フィールド|検証層|ルール|エラーメッセージ方針|
+|-|-|-|-|
+|`announcement`|Presentation|存在すること|「お知らせの内容を指定してください」|
+|`title`|Domain|必須、255文字以内|Rails現行の文言を維持する。「Title を入力してください」「Title は255文字以内で入力してください」|
+|`content`|Domain|必須、10,000文字以内|同。「Content を入力してください」「Content は10000文字以内で入力してください」|
+|`status`|Domain|既知の3値のいずれか。空文字は下書きとして扱う|同。「Status は一覧にありません」|
+|`scheduled_at`|Presentation|日時として解釈できること|「配信日時の指定が不正です」|
+|`scheduled_at`|Domain|状態が予約のとき必須かつ未来日時|Rails現行の文言を維持する。「配信日時 を指定してください」「配信日時 は未来日時を指定してください」|
+|`announcement_targets`|Presentation|配列であること|Rails現行の文言を維持する。「Announcement targets 配列で指定してください」|
+|`announcement_targets`|Domain|1件以上|同。「Announcement targets を入力してください」|
+|`announcement_targets[].target_type`|Domain|既知の5値のいずれか|同。「不正なtarget_typeが含まれています」|
+|`announcement_targets[].grade_id`|Domain|学年別のとき必須、実在すること、発行者と同じ高校であること|同。「Announcement targets 学年を指定してください」「存在しない学年です」「他校の学年は指定できません」|
+|`announcement_targets[].user_role_id`|Domain|権限別・学年別のとき必須、実在すること|同。「Announcement targets 権限を指定してください」「存在しない権限です」|
+|`announcement_targets[].user_id`|Domain|ユーザー個別のとき必須、実在すること、発行者と同じ高校であること|同。「Announcement targets ユーザーを指定してください」「存在しないユーザーです」「他校のユーザーは指定できません」|
+|配信先（学年制限あり）|Domain|全員・権限別・学校別を含まないこと、学年別は自分の学年のみ、ユーザー個別は自分の学年の生徒のみ|同。「学年が制限されているため指定できない配信先です」「指定できない学年です」「指定できないユーザーです」|
+|状態遷移|Domain|許される組み合わせであること|同。「status は {遷移元} から {遷移先} へは変更できません」|
+|編集可否|Domain|配信済みでないこと|同。「配信済みのお知らせは編集できません」|
+
+項目名が英語表記（`Title`・`Content`・`Status`・`Announcement targets`）になるのは、Rails現行で日本語訳が定義されていないためである。`scheduled_at` のみ「配信日時」という訳がある（①「5. API / 処理詳細」`#create`）。フロントエンドを変更しない方針のため、移行時に日本語へ直さず現行の文言を維持する。日本語化はRails側の修正課題として別に管理する。
+
+**更新時は件名・本文の必須検証をRails現行のFormが行っていないが、モデル側の検証が働く。** Go設計ではEntityが常に検証するため、同じ結果になる（①「5. API / 処理詳細」`#update`）。
 
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
-## Middleware
-
-- 認証済みユーザーを特定し、`teacher` ロールであることを確認する
-
-## Handler
-
-- ルーティングとHTTP入出力の変換のみを担当し、業務権限判定は持たせない
-
-## UseCase
-
-- `authored` タブでは自身が作成したお知らせのみを対象とする（システムが自動生成した通知は、発行者が自身であっても対象としない）
-- 更新は自身が作成したお知らせのみに限定する（所有者確認）
-
-## Domain
-
-- AnnouncementTargetingPolicyにおいて、`own_grade` 権限の教師が指定できる対象範囲を制限する
-- Announcement Entityにおいて、許可されない状態遷移を拒否する
+|層|判定内容|理由|
+|-|-|-|
+|Middleware|認証（ログイン済みであること）と`teacher`ロールであることを判定する|規約「7. 横断的関心事の置き場所」のとおり、ロールレベルの粗い制御はMiddlewareに置く。認可はCasbin RBACで行う（Gin規約「4. 認可（Casbin RBAC）」）|
+|Handler|操作者の識別子・所属校・学年・ロールをcontextから取り出し、UseCaseへ渡す。リクエストから受け取らない|他人として振る舞えないようにするため|
+|UseCase|所有権の確認を**Repositoryの検索条件として**行う（編集フォーム・更新）。配信範囲の判定も検索条件として行う（一覧・詳細）|該当しないものを取得できない形にすることで、「取得してから権限を判定する」経路を作らない|
+|Domain|配信先の指定可否を判定する（`TargetDeliverabilityPolicy`）。配信済みの編集可否を判定する（`Announcement`）|業務上の制約であり、操作者のロールではなく発行者の権限設定と配信先の内容に依存する|
 
 ## 判断理由
 
-「誰がアクセスできるか」という認証・ロール確認はMiddlewareに、「自分のリソースか」という所有権確認はUseCaseに、「業務上許される操作か」という判定はDomainに配置することで、権限体系の変更に対して影響範囲を限定できる。
+所有権の確認を検索条件に寄せるのは、他の教員のお知らせを`404`として返すRails現行の振る舞いに合わせるためである（①「8. 権限制御」）。取得してから発行者を比較する形にすると、`403`を返す経路を作ることになり挙動が変わる。
+
+**学年制限はロールではなく権限設定に基づく。** 同じ`teacher`ロールでも、権限設定が「自分の学年のみ」の教員は指定できる配信先が狭い。これはMiddlewareのロール判定では表せないため、Domain層の判定として扱う。
+
+配信先に他校のユーザー・学年を指定できないことが、実質的な配信範囲の制限になっている。認可の判定としてではなく、配信先の妥当性の判定として扱う。
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
-責務: 業務ルール違反を表現する
+責務: 業務ルール違反を表す。
 
-- 不正な状態遷移
-- 対象指定の権限逸脱（own_grade制約違反）
-- 対象指定の同校制約違反
-- 予約日時が未来日時でない
+|エラー|意味|
+|-|-|
+|配信先の指定が不正|種類が既知でない、必要な項目が欠けている、実在しない、他校のもの、学年制限に反する|
+|状態遷移が許されない|許されない組み合わせへの変更|
+|配信済みのため編集できない|配信済みのお知らせへの更新|
+|件名・本文・状態・予約日時の検証失敗|必須・長さ・値域・未来日時|
 
 ## Application Error
 
-責務: ユースケース実行時の失敗を表現する
+責務: 対象が存在しないことを表す。
 
-- 対象お知らせが存在しない、または閲覧不可
-- 自身が作成したお知らせでない（更新時）
-- 参照先（学年・ユーザー等）が存在しない
+|エラー|意味|
+|-|-|
+|お知らせが存在しない|識別子に該当しない、他の教員が発行した、**編集フォームの取得で配信済みである**|
+
+**編集フォームの取得では、配信済みを「存在しない」として扱う。** Rails現行が`404`を返すためである（①「5. API / 処理詳細」`#edit`）。更新では同じ状況を業務ルール違反（`422`）として扱う。同じ状態に対して経路によって扱いが異なるが、Rails現行の振る舞いを維持する。
 
 ## Infrastructure Error
 
-責務: DB接続・永続化・外部Context参照時の技術的失敗を表現する
+責務: DBアクセスの失敗、他Contextの参照手段の呼び出しの失敗を表す。
+
+本Contextでは個別に判別せず、そのまま呼び出し元へ返して`500`として扱う。
 
 ## 判断理由
 
-業務ルール違反（Domain）とリソース未存在・所有権違反（Application）を区別することで、HTTPステータス変換（422 / 404）を一貫した基準で行える。
+業務ルール違反とデータの不存在を分けるのは、HTTPステータスが異なるためである（`422`と`404`）。所有権の確認を検索条件で行うため、「存在するが権限がない」という状態がなく、`403`はMiddlewareのロール判定でのみ発生する。
+
+## エラー仕様
+
+|業務シナリオ|エラー種別|発生層|想定するHTTPステータス|
+|-|-|-|-|
+|`announcement`パラメータがない|Validation|Presentation|400|
+|`id`が整数として解釈できない、`scheduled_at`が日時として解釈できない、`announcement_targets`が配列でない|Validation|Presentation|422|
+|件名・本文・状態・予約日時の検証失敗|BusinessRule|Domain|422|
+|配信先の指定が不正|BusinessRule|Domain|422|
+|状態遷移が許されない|BusinessRule|Domain|422|
+|配信済みのため編集できない（更新）|BusinessRule|Domain|422|
+|お知らせが存在しない・他の教員が発行した|NotFound|Application|404|
+|配信済みのため編集できない（編集フォームの取得）|NotFound|Application|404|
+|自分に配信されていない（詳細）|NotFound|Application|404|
+|DBアクセス・他Contextの呼び出しの失敗|Internal|Infrastructure|500|
+|未認証|Unauthorized|Middleware|401|
+|`teacher`ロール以外|Forbidden|Middleware|403|
+
+`422`の本文は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」に従い`{"errors": [...]}`とする。**複数のメッセージを同時に含みうる**（①「5. API / 処理詳細」`#create`）。
+
+`404`の本文はRails現行の`{"message": "Announcementが見つかりません"}`を維持する。モデル名が英語表記になる点も維持する（①「5. API / 処理詳細」`#show`）。
 
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
-本機能では現時点でDomain Eventを採用しない。理由は、お知らせの作成・状態変更に対して、他処理（通知送信等）への非同期の波及がRails現行仕様上明示されていないためである。
+不要である。
 
-将来的に、公開時に対象ユーザーへの通知（プッシュ通知・メール等）を送る要件が追加された場合は、「AnnouncementPublished」イベントの導入を検討する余地がある（推測）。
+理由: 本機能の操作（作成・更新）に、他の処理へ波及させる必要のある状態変化がない。お知らせを作成しても、メール送信・通知の送信は行わない（①「9. 非同期処理」）。利用者が一覧を開いたときに読まれる仕組みであるため、配信を他の処理へ通知する契機がない。
 
----
+**予約配信の自動切替もDomain Eventを使わない。** 予約日時を過ぎた予約を検索して状態を変える定期実行であり、イベントの発火ではない。設計は管理者お知らせ管理機能②「18. Domain Event」に記載する。
 
-# 16. API互換方針
-
-## URL
-
-- Rails現行仕様と同じエンドポイントを維持する
-  - GET /api/v1/teacher/announcements
-  - GET /api/v1/teacher/announcements/:id
-  - POST /api/v1/teacher/announcements
-  - PATCH /api/v1/teacher/announcements/:id
-
-## HTTP Method
-
-- 既存仕様どおりに維持する
-
-## Request
-
-- `announcement[title]` / `announcement[content]` / `announcement[announcement_targets]` の意味は維持しつつ、Go側では入力DTOとして吸収する
-- `tab` / `page` はクエリパラメータとして維持する
-
-## Response
-
-- 一覧・詳細・作成・更新のレスポンス構造はRails現行仕様に近い意味を維持する
-- `AnnouncementSerializer` / `AuthoredAnnouncementSerializer` に相当するレスポンス整形をPresentation層で行う
-
-## Status Code
-
-- 200: 取得・更新成功
-- 422: 入力・業務ルール違反
-- 404: 対象お知らせ不存在または閲覧不可
-
-## Error Response
-
-- 既存のerrors形式を踏襲し、フロントエンド互換性を優先する
+規約「5. Context間連携ルール」は「複数の処理へ波及する非同期通知が必要な場合のみ、Domain Eventの採用を検討する」と定めており、本機能はこれに当たらない。
 
 ---
 
-# 17. DB設計方針
+# 19. API仕様
 
-## 現行DBを利用するか
+## エンドポイント一覧
 
-- 既存Rails DBを継続利用する
+|エンドポイント|HTTP Method|概要|
+|-|-|-|
+|`/api/v1/teacher/announcements`|GET|お知らせ一覧を取得（`tab`で切り替え）|
+|`/api/v1/teacher/announcements/:id`|GET|お知らせ詳細を取得|
+|`/api/v1/teacher/announcements/new`|GET|新規作成フォームの選択肢を取得|
+|`/api/v1/teacher/announcements/:id/edit`|GET|編集フォームの内容を取得|
+|`/api/v1/teacher/announcements`|POST|お知らせを作成|
+|`/api/v1/teacher/announcements/:id`|PATCH / PUT|お知らせを更新|
 
-## Schema変更有無
+## 各エンドポイントの仕様
 
-- 変更なし
+### `GET /api/v1/teacher/announcements`
 
-## 変更理由
+- Request: クエリパラメータ `tab`（任意）・`page`（任意）・`per_page`（任意）
+- Response: `{"announcements": [...], "meta": {...}}`。**`tab=authored`のとき項目が変わる**（①「5. API / 処理詳細」`#index`）
+- Status Code: 正常系 `200`。異常系 `401`・`403`・`500`
+- Error Response方針: `{"errors": [...]}`
 
-- 現行の `announcements` / `announcement_targets` テーブルは、状態遷移・対象指定という業務要件を満たしており、追加のスキーマ変更は不要である。`announcements`にはシステム自動生成かどうかを示す`system_generated`列（既定値は偽）が含まれ、本設計もこの列を利用する
-- 既存データとの整合性を維持する方が安全である
+### `GET /api/v1/teacher/announcements/:id`
+
+- Request: パスパラメータ `id`
+- Response: 最上位が単体のオブジェクト。`id`・`title`・`content`・`published_at`・`publisher`
+- Status Code: 正常系 `200`。異常系 `404`・`422`・`401`・`403`・`500`
+- Error Response方針: `404`は`{"message": "..."}`、それ以外は`{"errors": [...]}`
+
+### `GET /api/v1/teacher/announcements/new`
+
+- Request: クエリパラメータ `keyword`（任意）・`page`（任意）・`per_page`（任意）
+- Response: `grades`・`user_roles`・`students`（`items`と`meta`の入れ子）・`own_grade_restriction`
+- Status Code: 正常系 `200`。異常系 `401`・`403`・`500`
+
+### `GET /api/v1/teacher/announcements/:id/edit`
+
+- Request: パスパラメータ `id`
+- Response: `{"announcement": {...}, "announcement_targets": [...]}`。配信先のユーザー個別には`user_name`を含む
+- Status Code: 正常系 `200`。異常系 `404`（他の教員のもの・存在しない・**配信済み**）・`422`・`401`・`403`・`500`
+
+### `POST /api/v1/teacher/announcements`
+
+- Request: ボディ `announcement`（`title`・`content`・`status`・`scheduled_at`・`announcement_targets`）
+- Response: `{"message": "...", "announcement_id": N}`。メッセージは状態に応じて3種類（①「5. API / 処理詳細」`#create`）
+- Status Code: 正常系 `201`。異常系 `422`・`400`・`401`・`403`・`500`
+
+### `PATCH /api/v1/teacher/announcements/:id`
+
+- Request: パスパラメータ `id`、ボディ `announcement`（作成と同じ項目）
+- Response: `{"message": "お知らせを更新しました。"}`
+- Status Code: 正常系 `200`。異常系 `422`・`404`・`400`・`401`・`403`・`500`
+
+## Railsとの差分
+
+フロントエンドを変更しない方針のため、URL・HTTPメソッド・レスポンス項目名・HTTPステータスは変更しない。**差分はない。**
+
+### 変更しないもの（Rails現行の振る舞いを踏襲する点）
+
+以下はRails現行の振る舞いとして不合理に見えるが、レスポンスが変わるため本移行では変更しない。Rails側の修正課題として別に管理する。
+
+|項目|Rails現行の振る舞い|
+|-|-|
+|配信済みの編集の扱いが経路で異なる|編集フォームの取得は`404`、更新は`422`（①「5. API / 処理詳細」`#edit`・`#update`）|
+|`authored`タブの並び順|配信日時の降順で並べるが、下書き・予約の配信日時は未設定であるため並び順が安定しない（同`#index`）|
+|タブでレスポンスの項目が変わる|同じURL・同じキー（`announcements`）で、項目が`status`・`scheduled_at`を含む形と`publisher`を含む形に切り替わる（同）|
+|自分が作成したお知らせの詳細が取得できない|`authored`タブの一覧に現れるお知らせでも、自分に配信されていなければ詳細は`404`（同`#show`）|
+|項目名が英語表記|`Title`・`Content`・`Status`・`Announcement targets`。日本語訳が定義されていない（同`#create`）|
+|`404`の本文のモデル名が英語表記|`{"message": "Announcementが見つかりません"}`（同`#show`）|
+|配信先の検証メッセージが同じ項目に重複しうる|同じ種類の配信先を複数指定し、いずれも不正な場合、同じメッセージが件数分返る（同`#create`）|
 
 ---
 
-# 18. テスト戦略
+# 20. DB設計方針
+
+- **現行DBを利用するか**: 利用する
+- **Schema変更有無**: なし
+- **変更理由**: 該当なし
+
+本Contextは`announcements`・`announcement_targets`を所有する（①「6. データモデル」）。いずれも既存のまま利用し、カラムの追加・変更・削除を行わない。
+
+Schema変更の候補として検討した点と、提案しない理由を記す。
+
+|検討した点|提案しない理由|
+|-|-|
+|`announcements`に論理削除の列を追加する|Rails現行は物理削除である（管理者お知らせ管理機能①「5. API / 処理詳細」`#destroy`）。論理削除に変えると、配信済みでないお知らせの削除後に一覧へ現れないようにする絞り込みが全経路に必要になる|
+|`announcement_targets`の種類ごとに必要な列へNOT NULL制約を追加する|種類によって使う列が変わるため、列単位の制約では表せない。CHECK制約で表す案もあるが、Rails現行が検証をアプリケーション側に持っており、制約を追加すると検証をすり抜けた場合のエラーがDBの制約違反（`500`）になる|
+|`announcements.content`の列の型を検証に合わせる|検証が10,000文字以内、列は65,535文字まで（①「5. API / 処理詳細」`#create`）。既存データに10,000文字超が存在する可能性があり、列を縮めると投入できなくなる|
+|配信範囲の突き合わせ用のインデックスを追加する|Rails現行が種類ごとに条件を分けて既存のインデックスを効かせる形を採っている（①「10. Rails実装対応表」）。追加の必要性は実測で判断すべきであり、本移行の範囲としない|
+
+---
+
+# 21. DB操作仕様
+
+「11. Repository設計」で整理した`AnnouncementRepository`が行う操作を整理する。
+
+|操作|対象テーブル|操作種別|主な検索条件|結合|ページネーション/ソート|
+|-|-|-|-|-|-|
+|Aggregateの保存（作成）|`announcements`, `announcement_targets`|作成|-|なし|不要|
+|Aggregateの保存（更新）|`announcements`, `announcement_targets`|更新・削除・作成|`announcements.id`|なし|不要|
+|識別子による取得|`announcements`, `announcement_targets`|参照|`id`|配信先を一括取得|不要|
+|識別子と発行者による取得|`announcements`, `announcement_targets`|参照|`id`, `publisher_id`|同|不要|
+|配信されたお知らせの検索|`announcements`, `announcement_targets`|参照|配信先の5種類それぞれの条件を満たすものを集め、重複を除いて結合。`status`が配信済み|発行者を一括取得|`published_at`降順・`id`降順、ページネーションあり|
+|発行者が作成したお知らせの検索|`announcements`|参照|`publisher_id`, `system_generated`が偽|なし|同|
+|発行者のロールによる検索|`announcements`, `users`, `user_roles`|参照|発行者のロールが管理者。`title`の部分一致、`status`|発行者・配信先を一括取得|`created_at`降順・`id`降順、ページネーションあり|
+|高校を配信先に含むお知らせの検索|`announcements`, `announcement_targets`|参照|配信先の`high_school_id`が一致。重複を除く|同|同|
+|予約日時を過ぎた予約の検索|`announcements`|参照|`status`が予約、`scheduled_at`が現在時刻以前|なし|不要|
+|Aggregateの削除|`announcements`, `announcement_targets`|削除|`announcements.id`|なし|不要|
+
+- 論理削除の列を持たないため、`deleted_at`による絞り込みは行わない
+- お知らせの削除では配信先も削除する。Aggregateの境界に含まれるためである（「5. Aggregate設計」）
+- 配信先の更新は全件削除と再作成で行う。差分更新を行わない（①「5. API / 処理詳細」`#update`）
+- 一覧・詳細で配信先・発行者をまとめて取得する。お知らせごとに個別に問い合わせるN+1を避ける
+- **発行者の在籍状態で絞り込まない。** 論理削除済みの発行者のお知らせも返る（①「6. データモデル」）
+- `users`・`user_roles`との結合は、発行者のロールによる絞り込みのみで行う。配信範囲の突き合わせでは、利用者の所属を**条件の値として**受け取り、`users`と結合しない
+
+**配信範囲の突き合わせで`users`と結合しない理由**: 突き合わせに必要なのは操作者の所属校・学年・ロールの値であり、これは`user`の参照手段から取得してUseCaseが保持する。本Contextから`users`を読むと、ユーザーの所属の定義を本Contextが抱えることになる（規約「5. Context間連携ルール」）。発行者のロールによる絞り込みだけは、管理者が発行したお知らせという対象の定義に必要であり、例外として結合する（管理者お知らせ管理機能②「21. DB操作仕様」）。
+
+具体的なSQL・GORMのクエリコードは③Go実装仕様書（`規約/Gorm規約.md`）で扱う。
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
-- 目的: Announcementの状態遷移ルール、公開日時の整合性、AnnouncementTargetingPolicyの対象妥当性判定を検証する
+目的: 状態遷移・配信先の制約・自校への絞り込みを、DBや他Contextから切り離して検証する。本機能のテストの中心をここに置く。
+
+重点を置く観点:
+
+- `AnnouncementStatus`: 許される遷移（下書き → 予約・配信済み、予約 → 配信済み）と許されない遷移（予約 → 下書き、配信済み → 任意）
+- `ScheduledAt`: 予約状態で未設定・過去日時を拒否すること、下書き・配信済みでは検証しないこと
+- `DeliveryTargetType`: 種類ごとに必要な項目、自校絞り込みの対象になる種類（全員・権限別）
+- `Announcement`: 配信済みで編集を拒否すること、配信済みになるとき配信日時が設定されること（既に設定済みなら上書きしないこと）、配信先が1件以上であること、配信先の全件入れ替え
+- `AnnouncementTarget`: 種類ごとの必要項目の検証、自校への絞り込みの適用（全員・権限別に所属校を付与、学校別は指定値ではなく所属校を使う）
+- `TargetDeliverabilityPolicy`: 他校の学年・ユーザーの拒否、学年制限がある場合の3つの制約（全員・権限別・学校別の拒否、学年別は自分の学年のみ、ユーザー個別は自分の学年の生徒のみ）、学年制限がない場合に制約が働かないこと
 
 ## UseCase Test
 
-- 目的: ListAnnouncementsUseCase / ShowAnnouncementUseCase / CreateAnnouncementUseCase / UpdateAnnouncementStatusUseCase の業務振る舞いを検証する
+目的: Repositoryと他Contextの参照手段を差し替え、手順と分岐を検証する。
+
+重点を置く観点:
+
+- `ListAnnouncements`: タブによって呼ぶ検索が変わること、`authored`でシステム生成を除外すること
+- `ShowAnnouncement`: 自分が作成したお知らせでも配信されていなければ不存在になること
+- `GetAnnouncementFormOptions`: 学年制限があるとき学年の選択肢がその学年のみになること、権限の選択肢から管理者・保護者が除かれること、本Contextのお知らせを読まないこと
+- `GetAnnouncementForEdit`: 他の教員のものが不存在になること、配信済みが不存在になること
+- `CreateAnnouncement`: 配信先の判定が呼ばれること、状態未指定で下書きになること、トランザクションの中で保存されること、判定に失敗したとき保存を呼ばないこと
+- `UpdateAnnouncement`: 他の教員のものが不存在になること、配信済みが業務ルール違反になること、配信先が全件入れ替えされること、排他ロックを取ること
 
 ## Repository Test
 
-- 目的: AnnouncementRepositoryによる閲覧可能条件の絞り込み、作成者絞り込み、ページネーションの正確性を検証する
+目的: 配信範囲の突き合わせと検索条件を、実際のDBに対して検証する。
+
+重点を置く観点:
+
+- **配信範囲の突き合わせ**: 5種類それぞれで配信される／されないこと
+  - 全員（高校未設定）がすべての利用者に届くこと
+  - 全員（高校設定済み）がその高校の利用者にのみ届くこと
+  - 権限別が権限の一致で届き、高校が設定されていればその高校に限られること
+  - 学年別が学年の一致で届き、権限が設定されていればその権限に限られること
+  - 学校別がその高校の利用者に届くこと
+  - ユーザー個別がその利用者にのみ届くこと
+  - **複数の配信先が条件を満たしても1件として返ること**
+- 配信済みのみが返ること（下書き・予約が含まれないこと）
+- 並び順（配信日時の降順、同値は識別子の降順）とページネーション
+- 発行者が論理削除済みのお知らせも返ること
+- `authored`の検索でシステム生成が除外されること、状態で絞り込まないこと
+- 発行者のロールによる検索で、教員が発行したお知らせが除かれること
+- 高校を配信先に含む検索で、重複が除かれること
+- Aggregateの保存で配信先が入れ替わること、削除で配信先も削除されること
 
 ## Handler Test
 
-- 目的: API入力のバリデーション結果とHTTPステータスの変換を検証する
+目的: HTTPの入出力とPresentation層の検証を確認する。
+
+重点を置く観点:
+
+- タブによってレスポンスの項目が変わること
+- `new`のレスポンスで生徒一覧のみが`items`と`meta`の入れ子になること
+- `edit`のレスポンスでユーザー個別の配信先に`user_name`が含まれ、それ以外では`null`になること
+- 作成のレスポンスで状態に応じたメッセージと識別子が返ること
+- 操作者をcontextから取り出し、リクエストから受け取らないこと
+- `422`の本文に複数のメッセージが含まれうること
+- `404`の本文が`message`キーであること
 
 ## Integration Test
 
-- 目的: エンドポイント経由での作成・状態更新・一覧取得が正しく連携して動作することを確認する
+目的: 認証・認可を含めたエンドポイントの振る舞いと、他Contextの参照手段を実装込みで通した結果を確認する。
+
+重点を置く観点:
+
+- 未認証で`401`、`teacher`以外のロールで`403`
+- 作成したお知らせが、配信先に一致する生徒の一覧に現れること
+- **教員が作成したお知らせが他校の利用者に届かないこと**（全員・権限別を指定した場合も）
+- 学年制限のある教員が、全員・権限別・学校別を指定して`422`になること
+- 学年制限のある教員が、自分の学年の学年別・自分の学年の生徒のユーザー個別を指定して成功すること
+- 他校の学年・ユーザーを指定して`422`になること
+- 更新で配信先が入れ替わり、以前の配信先の利用者に届かなくなること
+- 配信済みのお知らせの編集フォーム取得が`404`、更新が`422`になること
+- 予約で作成したお知らせが、予約日時を過ぎると配信済みになること（管理者お知らせ管理機能②「18. Domain Event」の自動切替）
+
+**教員が作成したお知らせが他校に届かないことは、配信先への所属校の付与が効いているかを確かめるものである。** 付与を忘れると全校に届くため、Integration Testで必ず確認する。
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
-| Rails | Go | 設計方針 |
-|---|---|---|
-| Controller | Handler | HTTP入出力のみを担当する |
-| Form（CreateAnnouncementForm） | Request DTO + Presentation Validation | 入力形式の検証を分離する |
-| Form内の業務ルール検証（own_grade/同校チェック） | AnnouncementTargetingPolicy（Domain Service） | 業務ルールをドメイン層に集約する |
-| Service（CreateAnnouncementService） | UseCase | 作成処理の起点として扱う |
-| Model（Announcement）の状態遷移バリデーション | Announcement Entity | 状態遷移ルールをEntityの責務として明確化する |
-| Model（AnnouncementTarget） | AnnouncementTarget Entity | 対象指定の保持責務として整理する |
-| Scope（for_user） | AnnouncementVisibilityPolicy + Repository検索条件 | 閲覧条件の意味をドメインで定義し、実行はRepositoryに委ねる |
-| Serializer | Presenter / Response DTO | レスポンス整形をPresentation層に分離する |
+|Rails|Go|設計方針|
+|-|-|-|
+|`Api::V1::Teacher::AnnouncementsController`|Handler|HTTP責務のみ担当。6つのアクションに対応するメソッドを持つ|
+|`TeacherStudentsScope`（Controller Concern）|`student-directory`の参照手段の呼び出し|生徒一覧の取得を所有Contextへ委ねる|
+|`Teacher::CreateAnnouncementForm` / `UpdateAnnouncementForm`|Request DTO + UseCase + Domain|形式の検証はRequest DTO、業務ルールはDomain、手順はUseCaseへ分ける|
+|`AnnouncementTargetsValidatable`（Form Concern）|`TargetDeliverabilityPolicy` + `AnnouncementTarget`|「種類ごとに必要な項目が揃っているか」は配信先自身、「実在するか・自校か」は外部情報を要するためDomain Service|
+|`AnnouncementTargetGradeScopeValidatable`（Form Concern）|`TargetDeliverabilityPolicy`|学年制限の制約。外部情報（学年制限）を引数で受け取る|
+|`Teacher::CreateAnnouncementService`（`school_scoped?`を真に上書き）|`AnnouncementTarget.ScopeToHighSchool`|自校への絞り込みを、継承による振る舞いの切り替えではなく、配信先に所属校を適用する操作として表す|
+|`Teacher::UpdateAnnouncementService`|`UpdateAnnouncement` UseCase + `Announcement.ReplaceTargets`|配信先の全件入れ替えをAggregateの操作として表す。排他ロックはUseCaseが取る|
+|`Common::AnnouncementCreateService`|`CreateAnnouncement` UseCase + Aggregate|3機能で共有される作成の手順。継承で振る舞いを変える形をやめ、引数で渡す|
+|`Common::BuildAnnouncementTargetAttributesService`|`AnnouncementTarget`の組み立て|配信先1件の属性の決め方を配信先自身に持たせる|
+|`Common::CreateSystemAnnouncementService`|本Contextが公開する「システム生成のお知らせの作成」|他Contextから呼ばれる操作として公開する（「11. Repository設計」）|
+|`StatusTransitionValidatable`（Model Concern）|`AnnouncementStatus.CanTransitionTo`|状態遷移の規則を値に持たせる|
+|`Announcement`（Model）|`Announcement` Entity + GORMモデル|EntityとGORMモデルを分ける（規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）。`for_user`はRepositoryの検索へ|
+|`AnnouncementTarget`（Model）|`AnnouncementTarget` Entity + GORMモデル|同|
+|`AnnouncementSerializer` / `AuthoredAnnouncementSerializer` / `Teacher::AnnouncementEditSerializer` / `Teacher::AnnouncementTargetSerializer`|Response DTO|Entityをそのまま返さず、Response DTOへ変換する（規約「6. データフロー」）。項目名はRails現行と同一にする|
 
----
-
-# 20. 採用しなかった設計
-
-## Transaction Script
-
-- 採用しなかった理由: 状態遷移と対象指定ルールが複数の判定にまたがり、手続き型で書くとロジックが重複・分散しやすいため
-- 将来的に採用する可能性: 機能が大幅に単純化された場合には再検討できるが、現状は見込みが低い
-
-## Active Record
-
-- 採用しなかった理由: 状態遷移の妥当性・対象指定の業務ルールをモデル属性の検証だけに任せると、責務が肥大化し保守性が低下するため
-- 将来的に採用する可能性: 状態・対象ルールが撤廃され単純な掲示板的機能になった場合は検討の余地がある
-
-## Event Sourcing
-
-- 採用しなかった理由: 状態遷移の履歴管理・監査要件が現時点で存在しないため
-- 将来的に採用する可能性: 公開履歴の監査要件が生じた場合に有効な可能性がある
+Rails現行は、同じ「配信先が妥当か」という判断をFormのConcern2つに分け、「自校に絞り込む」という処理をServiceの継承で表している。Go設計では、配信先1件の妥当性を配信先Entityに、外部情報を要する判定をDomain Serviceに、自校への絞り込みを配信先の操作に置く。判断の置き場所を「何に依存するか」で分ける。
 
 ---
 
-# 21. 設計判断サマリー
+# 24. 採用しなかった設計
 
-| 項目 | 採用 | 判断理由 |
-|---|---|---|
-| 設計パターン | Domain Model | 状態遷移ルールと対象指定の業務ルールが明確に存在するため |
-| Aggregate | Announcement + AnnouncementTarget | 対象指定はお知らせに従属し、単独では存在しないため |
-| Transaction境界 | UseCase単位 | 作成・更新それぞれが1つの整合性単位であるため |
-| Domain Service | AnnouncementTargetingPolicy / AnnouncementVisibilityPolicy | 複数Context・複数Entityにまたがる判定を分離するため |
-| Domain Event | 未採用 | 現時点で他処理への非同期通知要件がない |
-| Value Object | 採用（Status/日時/対象条件） | 状態遷移と対象条件の妥当性を型として表現するため |
-| Authorization | Middleware + UseCase + Domain | 認証・所有権確認・業務ルール判定を層ごとに分離するため |
+## 配信先をValue Objectとして扱う
+
+- 採用しなかった案: `AnnouncementTarget`を識別子を持たないValue Objectとし、お知らせの属性の一部として扱う
+- 採用しなかった理由: 編集フォームのレスポンスに配信先の識別子を含める（①「5. API / 処理詳細」`#edit`）。識別子を返す以上、識別子を持つ実体として扱う必要がある。また配信先はテーブルの行として独立して存在する
+- 将来的に採用する可能性: 低い。フロントエンドが識別子を使わなくなれば検討できるが、現状では返す必要がある
+
+## 「自分に配信されたか」の判定をDomain Serviceにする
+
+- 採用しなかった案: お知らせと利用者を受け取り、配信されたかを判定するDomain Serviceを設ける
+- 採用しなかった理由: 一覧を返すには、該当するお知らせを絞り込んだ上でページネーションする必要がある。全件を読み込んで判定すると、件数が増えたときに成立しない。Rails現行も検索条件として表現しており（①「10. Rails実装対応表」）、同じ形を採る
+- 将来的に採用する可能性: 低い。ただし「このお知らせはこの利用者に届くか」を1件だけ判定する要件が生じた場合は、検索条件と同じ規則をDomain Serviceにも置くことになる。その場合は規則が2か所になるため、どちらを正とするか決める必要がある
+
+## 自校への絞り込みをUseCaseで行う
+
+- 採用しなかった案: 配信先を組み立てる段階でUseCaseが所属校を付与する
+- 採用しなかった理由: どの種類に付与するかという規則（全員・権限別のみ）が、UseCaseに置かれると3機能で重複する。管理者が作成するお知らせでは付与しないという違いも、規則の有無としてではなく呼び出し方の違いとして表せる
+- 将来的に採用する可能性: 低い
+
+## 配信先を差分更新する
+
+- 採用しなかった案: 更新時に、追加された配信先のみ作成し、削除された配信先のみ削除する
+- 採用しなかった理由: Rails現行が全件入れ替えである（①「5. API / 処理詳細」`#update`）。差分更新にすると、配信先の識別子が維持されるかどうかが変わる。編集フォームが識別子を返しているため、フロントエンドが識別子を保持している可能性がある
+- 将来的に採用する可能性: ある。配信先の件数が多くなった場合は、全件削除・再作成の負荷が問題になりうる
+
+## 予約配信をDomain Eventで表す
+
+- 採用しなかった案: 予約日時に達したことをイベントとして発火し、購読側が状態を変える
+- 採用しなかった理由: 「予約日時に達した」という出来事を観測する仕組みが必要であり、結局は定期的な検索になる。イベントの発火元が時刻であるため、Domain Eventの形に合わない
+- 将来的に採用する可能性: 低い。設計は管理者お知らせ管理機能②「18. Domain Event」に記載する
+
+## タブごとにURLを分ける
+
+- 採用しなかった案: `/teacher/announcements`（受信）と`/teacher/announcements/authored`（作成分）に分ける
+- 採用しなかった理由: URLが変わりフロントエンドの変更が必要になる。レスポンスの項目がタブごとに異なる点はURLを分けると素直になるが、フロントエンドを変更しない方針を優先する
+- 将来的に採用する可能性: ある。フロントエンドを変更できる段階で、タブごとのURLとレスポンス型が1対1になる形へ整理する価値はある
 
 ---
 
-# 設計差分管理
+# 25. 設計判断サマリー
 
-## Rails現行仕様
-
-- CreateAnnouncementForm（入力検証＋一部業務ルール）とCreateAnnouncementService（永続化）にロジックが分散している
-- Announcementモデル内に状態遷移バリデーションが実装されている
-- 対象指定の妥当性判定（own_grade制約・同校制約）がForm内のprivateメソッドとして実装されている
-
-## Go設計での変更内容
-
-- 入力形式検証をPresentation層に寄せる
-- 対象指定の業務ルール判定をAnnouncementTargetingPolicy（Domain Service）に集約する
-- 状態遷移ルールをAnnouncement Entityの責務として明確化する
-- 永続化と検索条件の実行をAnnouncementRepositoryに集約する
-
-## 変更理由
-
-- Rails実装ではForm/Service/Modelに業務ルールが分散しており、ルール変更時の影響範囲が把握しにくい
-- Go設計では、状態遷移はEntity、対象指定の妥当性はDomain Serviceに責務を集約することで、業務ルール変更時の修正箇所を明確にし、保守性・テスト容易性を高める
-
-## 影響範囲
-
-- フロントエンドから見たAPI外部仕様は維持する
-- 既存DBスキーマは維持するため、データ移行は不要
+|項目|採用|判断理由|
+|-|-|-|
+|Bounded Context|`announcement`|3機能が同じお知らせと配信先を扱い、利用者ロールが違うだけであるため分けない（規約「4. Bounded Context構成」）|
+|Contextの構成|Domain Model|採用されている最も複雑なパターンに合わせる（同）。お知らせ機能の参照処理もusecase層を経由する|
+|Domain層の正本|**本書**|配信先の5種類と学年制限という最も複雑な業務ルールを本機能が扱うため|
+|設計パターン|Domain Model|状態遷移があり、複数の業務ルールがEntityに関連する（②Go移行・設計仕様書_自動生成プロンプトの「Domain Model採用基準」）|
+|Aggregate|`Announcement`（配信先を含む）|配信先が1件以上あること、配信先の全件入れ替え、削除時の連鎖を1つの境界で保証するため|
+|Entity|`Announcement`・`AnnouncementTarget`|配信先は識別子を返す必要があるためEntityとする|
+|Value Object|`AnnouncementStatus`・`ScheduledAt`・`DeliveryTargetType`|遷移の規則・未来日時の規則・種類ごとの必要項目が値に属するため|
+|Domain Service|`TargetDeliverabilityPolicy`|判定に外部情報（所属校・学年制限・指定された学年とユーザーの属性）を要し、Entityに持たせると他Contextへの依存をDomain層が抱えるため|
+|配信範囲の突き合わせ|Repositoryの検索条件|全件を読み込んで判定すると件数が増えたときに成立しないため|
+|自校への絞り込み|配信先Entityの操作|どの種類に付与するかの規則を1か所に保つため|
+|Transaction境界|UseCase単位（作成・更新）|お知らせと配信先の複数の書き込みにまたがるため|
+|Domain Event|未採用|他の処理へ波及させる状態変化がない。予約配信も定期的な検索であるため|
+|所有権の確認|Repositoryの検索条件|他の教員のお知らせを`404`とするRails現行の振る舞いに合わせるため|
+|生徒一覧|`student-directory`へ委譲|画面向けの一覧であり、ユーザー基盤機能②の方針に揃えるため|
+|学年制限|`teacher-permission`へ参照|制限の有無を定義しているのが同Contextであるため|
+|API互換性|URL・項目名・ステータスを維持。差分なし|フロントエンドを変更しない方針。不合理な振る舞いもRails側の修正課題として別管理とする|
+|Schema変更|なし|現行の振る舞いを維持する範囲では変更が不要|
