@@ -483,7 +483,7 @@ Rails現行仕様も「`current_user`本人のタスク・単元・学習ログ�
 |`student`ロールでない|Forbidden|Middleware|403|
 |DB接続・永続化の失敗|Internal|Infrastructure → Application（変換）|500|
 
-完了済みの学習ログへの再完了を**400**とするのは、Rails現行が`Student::AlreadyCompletedStudyLogError`を`Api::V1::Student::BaseController`の`rescue_from`で捕まえ、400で返しているためである（①「5. API / 処理詳細」`#update`）。業務ルール違反としては422が自然だが、フロントエンドを変更しない方針を優先する。規約「15. API規約」も「Rails現行が上記と異なるステータスを返す機能は、互換を優先し、②で明記した上で維持する」としている。
+完了済みの学習ログへの再完了を**400**とするのは、Rails現行が`Student::AlreadyCompletedStudyLogError`を`Api::V1::Student::BaseController`の`rescue_from`で捕まえ、400で返しているためである（①「5. API / 処理詳細」`#update`）。業務ルール違反としては422が自然だが、フロントエンドを変更しない方針を優先する。規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」も「Rails現行が上記と異なるステータスを返す機能は、互換を優先し、②で明記した上で維持する」としている。
 
 ## エラーレスポンスの本文
 
