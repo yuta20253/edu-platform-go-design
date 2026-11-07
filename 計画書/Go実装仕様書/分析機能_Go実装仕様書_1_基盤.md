@@ -452,6 +452,10 @@ GORMを用いる実装を一切持たないため、`*gorm.DB`を受け取る構
 |`study_log_directory.go`|`studyLogDirectory`＋`NewStudyLogDirectory(studyLogContext *studylog.Context) learninganalytics.StudyLogDirectory`|`StudyLogDirectory`|
 |`answer_stats_directory.go`|`answerStatsDirectory`＋`NewAnswerStatsDirectory(qaContext *questionanswering.Context) *answerStatsDirectory`|`AnswerRateDirectory`・`UnitAnswerStatsDirectory`・`CourseAnswerStatsDirectory`・`RankAnswerStatsDirectory`|
 |`curriculum_directory.go`|`curriculumDirectory`＋`NewCurriculumDirectory(curriculumContext *curriculum.Context) learninganalytics.CurriculumDirectory`|`CurriculumDirectory`|
+
+`curriculumDirectory.FindUnitHierarchies`は、`curriculum`が公開する`FindUnitsByIDs`（単元名・コースの識別子・レベル番号・レベル名）と`FindCourseSubjects`（コースの識別子からの教科）の2つを呼び、コースの識別子で突き合わせて`UnitHierarchy`を組み立てる。`curriculum`側に単元から教科までを一度に返す専用の操作を設けないのは、`FindUnitsByIDs`が既に公開されており、同じ項目を返す操作を重ねて持たないためである（コース参照機能③「6. Application層設計」の「呼び出し側の型との対応」）。
+
+これは例外的に、アダプタが委譲と型変換に加えて2つの結果の突き合わせを行う。`curriculum`側の操作をこの1件のために増やすより、消費者側で組み立てる方が影響が小さいためである。`FindCourseSubjects`で教科が引けなかったコースに属する単元は、結果に含めない。
 |`user_directory.go`|`userDirectory`＋`NewUserDirectory(userContext *user.Context) *userDirectory`|`GradeDirectory`・`ActiveUserDirectory`|
 
 1つのstructが複数のインターフェースを満たす場合（`answer_stats_directory.go`・`user_directory.go`）は、コンストラクタの戻り値をインターフェースにできないため具象型を返す。コーディング規約「7. インターフェース」の「実装側は可能な限り具象型を返す」に沿う。インターフェースを満たすことはブランク識別子への代入でコンパイル時に検証する（同「コンパイル時のインターフェース充足チェック」）。
@@ -745,7 +749,21 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 |`task-management`|全期間のタスク件数・完了件数、期限日の範囲によるタスク件数・完了件数、ユーザー集合のタスク件数・完了件数|
 |`study-log`|学習した日（日本時間の日付）の一覧、期間内の日別学習時間合計|
 |`question-answering`|全期間の解答数・正答数、ユーザー集合の解答数・正答数、コースと単元の組ごとの解答数・正答数（最初の解答日時を含む）、期間内のコースごとの解答数・正答数、指定コース／単元のユーザーごとの解答数・正答数|
-|`curriculum`|単元IDからの階層（単元名・コース名・レベル番号・教科ID・教科名）、コースIDからの教科|
+|`curriculum`|コースIDからの教科（`FindCourseSubjects`）。単元名・コース名・レベル番号は既存の`FindUnitsByIDs`で得られるため、単元の階層専用の操作は設けない|
 |`user`|学年の年次、年次に属するユーザーID、在籍中ユーザーへの絞り込み|
 
-いずれも**参照のみ**であり、所有Contextの状態を変更しない。シグネチャは各所有Contextの③で確定する。分析が論理削除済みの解答履歴を含めて集計する点（他機能と扱いが異なる）は、`question-answering`側の参照手段に明記する必要がある。
+いずれも**参照のみ**であり、所有Contextの状態を変更しない。分析が論理削除済みの解答履歴を含めて集計する点（他機能と扱いが異なる）は、`question-answering`側の参照手段に明記する必要がある。
+
+所有Context側で確定した公開操作名は次のとおりである。アダプタはこれらを呼ぶ。
+
+|本Contextのインターフェース|所有Contextの公開操作|
+|-|-|
+|`TaskStatsDirectory.CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`|`task-management`の同名の3操作（タスク管理機能③「8. Infrastructure層設計」）|
+|`StudyLogDirectory.FindStudiedDates` / `SumStudyMinutesByDate`|`study-log`の同名の2操作（学習ログ機能③「8. Infrastructure層設計」）|
+|`AnswerRateDirectory.CountAnswers` / `CountAnswersForUsers`|`question-answering`の同名の2操作（問題解答機能③基盤編「8. Infrastructure層設計」）|
+|`UnitAnswerStatsDirectory.AggregateAnswersByUnit`|`question-answering`の`AggregateAnswersByUnit`（同）|
+|`CourseAnswerStatsDirectory.AggregateAnswersByCourse`|`question-answering`の`AggregateAnswersByCourse`（同）|
+|`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `ForUnit`|`question-answering`の同名の2操作（同）|
+|`CurriculumDirectory.FindCourseSubjects`|`curriculum`の`FindCourseSubjects`（コース参照機能③「6. Application層設計」）|
+|`CurriculumDirectory.FindUnitHierarchies`|`curriculum`の`FindUnitsByIDs`と`FindCourseSubjects`をアダプタが組み合わせる（上記「他Contextの参照手段の実装（アダプタ）」）|
+|`GradeDirectory` / `ActiveUserDirectory`の3操作|`user`が公開する操作。**同Contextの②③にまだ反映していない**|
