@@ -8,7 +8,7 @@
 
 会員登録・プロフィール編集・生徒登録などの入力フォームが選択肢として必要とする共通マスタ（都道府県・住所・在籍高校・学年）を参照できるようにする機能である（②「1. 機能概要」）。エンドポイントは4つで、いずれも参照のみである。
 
-加えて、**他Contextが高校・学年・住所の実在確認や属性の取得に使う窓口**でもある。公開する参照手段は5つで、11のContextから呼ばれる（②「3. Bounded Context」の依存集約表）。
+加えて、**他Contextが高校・学年・住所の実在確認や属性の取得に使う窓口**でもある。公開する参照手段は6つで、12のContextから呼ばれる（②「3. Bounded Context」の依存集約表）。
 
 ## 採用設計パターンとその理由（②からの要約）
 
@@ -23,7 +23,7 @@
 - `context.go`（依存関係の組み立てと公開操作）・`dependency.go`（他Contextへ渡す型）
 - `infrastructure/gormquery/`配下のGORMモデルと4つの検索
 - application層のうち、エンドポイントと公開操作の両方が使う学年の表示名の変換
-- **他Contextへ公開する5つの参照手段**
+- **他Contextへ公開する6つの参照手段**
 
 エンドポイントごとのapplication関数・Handler・Request / Response DTO・ルーティングは`共通マスタ参照機能_Go実装仕様書_2_エンドポイント.md`で扱う。
 
@@ -75,7 +75,7 @@ internal/masterdata/presentation/response/
 |`internal/masterdata/application/grade_display_name.go`|1（本書）|年次から表示名への変換|
 |`internal/masterdata/application/high_school_directory.go`|1（本書）|高校の属性の取得（公開）|
 |`internal/masterdata/application/grade_directory.go`|1（本書）|学年の属性の取得・高校配下の学年一覧・年次による検索（公開）|
-|`internal/masterdata/application/address_directory.go`|1（本書）|住所の属性の取得（公開）|
+|`internal/masterdata/application/address_directory.go`|1（本書）|住所の属性の取得・住所の候補検索（公開）|
 |`internal/masterdata/infrastructure/gormquery/models.go`|1（本書）|4テーブルのGORMモデルと結合結果の型|
 |`internal/masterdata/infrastructure/gormquery/prefecture_query.go`|1（本書）|都道府県の検索|
 |`internal/masterdata/infrastructure/gormquery/address_query.go`|1（本書）|住所の検索|
@@ -104,7 +104,7 @@ internal/masterdata/presentation/response/
 
 |文書|担当|実装|テスト込みの目安|
 |-|-|-|-|
-|`共通マスタ参照機能_Go実装仕様書_1_基盤.md`|GORMモデル・4つの検索・表示名の変換・公開する5操作・`context.go`・`dependency.go`・実装方針|11|19|
+|`共通マスタ参照機能_Go実装仕様書_1_基盤.md`|GORMモデル・4つの検索・表示名の変換・公開する6操作・`context.go`・`dependency.go`・実装方針|11|19|
 |`共通マスタ参照機能_Go実装仕様書_2_エンドポイント.md`|4つのエンドポイントのapplication関数・Presentation層・ルーティング|14|21|
 
 Handlerは3つになるが、スライスに割るといずれもテスト込みで6〜9にとどまり小さすぎるため、1つの文書にまとめる（同プロンプト「スライスの切り方」の「小さすぎる場合は複数のHandlerを1つのスライス編にまとめてください」）。
@@ -174,6 +174,18 @@ classDiagram
         +*string Town
         +*uint PrefectureID
     }
+    class AddressCandidate {
+        +uint ID
+        +string PostalCode
+        +string City
+        +*string Town
+        +*PrefectureRef Prefecture
+    }
+    class PrefectureRef {
+        +uint ID
+        +string Name
+    }
+    AddressCandidate --> PrefectureRef
 
     class Context {
         +FindHighSchools(ctx, []uint) ([]HighSchoolRef, error)
@@ -181,6 +193,7 @@ classDiagram
         +FindGradesByHighSchoolID(ctx, uint) ([]GradeRef, error)
         +FindGradeIDsByYear(ctx, int) ([]uint, error)
         +FindAddresses(ctx, []uint) ([]AddressRef, error)
+        +SearchAddressCandidates(ctx, uint, string, string) ([]AddressCandidate, error)
     }
 
     Context ..> highSchoolQuery
@@ -189,6 +202,7 @@ classDiagram
     Context ..> HighSchoolRef
     Context ..> GradeRef
     Context ..> AddressRef
+    Context ..> AddressCandidate
 
     class displayNameOf {
         <<function>>
@@ -198,7 +212,7 @@ classDiagram
 
 本Contextはインターフェースを1つも定義しない。他Contextへ依存しないため、依存を差し替えるためのインターフェースが必要にならない（②「3. Bounded Context」）。コーディング規約「7. インターフェース」は「インターフェースは利用するパッケージ側で定義する」と定めており、本Contextを利用する側が自身の`dependency.go`に定義する。
 
-`Context`が5つの公開操作を直接持つのは、委譲するだけで手続きを持たないためである。公開操作ごとにstructを設けない。
+`Context`が6つの公開操作を直接持つのは、委譲するだけで手続きを持たないためである。公開操作ごとにstructを設けない。
 
 ---
 
@@ -251,7 +265,7 @@ classDiagram
 
 ## 他Contextへ公開する参照手段
 
-②「11. Repository設計」の「他Contextへ公開する参照手段」の5つである。いずれも検索を呼び、表示名の変換を添えるだけである。
+②「11. Repository設計」の「他Contextへ公開する参照手段」の6つである。いずれも検索を呼び、表示名の変換を添えるだけである。
 
 ### 高校の属性の取得（`application/high_school_directory.go`）
 
@@ -302,11 +316,12 @@ classDiagram
 
 `GradeRef`に所属高校の識別子を含めるのは、呼び出し元が「この学年はこの高校に属するか」を突き合わせで判定するためである（②「3. Bounded Context」）。
 
-### 住所の属性の取得（`application/address_directory.go`）
+### 住所の属性の取得・住所の候補検索（`application/address_directory.go`）
 
 |項目|内容|
 |-|-|
 |関数|`FindAddresses(ctx context.Context, ids []uint) ([]AddressRef, error)`|
+||`SearchAddressCandidates(ctx context.Context, prefectureID uint, city, town string) ([]AddressCandidate, error)`|
 |受け取る依存|住所の検索|
 
 処理ステップ:
@@ -317,7 +332,19 @@ classDiagram
 
 論理削除済みを除外しない理由は②「11. Repository設計」の「公開操作における論理削除の扱い」に記載のとおりである。実在確認の用途で除外すると、論理削除済みの住所を既に参照しているユーザーのプロフィール更新が通らなくなる。
 
-都道府県との結合を行わない。呼び出し元（`profile`）が都道府県名を必要としないため、都道府県の識別子までを返す（②「21. DB操作仕様」）。
+`FindAddresses`は都道府県との結合を行わない。呼び出し元（`profile`）が都道府県名を必要としないため、都道府県の識別子までを返す（②「21. DB操作仕様」）。
+
+`SearchAddressCandidates`の処理ステップ:
+
+1. 住所の検索（`addressQuery.Search`）で、都道府県・市区町村・町域の条件に一致する住所を取得する。**エンドポイントの住所検索と同じ検索を使う**
+2. `AddressCandidate`へ変換して返す。都道府県が未設定の住所では`Prefecture`を`nil`とする
+3. `nil`の場合は空スライスにする
+
+**都道府県が未指定であることの検証を行わない。** 呼び出し元（`admin-account-management`）のPresentation層が`400`を返す（管理者管理者ユーザー機能②「15. Validation設計」）。本Contextは`uint`で受け取り、必ず指定された状態で呼ばれる前提とする。`400`の文言（「都道府県は必須です。」）を呼び出し元と本Contextの2か所に持たないため、文言は呼び出し元が持つ。
+
+`AddressCandidate`が都道府県の名称を含むのは、呼び出し元が住所候補の表示に使うためである（管理者管理者ユーザー機能②「12. UseCase設計」）。`AddressRef`と型を分けるのは、`profile`の実在確認が名称を必要とせず、公開範囲を最小に保つためである（②「2. 設計方針」）。
+
+**エンドポイント（`/api/v1/addresses`）と公開操作（`admin-account-management`経由の`/api/v1/admin/addresses`）が同じ検索を使う。** 条件の組み立てと論理削除の扱いが1か所に残る（②「24. 採用しなかった設計」の「`/api/v1/admin/addresses`を本Contextのエンドポイントとして持つ」）。
 
 トランザクションは使用しない（②「14. Transaction設計」、「11. Transaction実装方針」）。
 
@@ -517,6 +544,8 @@ NULL可のカラムはポインタとする。
 |`HighSchoolRef`|`ID uint`・`Name string`・`PrefectureID uint`・`SchoolCode *string`・`CSVManaged bool`|`authentication`・`user`・`account-linking`・`teacher-management`|
 |`GradeRef`|`ID uint`・`HighSchoolID uint`・`Year int`・`DisplayName string`|`authentication`・`teacher-management`・`student-directory`・`student-import`・`school-class`・`learning-analytics`・`school-directory`|
 |`AddressRef`|`ID uint`・`PostalCode string`・`City string`・`Town *string`・`PrefectureID *uint`|`profile`|
+|`AddressCandidate`|`ID uint`・`PostalCode string`・`City string`・`Town *string`・`Prefecture *PrefectureRef`|`admin-account-management`|
+|`PrefectureRef`|`ID uint`・`Name string`|同（`AddressCandidate`に含まれる）|
 
 `HighSchoolRef`に`SchoolCode`を含めるのは、`user`が生徒番号の発行に必要とするためである（ユーザー基盤機能②「10. master-dataの公開参照における学校コードの取得（決定済み）」）。本機能のエンドポイントのレスポンスには含めない（②「2. 設計方針」）。
 
@@ -524,7 +553,9 @@ NULL可のカラムはポインタとする。
 
 `GradeRef`に`DisplayName`を含めるのは、年次と名称の対応規則を本Contextに閉じ込めるためである（②「7. Value Object設計」）。
 
-`AddressRef`に`StreetAddress`を含めない。呼び出し元（`profile`の住所IDの実在確認）が必要としないためである。公開範囲を最小に保つ（②「2. 設計方針」）。
+`AddressRef`・`AddressCandidate`のいずれにも`StreetAddress`を含めない。`profile`の住所IDの実在確認も、`admin-account-management`の住所候補の表示も必要としないためである。公開範囲を最小に保つ（②「2. 設計方針」）。
+
+`AddressRef`と`AddressCandidate`を分けるのは、前者が都道府県の識別子までを返し、後者が名称を含む点が異なるためである。1つの型にまとめて名称を任意にすると、どの呼び出し元で名称が入るのかが型から読めなくなる。
 
 いずれの型も`DeletedAt`を含めない。論理削除の状態を呼び出し元に判断させないためである。住所については論理削除済みも返す仕様であり、呼び出し元は区別せずに扱う（②「11. Repository設計」）。
 
@@ -535,10 +566,10 @@ NULL可のカラムはポインタとする。
 |項目|内容|
 |-|-|
 |関数|`NewContext(db *gorm.DB) *Context`|
-|組み立てる内容|4つの検索を生成し、application層の関数（表示名の変換・公開操作・エンドポイントの操作）へ注入する。3つのHandlerへ注入する|
+|組み立てる内容|4つの検索を生成し、application層の関数（表示名の変換・6つの公開操作・エンドポイントの操作）へ注入する。3つのHandlerへ注入する|
 |公開するもの|ルーティング登録に必要な3つのHandlerと、他Contextへ公開する5つの操作|
 
-`*gorm.DB`のみを受け取る。**他Contextへの依存を引数に取らない。** 本Contextが他Contextへ依存しないためである（②「3. Bounded Context」）。そのため`main.go`での組み立て順は、本Contextを参照する11のContextより**先**になる。
+`*gorm.DB`のみを受け取る。**他Contextへの依存を引数に取らない。** 本Contextが他Contextへ依存しないためである（②「3. Bounded Context」）。そのため`main.go`での組み立て順は、本Contextを参照する12のContextより**先**になる。
 
 公開する操作は`Context`のメソッドとして定める。
 
@@ -549,6 +580,7 @@ NULL可のカラムはポインタとする。
 |`FindGradesByHighSchoolID(ctx context.Context, highSchoolID uint) ([]GradeRef, error)`|`application.FindGradesByHighSchoolID`|
 |`FindGradeIDsByYear(ctx context.Context, year int) ([]uint, error)`|`application.FindGradeIDsByYear`|
 |`FindAddresses(ctx context.Context, ids []uint) ([]AddressRef, error)`|`application.FindAddresses`|
+|`SearchAddressCandidates(ctx context.Context, prefectureID uint, city, town string) ([]AddressCandidate, error)`|`application.SearchAddressCandidates`|
 
 いずれも委譲するだけである。業務ルールを持たない。認可も行わない。HTTPを経由せず他Contextから呼ばれ、どの対象を取得するかは呼び出し元が決めている（②「16. Authorization設計」）。
 
@@ -742,6 +774,15 @@ Transaction Script採用のため、application関数内のガード節で検証
 ||`PrefectureID`が未設定の住所で`nil`になること|
 ||`StreetAddress`を返さないこと|
 ||空の集合で検索を呼ばずに空スライスを返すこと|
+|`SearchAddressCandidates`|都道府県・市区町村・町域が検索へそのまま渡ること|
+||エンドポイントの住所検索と同じ検索（`addressQuery.Search`）を呼ぶこと|
+||都道府県の名称が`Prefecture`に入ること|
+||都道府県が未設定の住所で`Prefecture`が`nil`になること|
+||`StreetAddress`を返さないこと|
+||**論理削除済みの住所も返ること**|
+||`city`・`town`が空文字のときもそのまま渡ること|
+||都道府県が未指定であることの検証を行わないこと（`uint`で受け取り、`0`でもそのまま検索へ渡すこと）|
+||0件のとき空スライス（`nil`ではない）を返すこと|
 
 ## Repository Test
 
@@ -790,6 +831,8 @@ Transaction Script採用のため、application関数内のガード節で検証
 |公開操作|`authentication`から高校・学年の属性の取得が呼ばれて正しい結果を返すこと|
 |公開操作|`user`から高校の属性の取得（学校コードを含む）が呼ばれて正しい結果を返すこと|
 |公開操作|`profile`から住所の属性の取得が呼ばれて正しい結果を返すこと|
+|公開操作|`admin-account-management`から住所の候補検索が呼ばれ、都道府県名を含む結果を返すこと|
+|公開操作|`/api/v1/addresses`（本Contextのエンドポイント）と`/api/v1/admin/addresses`（`admin-account-management`のエンドポイント）が同じ条件・同じ件数の結果を返すこと|
 |公開操作|`learning-analytics`から学年の属性の取得と年次による検索が呼ばれて正しい結果を返すこと|
 |公開操作|`school-directory`から高校配下の学年一覧が呼ばれ、年次の昇順で返ること|
 |公開操作|**呼び出し元が開始したトランザクションの内側で動作すること**（呼び出し元がロールバックしたときに本Contextの参照も同じ接続で行われていたこと）|
@@ -826,9 +869,21 @@ Transaction Script採用のため、application関数内のガード節で検証
 
 ## 5. `StreetAddress`を公開操作の戻り値に含めない
 
-- 判断した内容: `AddressRef`に番地（`street_address`）を含めない
-- 判断理由: 呼び出し元（`profile`の住所IDの実在確認）が必要としない。②「2. 設計方針」の「公開範囲を絞る」に従い、他の②が実際に必要としている項目に限る
-- 推測かどうか: **②からの補足**。②「11. Repository設計」は住所の属性として「識別子・郵便番号・市区町村・町域・所属都道府県の識別子」を挙げており、番地を含めていない。本書はそれに従う。`profile`が住所の表示に番地を必要とする場合は、同機能の③で追加の要求として挙がる
+- 判断した内容: `AddressRef`・`AddressCandidate`のいずれにも番地（`street_address`）を含めない
+- 判断理由: 呼び出し元（`profile`の住所IDの実在確認、`admin-account-management`の住所候補の表示）がいずれも必要としない。②「2. 設計方針」の「公開範囲を絞る」に従い、他の②が実際に必要としている項目に限る
+- 推測かどうか: **②からの補足**。②「11. Repository設計」は住所の属性として「識別子・郵便番号・市区町村・町域・所属都道府県の識別子」を挙げており、番地を含めていない。管理者管理者ユーザー機能②「12. UseCase設計」も住所候補の出力を「id・郵便番号・市区町村・町域・都道府県名」としている。本書はそれに従う
+
+## 8. `AddressRef`と`AddressCandidate`を分ける
+
+- 判断した内容: 住所の属性の取得と住所の候補検索で、戻り値の型を分ける。前者は都道府県の識別子まで、後者は都道府県の名称を含む
+- 判断理由: `profile`の実在確認は都道府県名を必要とせず、`admin-account-management`の候補表示は必要とする（②「11. Repository設計」）。1つの型にまとめて名称を任意にすると、どの呼び出し元で名称が入るのかが型から読めなくなる。公開範囲を最小に保つ方針（②「2. 設計方針」）とも合う
+- 推測かどうか: **②からの補足**。②は2つの公開操作が返す内容を分けて記載しているが、型を分けるかまでは定めていない
+
+## 9. 住所の候補検索で都道府県の必須チェックを行わない
+
+- 判断した内容: `SearchAddressCandidates`が`prefectureID`を`uint`（非ポインタ）で受け取り、未指定であることの検証を行わない
+- 判断理由: `400`を返すのは呼び出し元（`admin-account-management`）のPresentation層である（管理者管理者ユーザー機能②「15. Validation設計」）。文言（「都道府県は必須です。」）を呼び出し元と本Contextの2か所に持たないため、検証と文言は呼び出し元に置く。本Contextは必ず指定された状態で呼ばれる前提とする
+- 推測かどうか: **②からの補足**。②「11. Repository設計」は住所の候補検索の入力を「都道府県の識別子（必須）」としているが、必須チェックをどちらが行うかまでは定めていない。**`admin-account-management`の③で、同機能のHandlerが`400`を返すことを確認する必要がある**
 
 ## 6. 表示名の変換を非公開関数とする
 

@@ -778,7 +778,7 @@ Response DTOに`school_code`を含めない。公開操作でのみ返す値で�
 
 # 17. ②からの補足事項
 
-基盤編「17. ②からの補足事項」に記載した7件に加え、本書で判断した内容を示す。
+基盤編「17. ②からの補足事項」に記載した9件に加え、本書で判断した内容を示す。
 
 ## 1. 実装のないアクションへの経路を登録しない
 
@@ -788,9 +788,10 @@ Response DTOに`school_code`を含めない。公開操作でのみ返す値で�
 
 ## 2. `/api/v1/admin/addresses`を本Contextのルートとしない
 
-- 判断した内容: 管理者向けの住所検索（`/api/v1/admin/addresses`）を本Contextに登録しない
-- 判断理由: 同じ`AddressesQuery`・同じSerializer・同じ`400`を使う処理だが、Rails現行は`Api::V1::Admin::AddressesController`として別のControllerに実装されており、管理者管理者ユーザー機能②が自機能のAPIとして扱っている。本Contextに登録すると、同じURLを2つのContextが主張することになる
-- 推測かどうか: **②からの補足**。②「3. Bounded Context」の依存集約表は管理者管理者ユーザー機能を`master-data`の依存元として挙げていない。同機能の②が`/api/v1/admin/addresses`を自機能のAPIとしているため、本Contextの公開参照手段（住所の属性の取得）とは別に、同機能が住所の検索を必要とする可能性がある。**同機能の追随時に、住所検索を本Contextの公開操作として追加するか、同機能が自前の参照モデルを持つかを決める必要がある**
+- 判断した内容: 管理者向けの住所検索（`/api/v1/admin/addresses`）を本Contextに登録しない。同エンドポイントは`admin-account-management`が持ち、検索は本Contextの公開操作（住所の候補検索）へ委譲する
+- 判断理由: **認可の要件が異なる。** `/api/v1/admin/addresses`は`admin`ロールを要求するが、本Contextは規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「ロールを問わないAPI」として`/api/v1/`直下にルートを登録する。admin専用のルートグループを持たせると、本Contextが`admin`ロールのCasbinポリシーを知ることになる。管理者管理者ユーザー機能②「3. Bounded Context」も、同機能が同エンドポイントを持ち検索は本Contextへ委譲する設計としている（②「24. 採用しなかった設計」の「`/api/v1/admin/addresses`を本Contextのエンドポイントとして持つ」）
+- 重複への対処: 検索の条件と論理削除の扱いは本Contextの検索（`addressQuery.Search`）に1つだけ残り、エンドポイントと公開操作の両方がこれを使う。重複するのは`admin-account-management`側のRequest / Response DTOのみである
+- 推測かどうか: 推測ではない。②「3. Bounded Context」の依存集約表と「24. 採用しなかった設計」に従う。**ただしRequest / Response DTOが2つのContextに分かれるため、同じ項目・同じ`400`の文言を返していることを`admin-account-management`の③で確認する必要がある**
 
 ## 3. パスパラメータ名を`:id`とする
 
