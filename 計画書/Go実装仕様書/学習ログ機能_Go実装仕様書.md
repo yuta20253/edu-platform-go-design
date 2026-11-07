@@ -22,7 +22,7 @@
 
 ## 本書が対象とする実装範囲
 
-②が設計した`study-log` Bounded ContextのActive Record実装である。Model（Entity相当のstruct定義）、Store（永続化処理）、他Contextへの参照と呼び出し（`dependency.go`のインターフェースとそのアダプタ）、Presentation層（Handler / Request / Response / Routing）を対象とする。
+②が設計した`study-log` Bounded ContextのActive Record実装である。Model（Entity相当のstruct定義）、Store（永続化処理）、他Contextへの参照と呼び出し（`dependency.go`のインターフェースとそのアダプタ）、**他Contextへ公開する2つの参照操作**、Presentation層（Handler / Request / Response / Routing）を対象とする。
 
 対象外は、タスク・単元そのものの管理と、タスク・目標の状態を変える手続きそのものである（いずれも他Contextの責務。②「3. Bounded Context」）。本Contextは`task-management`の公開操作を呼ぶだけで、タスクの状態を直接書き換えない。
 
@@ -60,12 +60,13 @@ internal/studylog/presentation/response/
 
 ```
 internal/studylog/context.go                      # NewContext（依存関係の組み立て）
-internal/studylog/dependency.go                   # 他Contextへの依存を宣言するインターフェース
+internal/studylog/dependency.go                   # 他Contextへの依存を宣言するインターフェースと、他Contextへ渡す型
 internal/studylog/study_log.go                    # StudyLog struct（Model）+ Complete()
 internal/studylog/study_log_status.go             # StudyLogStatus型（整数の列挙型・2値）
 internal/studylog/duration.go                     # Duration型（所要時間の算出）
 internal/studylog/errors.go                        # struct/Storeが返すエラー定義
 internal/studylog/study_log_store.go               # StudyLogStore（永続化・検索・完了更新）
+internal/studylog/study_log_stats_store.go         # StudyLogStatsStore（他Contextへ公開する実績の集計参照）
 internal/studylog/infrastructure/contextadapter/task_unit_directory.go  # TaskUnitDirectoryの実装
 internal/studylog/infrastructure/contextadapter/task_starter.go         # TaskStarterの実装
 internal/studylog/presentation/handler/study_log_handler.go
@@ -76,7 +77,7 @@ internal/studylog/presentation/routes.go
 
 ## 文書の分割
 
-本書は分割しない。実装ファイルは上記の13であり、テストが付くもの（StudyLog・StudyLogStatus・Duration・StudyLogStore・2つのアダプタ・StudyLogHandlerの7）を加えると20となるため、1文書あたり30〜35という範囲に収まる。
+本書は分割しない。実装ファイルは上記の14であり、テストが付くもの（StudyLog・StudyLogStatus・Duration・StudyLogStore・StudyLogStatsStore・2つのアダプタ・StudyLogHandlerの8）を加えると22となるため、1文書あたり30〜35という範囲に収まる。
 
 ---
 
@@ -160,6 +161,8 @@ internal/studylog/presentation/routes.go
 対象外（Active Record採用のため、domain層にRepository Interfaceを定義しない。永続化・検索はEntity相当のstructと同一package内のStoreとして「8. Infrastructure層設計」に記載する）。
 
 他Contextへの参照と呼び出しのみ、インターフェースとして`dependency.go`に宣言する。②「11. Repository設計」の「他Contextの参照手段と公開操作」に対応する（規約「5. Context間連携ルール」）。詳細は「8. Infrastructure層設計」に記載する。
+
+他Contextへ渡す型（`DailyStudyMinutes`）も同じファイルに置く。本Contextが公開する参照操作の戻り値であり、本Contextの内部のModel（`StudyLog`）をそのまま渡さないためである（規約「5. Context間連携ルール」）。
 
 ## Domain Service
 
@@ -401,6 +404,55 @@ flowchart TD
 `UpdateCompletion`は、自らトランザクションを開始する。書き込みが学習ログ1件のみであり、Handler側で境界を取る必要がないためである（②「14. Transaction設計」）。`gormtx.RunInTx`を用い、`db.WithContext(ctx).Transaction(...)`を直接呼ばない。
 
 ②「11. Repository設計」に明記のとおり、業務ルール判定・認可判定はStoreに持たせない。所有権と紐づきの確認は「4つの識別子が一致するレコードを取得できるか」というクエリ条件として表現し、判定ロジック自体はHandler側の処理順序で扱う。完了可否の判定は`StudyLog.Complete`が担う。
+
+### StudyLogStatsStore（`study_log_stats_store.go`）
+
+他Contextへ公開する参照操作の実装である（②「11. Repository設計」の「他Contextへ公開する参照手段」）。
+
+|項目|内容|
+|-|-|
+|struct名|`StudyLogStatsStore`|
+|対応するGORMモデル|`StudyLog`struct（`StudyLogStore`と同じモデルを読む）|
+|保持するフィールド|`db *gorm.DB`、日本時間のロケーション|
+|コンストラクタ|`NewStudyLogStatsStore(db *gorm.DB, jst *time.Location) *StudyLogStatsStore`|
+
+メソッド一覧:
+
+|メソッド|引数|戻り値|発行するクエリ内容|
+|-|-|-|-|
+|`FindStudiedDates`|`ctx context.Context, userID uint`|`([]time.Time, error)`|`user_id`・`deleted_at IS NULL`で`started_at`を取得し、日本時間の暦日へ変換して重複を除いて返す。期間で絞らない|
+|`SumStudyMinutesByDate`|`ctx context.Context, userID uint, from, to time.Time`|`([]DailyStudyMinutes, error)`|`user_id`・`deleted_at IS NULL`・`started_at`が期間内のレコードを取得し、日本時間の暦日ごとに`duration_minutes`を合計して返す|
+
+**`deleted_at IS NULL`を明示的に条件へ加える。** `StudyLog`の`DeletedAt`は`*time.Time`であり、GORMが自動付与しないためである（「15. GORM / DBクエリ設計」）。`StudyLogStore`が論理削除済みも対象に含めるのに対し、**本Storeは除外する。** Rails現行の分析が`@user.study_logs.active`で絞っているためである（②「11. Repository設計」の「公開操作における論理削除の扱い」）。同じテーブルを読む2つのStoreで扱いが分かれるため、条件を取り違えないよう別のstructに分けている。
+
+`duration_minutes`がNULLのレコードは0分として扱う。`*int`で受け取り、`nil`を0として合計する（分析機能①「5. API / 処理詳細」`study_minutes`）。
+
+**暦日への変換を本Contextで行う。** `started_at`はUTCで保存されているため、日本時間のロケーションへ変換してから年月日を取り、`time.UTC`の0時0分0秒に揃えた`time.Time`として返す（コーディング規約「17. `time.Time` とタイムゾーン」、分析機能③基盤編「8. Infrastructure層設計」）。呼び出し元には暦日だけを渡し、保存形式の知識を本Contextに閉じ込める。
+
+期間（`from`・`to`）も日本時間の暦日で受け取り、日本時間の「`from`の0時00分00秒」から「`to`の23時59分59秒」に相当する時刻の範囲へ変換して絞り込む（②「11. Repository設計」の「暦日の扱い」）。
+
+集計はDBのGROUP BYではなくGoの側で行う。MySQLのタイムゾーン設定に依存せずに日本時間の暦日で区切るためである。`started_at`と`duration_minutes`を取得して暦日ごとにまとめる。Rails現行も同じく`pluck`してRuby側で`group_by`している（分析機能①「10. Rails実装対応表」の`Analytics::StudyMinutes`）。
+
+`DailyStudyMinutes`（`Date time.Time`・`Minutes int`）は`dependency.go`に置く。他Contextへ渡す型であるためである。
+
+学習ログのない日は要素に含めない。0分で埋めるのは呼び出し元の責務である（②「11. Repository設計」の「公開操作が持たない責務」）。
+
+並べ替えを行わない。並び順の決定は呼び出し元の責務である（同）。
+
+`gormtx.DBFromContext(ctx, s.db)`で接続を取得する。参照のみであり、自らトランザクションを開始しない。
+
+## 他Contextへ公開する操作（`context.go`）
+
+`StudyLogStatsStore`の2つのメソッドを、`Context`のメソッドとして公開する（アーキテクチャ規約「5. Context間連携ルール」の「Active Record採用時はStoreの参照系メソッド」）。
+
+|メソッド|委譲先|呼び出し元|
+|-|-|-|
+|`FindStudiedDates(ctx context.Context, userID uint) ([]time.Time, error)`|`StudyLogStatsStore.FindStudiedDates`|`learning-analytics`|
+|`SumStudyMinutesByDate(ctx context.Context, userID uint, from, to time.Time) ([]DailyStudyMinutes, error)`|`StudyLogStatsStore.SumStudyMinutesByDate`|同|
+
+いずれも委譲するだけである。認可を行わない。HTTPを経由せず他Contextから呼ばれ、操作者の識別は呼び出し元が済ませている（分析機能②「16. Authorization設計」）。
+
+`NewContext`は`*gorm.DB`に加えて日本時間のロケーションを受け取り、`StudyLogStatsStore`へ渡す。
 
 ## 他Contextの参照手段と公開操作の実装
 
@@ -715,6 +767,8 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 - `StudyLogStore.FindScoped`: `user_id`・`task_id`・`unit_id`・`id`のすべてに一致する1件を取得する。**`deleted_at`を条件に含めない**（上記）
 - `StudyLogStore.Create`: 全列を挿入する。`status`は0、`started_at`は現在時刻、`ended_at`・`duration_minutes`・`deleted_at`はNULLで作成する
 - `StudyLogStore.UpdateCompletion`: `status`・`ended_at`・`duration_minutes`の3列のみを更新する。`started_at`は変更しない（②「21. DB操作仕様」）
+- `StudyLogStatsStore.FindStudiedDates`: `user_id`と**`deleted_at IS NULL`**で絞り、`started_at`のみを取得する。期間で絞らない
+- `StudyLogStatsStore.SumStudyMinutesByDate`: `user_id`・**`deleted_at IS NULL`**・`started_at`の範囲で絞り、`started_at`と`duration_minutes`を取得する。GROUP BYを使わずGo側で暦日ごとにまとめる（MySQLのタイムゾーン設定に依存しないため）
 - 結合は行わない。`tasks`・`units`へは本Contextからクエリを発行せず、`task-management`の参照手段に委ねる（②「21. DB操作仕様」）
 - ページネーション・ソートは不要である。取得は単一の学習ログ単位であり、一覧取得が存在しない
 
@@ -759,6 +813,17 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`StudyLogStore.Create`|同一のタスク・単元に対して複数の学習ログを作成できること|
 |`StudyLogStore.UpdateCompletion`|`status`・`ended_at`・`duration_minutes`の3列のみが更新され、`started_at`が変わらないこと|
 |`StudyLogStore.UpdateCompletion`|呼び出し側がトランザクションを開始していない場合も自らトランザクションを張って更新すること|
+|`StudyLogStatsStore.FindStudiedDates`|学習した日が重複なく返ること（同じ日に複数の学習ログがあっても1件）|
+|`StudyLogStatsStore.FindStudiedDates`|**論理削除済みの学習ログが除かれること**（`StudyLogStore`と異なる点）|
+|`StudyLogStatsStore.FindStudiedDates`|他の生徒の学習ログが含まれないこと|
+|`StudyLogStatsStore.FindStudiedDates`|日本時間の0時台・23時台に開始した学習ログが、日本時間の暦日として返ること（UTC保存の日時が暦日をまたぐケース）|
+|`StudyLogStatsStore.FindStudiedDates`|返る`time.Time`のロケーションが`time.UTC`、時刻が0時0分0秒に揃うこと|
+|`StudyLogStatsStore.SumStudyMinutesByDate`|暦日ごとに学習時間が合計されること|
+|`StudyLogStatsStore.SumStudyMinutesByDate`|`duration_minutes`がNULLのレコードが0分として扱われること|
+|`StudyLogStatsStore.SumStudyMinutesByDate`|**論理削除済みの学習ログが除かれること**|
+|`StudyLogStatsStore.SumStudyMinutesByDate`|学習ログのない日が要素に含まれないこと|
+|`StudyLogStatsStore.SumStudyMinutesByDate`|期間の両端の日が含まれること（日本時間の`from`の0時00分00秒〜`to`の23時59分59秒）|
+|`StudyLogStatsStore.SumStudyMinutesByDate`|期間外の学習ログが含まれないこと|
 
 ## Handler Test
 
@@ -794,6 +859,8 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |認可|未認証・`student`ロール以外のユーザーがアクセスした場合に拒否されること|
 |認可|他の生徒のタスク・学習ログを指定した場合に404になること|
 |CSRF|`POST`・`PATCH`でCSRFトークンが不正な場合に拒否されること（Gin規約「5. CSRF対策」）|
+|公開操作|`learning-analytics`から学習した日の一覧・期間内の日別学習時間が呼ばれて正しい結果を返すこと|
+|公開操作|論理削除済みの学習ログが公開操作の結果から除かれること（エンドポイントの検索では除かれないこと）|
 
 ---
 
@@ -814,6 +881,9 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`Duration`型をカラムに対応させず、`Complete`の中で`*int`へ変換する形にした|完了するまで未設定であり、`Scanner`／`driver.Valuer`を実装するより変換を1箇所に閉じ込める方が単純であるため|補足|
 |所要時間が負になる場合の検証を設けなかった|終了時刻は常にサーバの現在時刻であり、開始時刻より前になる経路がない。Rails現行にも検証がない|補足（①の実体に基づく）|
 |`started_at`・`ended_at`の**日時の表現形式**を確定しなかった|Goの`time.Time`の既定のJSON表現はRFC3339（小数部6桁）、RailsのActiveSupportの既定は小数部3桁であり**桁数が異なる**。フロントエンドが文字列として扱っている場合は影響しないが、桁数に依存した処理があると差が出る|**要確認**（フロントエンドを変更しない方針に関わる。整形方針を揃えるかは実装前に確認が必要）|
+|公開する参照操作を`StudyLogStore`ではなく`StudyLogStatsStore`という別のstructに置いた|同じ`study_logs`を読むが、**論理削除の扱いが逆である**（エンドポイントの検索は含める、公開操作は除く）。同一structに置くと条件を取り違える。またコーディング規約「6. 構造体・インターフェース設計」の「メソッド数と責務（God Object回避）」にも沿う|補足（②「11. Repository設計」の「公開操作における論理削除の扱い」に従った実装方式の具体化）|
+|日本時間のロケーションを`NewContext`から`StudyLogStatsStore`へ渡す形にした|暦日への変換を本Contextで行うため、ロケーションが必要になる。`time.LoadLocation`を各メソッドで呼ぶと失敗の扱いが散らばり、パッケージレベルの可変変数も避ける必要がある（コーディング規約「4. パッケージ設計」）|補足（②にロケーションの解決方法の記載がないため、実装のために判断した。分析機能③基盤編「17. ②からの補足事項」6と同じ扱い）|
+|暦日ごとの集計をDBのGROUP BYではなくGo側で行う形にした|MySQLのタイムゾーン設定に依存せず日本時間の暦日で区切るため。Rails現行も`pluck`してRuby側で`group_by`している（分析機能①「10. Rails実装対応表」の`Analytics::StudyMinutes`）|補足|
 |ルートの登録を`study_logs`以下のみに限る形にした|パスの前半（`/tasks/:task_id/units/:unit_id`）は`task-management`が所有するリソースの下にある。パスの文字列を複数のContextが重複して持たないようにするため|要確認（入れ子のルートをどのContextが登録するかの方針は規約に定めがない。`cmd/server/main.go`での組み立て方とあわせて確認が必要）|
 
 ディレクトリ名・package名（`internal/studylog/`）、レスポンスの形状（`study_log_id`キー、5項目、日付の整形なし）、HTTPステータス（201・200・400・404）、`study_logs.status`の整数2値での保持、トランザクション境界は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

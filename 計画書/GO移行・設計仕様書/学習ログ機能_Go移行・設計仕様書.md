@@ -43,6 +43,7 @@
 - タスク内の単元学習の開始記録の作成
 - 学習ログの完了（終了時刻・所要時間の記録）
 - 学習開始を契機とした、タスクの着手の呼び出し
+- **他Contextからの学習実績の参照要求に答えること**（「11. Repository設計」の「他Contextへ公開する参照手段」）
 
 ## 他Contextとの依存関係
 
@@ -69,6 +70,14 @@
 ただし、`question-answering`も`task-management`の「タスクの状態の更新」を呼ぶ（タスク管理機能②「3. Bounded Context」）。本Contextが呼ぶのは「タスクの着手」であり、別の操作である。
 
 `curriculum`は、コース参照機能・単元参照機能が共有するContextである（単元参照機能②「3. Bounded Context」）。本Contextは`curriculum`への依存を持たないが、依存関係の整理のうえで言及している。
+
+本Contextを参照する側:
+
+|呼び出し元Context|用途|
+|-|-|
+|`learning-analytics`|連続学習日数の算出に使う「学習した日」の一覧と、学習時間の推移に使う期間内の日別学習時間合計の取得（分析機能②「11. Repository設計」の`study-log`への参照）|
+
+参照されるだけであり、本Contextから`learning-analytics`へ依存しない。循環依存は発生しない。
 
 ---
 
@@ -289,6 +298,37 @@ Rails現行は`Task.find_by!(id:, user:)`でタスクを取り、`task.units.fin
 |タスクの着手|`task-management`|学習ログの作成時に呼ぶ。未着手のタスクを進行中にし、タスクが属する目標の状態も再評価される（①「5. API / 処理詳細」`#create`、タスク管理機能②「12. UseCase設計」の`StartTask`）|
 
 これも`dependency.go`のインターフェースとして宣言する。トランザクションの扱いは「14. Transaction設計」で定める。
+
+## 他Contextへ公開する参照手段
+
+本Contextが所有する`study_logs`に対する参照を、他Contextへ公開する。
+
+|公開する操作|呼び出し元|内容|
+|-|-|-|
+|学習した日の一覧|`learning-analytics`|その生徒が学習した日（日本時間の暦日）を重複なく返す。期間の指定を取らない（分析機能③基盤編「8. Infrastructure層設計」の`StudyLogDirectory.FindStudiedDates`）|
+|期間内の日別学習時間|`learning-analytics`|指定期間について、日本時間の暦日ごとの学習時間合計（分）を返す。学習ログのない日は要素に含めない（同`StudyLogDirectory.SumStudyMinutesByDate`）|
+
+### 公開操作における論理削除の扱い
+
+**いずれも論理削除済みの学習ログを除外する。** 本Contextのエンドポイントが使う検索（`StudyLogStore`）は除外しないため、**扱いが異なる点に注意する。**
+
+|操作|論理削除の扱い|理由|
+|-|-|-|
+|エンドポイントの検索|除外しない|`StudyLog`は`default_scope`を持たず、`#update`も`active`を使っていない（①「6. データモデル」）|
+|公開する2つの参照操作|**除外する**|Rails現行の分析が`@user.study_logs.active`で絞っている（分析機能①「5. API / 処理詳細」`streak_days`・`study_minutes`）|
+
+### 暦日の扱い
+
+`started_at`はUTCで保存されているため、日本時間の暦日への変換は**本Contextが行う**。呼び出し元には暦日だけを渡す。保存形式の知識を所有Contextに閉じ込めるためである（分析機能②「3. Bounded Context」の「依存する理由」）。
+
+期間の指定も日本時間の暦日で受け取り、本Contextが時刻の範囲（当日の0時00分00秒〜23時59分59秒の日本時間）へ変換して絞り込む。
+
+学習時間が未記録（`duration_minutes`がNULL）の学習ログは0分として扱う（分析機能①「5. API / 処理詳細」`study_minutes`）。
+
+### 公開操作が持たない責務
+
+- 連続学習日数の数え上げ、推移の日単位・週単位への区切り、合計値の期間比較（`learning-analytics`の責務）
+- 学習ログの作成・完了（本Contextのエンドポイントの責務。公開するのは参照のみ）
 
 ---
 
@@ -592,10 +632,13 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 |Store|対象テーブル|操作種別|主な検索条件|結合|ページネーション/ソート|
 |-|-|-|-|-|-|
 |StudyLogStore|study_logs|参照・作成・更新|`user_id`、`task_id`、`unit_id`、`id`|なし|不要（単一の学習ログ単位）|
+|公開する参照操作|study_logs|参照|`user_id`、`deleted_at IS NULL`、`started_at`の範囲（期間指定がある場合）|なし|不要。日付ごとの集約を行う（並べ替えは呼び出し元）|
 
 `tasks`・`task_units`・`units`へは本Contextからクエリを発行しない。`task-management`が公開する参照手段を呼び出す（「11. Repository設計」の「他Contextの参照手段と公開操作」、規約「5. Context間連携ルール」）。
 
-`deleted_at`による絞り込みは行わない。`StudyLog`は`active`という絞り込みを持つが`default_scope`は持たず、`#update`も`active`を使っていない（①「6. データモデル」）。
+`deleted_at`による絞り込みは、エンドポイントが使う検索では行わない。`StudyLog`は`active`という絞り込みを持つが`default_scope`は持たず、`#update`も`active`を使っていない（①「6. データモデル」）。
+
+一方、**他Contextへ公開する2つの参照操作では`deleted_at IS NULL`で絞り込む。** Rails現行の分析が`@user.study_logs.active`で絞っているためである（「11. Repository設計」の「公開操作における論理削除の扱い」）。同じテーブルに対して扱いが分かれる点に注意する。
 
 更新は`status`・`ended_at`・`duration_minutes`の3列のみを対象とする。`started_at`は作成時に設定し、以後変更しない。
 
@@ -671,6 +714,7 @@ Active Record採用のため、規約「3. 設計パターンごとの構造適�
 | Aggregate | StudyLog単位 | Task/Unitとの関連は参照に留まり、統合する業務要件がないため |
 | Transaction境界 | 作成はHandlerの処理単位、完了はStoreメソッド内 | 作成は学習ログとタスクの着手の2つの書き込みにまたがるため |
 | 他Contextの参照・呼び出し | `dependency.go`のインターフェース + アダプタ | 規約「5. Context間連携ルール」に従い、他Contextのテーブルを直接読み書きしないため |
+| 他Contextへの公開 | 学習実績の参照操作を2つ公開 | `study_logs`の所有者であり、論理削除の扱いと日本時間の暦日への変換を本Contextに閉じ込めるため |
 | Domain Event | 未採用 | 現行仕様に非同期の副作用が存在しないため |
 | Value Object | StudyLogStatus / Durationを採用 | 状態の許容遷移と所要時間算出ルールを明示するため |
 | Authorization | Handler/Store + Middleware | 認証と業務スコープを分離して管理しやすくするため |
@@ -680,6 +724,7 @@ Active Record採用のため、規約「3. 設計パターンごとの構造適�
 |事項|決めていない理由|決める場所|
 |-|-|-|
 |`task-management`が公開する「タスクの着手」と参照手段の具体的なシグネチャ|同機能の③で確定する（タスク管理機能③「8. Infrastructure層設計」）|タスク管理機能の③|
+|本Contextが`learning-analytics`へ公開する2つの参照操作の具体的なシグネチャ|消費者側のインターフェースは分析機能③基盤編が`StudyLogDirectory`として定めている。公開側のシグネチャは本機能の③で確定する|本機能の③|
 |完了済みへの再完了を400から422へ改めるか|Rails現行が400を返しており、フロントエンドを変更しない方針のため本書では維持した|フロントエンドの修正方針を決める時点|
 |404のモデル名が`Unit`・`Study log`と英語になる点をいつ正すか|`ja.yml`の`activerecord.models`に訳を足せば日本語になるが、フロントエンドが文言を表示している可能性があるため触っていない|同上|
 |学習中の学習ログが既にある状態での再作成を防ぐか|Rails現行は重複を防いでおらず、新しい学習ログを作る。意図された仕様かは現行コードから判断できない|要確認（業務要件の確認が必要）|
