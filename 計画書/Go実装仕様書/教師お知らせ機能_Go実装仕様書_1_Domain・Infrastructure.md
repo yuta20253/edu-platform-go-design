@@ -71,6 +71,7 @@ internal/announcement/domain/entity/
 internal/announcement/domain/valueobject/
 internal/announcement/domain/service/
 internal/announcement/domain/repository/
+internal/announcement/application/usecase/
 internal/announcement/application/student/usecase/
 internal/announcement/application/student/dto/
 internal/announcement/application/teacher/usecase/
@@ -119,6 +120,7 @@ internal/announcement/infrastructure/contextadapter/user_directory.go           
 internal/announcement/infrastructure/contextadapter/grade_directory.go            # master-dataへのアダプタ
 internal/announcement/infrastructure/contextadapter/teacher_permission_directory.go # teacher-permissionへのアダプタ
 internal/announcement/infrastructure/contextadapter/student_directory.go          # student-directoryへのアダプタ
+internal/announcement/application/usecase/create_system_announcement.go           # 他Contextへ公開する操作（ロール別ディレクトリの外）
 
 # --- 教師お知らせ機能③_2_Application・Presentation が担当 ---
 internal/announcement/application/teacher/usecase/list_announcements.go
@@ -180,11 +182,11 @@ internal/announcement/presentation/admin/response/announcement_target_response.g
 
 ## 文書の分割
 
-`announcement` Context全体の実装ファイルは**65**である。3つの機能文書で分担し、教師お知らせ機能③はさらに2文書へ分ける。
+`announcement` Context全体の実装ファイルは**66**である。3つの機能文書で分担し、教師お知らせ機能③はさらに2文書へ分ける。
 
 |文書|担当|実装|テスト込みの目安|
 |-|-|-|-|
-|`教師お知らせ機能_Go実装仕様書_1_Domain・Infrastructure.md`（本書）|Domain層・Infrastructure層・`context.go`・`dependency.go`・実装方針|16|27|
+|`教師お知らせ機能_Go実装仕様書_1_Domain・Infrastructure.md`（本書）|Domain層・Infrastructure層・`context.go`・`dependency.go`・`CreateSystemAnnouncement`・実装方針|17|29|
 |`教師お知らせ機能_Go実装仕様書_2_Application・Presentation.md`|本機能の6エンドポイント・`routes.go`|20|27|
 |`お知らせ機能_Go実装仕様書.md`|お知らせ機能の2エンドポイント|6|9|
 |`管理者お知らせ管理機能_Go実装仕様書.md`|管理者お知らせ管理機能の7エンドポイントと定期実行|23|33|
