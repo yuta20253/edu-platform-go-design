@@ -130,7 +130,10 @@ Domain Model
   - `grade_scope` が許容値であることを保持・検証する
   - `manage_other_teachers` が真偽値であることを保持する
   - 保有する権限で「他教員を管理できるか」を自ら判定できるようにする
+  - **更新の競合を検出するための版を保持する**（①「6. データモデル」の`lock_version`）
 - 判断根拠: 権限そのものの妥当性検証と、自身が持つ権限の意味（他教員管理可否）を問い合わせる責務は、TeacherPermission自身が持つのが自然であるため
+
+**版の一致判定はEntityに持たせない。** 版は「取得してから更新するまでの間に他の更新がなかったか」を表す永続化の関心であり、権限そのものの業務ルールではない。判定はRepositoryの更新条件として行う（「11. Repository設計」）。Gorm規約「12. 楽観ロック（Optimistic Locking）」も、更新条件の付与と競合の検出をRepositoryの責務として定めている。
 
 ---
 
@@ -228,7 +231,7 @@ classDiagram
 - 責務:
   - 同校教員の権限一覧取得（氏名カナ順、ページネーション）
   - 指定教員の権限詳細取得
-  - 権限の更新
+  - 権限の更新（**版を更新条件に含め、競合を検出する**）
 - 保持する検索機能:
   - 高校IDによる絞り込み
   - 有効教員（論理削除されていない）による絞り込み
@@ -237,6 +240,22 @@ classDiagram
 - 保持しない責務:
   - 更新可否の判定（TeacherPermissionUpdateGuardの責務）
 - 判断根拠: 永続化と検索条件の実行に責務を限定し、保護ルールの判断はDomain Serviceに残すため
+
+## 楽観ロックによる競合の検出
+
+Gorm規約「12. 楽観ロック（Optimistic Locking）」に従う。
+
+|項目|内容|
+|-|-|
+|版を保持する列|`teacher_permissions.lock_version`（①「6. データモデル」）|
+|更新条件|版が取得時の値と一致すること。更新が成功すると版が1つ進む|
+|競合の検出|更新された行数が0件なら、他の利用者が先に更新したものとして扱う|
+|競合時の扱い|共有の`ErrOptimisticLockConflict`を返し、`409 Conflict`へ変換する（Gorm規約同節）|
+|版を返す経路|一覧・詳細のレスポンスに版を含める。更新リクエストはその値を送り返す（「19. API仕様」）|
+
+**版を更新リクエストの必須項目とする。** 指定がない場合は更新を行わず`422`とする。Rails現行も版の指定を必須としている（①「5. API / 処理詳細」`#update`）。
+
+**版の列名が`lock_version`であり、Gorm規約の例が示す`version`ではない。** 既存DBの列名はRailsの慣習に由来する。Schema変更を行わない方針のため、列名はそのままとし、GORMモデル側で`lock_version`へ対応付ける（「20. DB設計方針」）。クラス編成機能②も同じ列名を同じ方針で扱っている（`クラス編成機能_Go移行・設計仕様書.md`「11. Repository設計」）。
 
 ## 他Contextの参照手段
 
@@ -275,7 +294,7 @@ classDiagram
 ## UpdateTeacherPermissionUseCase
 
 - 目的: 指定教員の権限（`grade_scope` / `manage_other_teachers`）を更新する
-- 入力: 操作者（識別子・種別）、teacher id, grade_scope, manage_other_teachers
+- 入力: 操作者（識別子・種別）、teacher id, grade_scope, manage_other_teachers, **lock_version（取得時の版）**
 - 出力: 更新結果
 - トランザクション範囲: TeacherPermissionの更新を1トランザクションで扱う
 - 呼び出すもの:
@@ -283,7 +302,9 @@ classDiagram
   - `user` Contextの公開参照（`CountUsers`による最後の教員判定、`GetUserAttributes`による対象教員の有効性確認）
 - 操作者の種別: 教師と管理者の2種類を入力として受け取る。本UseCaseは、教師の権限管理画面（`PATCH /api/v1/teacher/permissions/:id`）と、管理者の教員更新（管理者教員管理機能）の双方から呼ばれる、教員権限の唯一の更新経路である
 - 対象教員の所属校の確認: 操作者が教師の場合は、操作者自身の所属校でスコープする。操作者が管理者の場合は、管理者が自校という概念を持たないため本UseCaseでは所属校でスコープせず、対象教員が指定高校に所属することの確認は呼び出し側（管理者教員管理機能）の責務とする。Rails現行の管理者の教員更新も、対象高校を取得した上でその高校に所属する教員として対象を特定している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「処理内容」）ため、呼び出し側で確認することで現行の挙動を保てる
-- 判断根拠: TeacherPermissionUpdateGuardによる保護ルール判定を経てから更新を確定する必要があるため。操作者の種別を入力に含めるのは、保護ルールと他教員管理権限の判定が操作者が教師である場合にのみ適用されるためである。Rails現行では、教師の画面にのみ保護ルール（①「7. 権限制御」）があり、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」。`grade_scope` / `manage_other_teachers`のうち送信された項目のみを更新すると定められており、保護ルールに相当する定めはない）
+- 版の扱い: 入力の版をそのままRepositoryの更新へ渡す。UseCaseは版を比較しない。更新された行数が0件であることをRepositoryが競合として返すため、UseCaseはそれを`409`に対応するエラーへ変換するだけである（「17. Error設計」）
+- **保護ルールの判定と版の判定の順序**: 保護ルール（自己更新禁止・最後の教員保護・他教員管理権限）を先に判定し、版の判定は更新の実行時に行う。Rails現行も同じ順序であり、版が古い場合でも自己更新・最後の教員の更新は`422`が先に返る（①「5. API / 処理詳細」`#update`の処理順）
+- 判断根拠: TeacherPermissionUpdateGuardによる保護ルール判定を経てから更新を確定する必要があるため。操作者の種別を入力に含めるのは、保護ルールと他教員管理権限の判定が操作者が教師である場合にのみ適用されるためである。Rails現行では、教師の画面にのみ保護ルール（①「8. 権限制御」）があり、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」の「業務ルール」。`grade_scope` / `manage_other_teachers`のうち送信された項目のみを更新すると定められており、保護ルールに相当する定めはない）
 
 ---
 
@@ -470,6 +491,7 @@ flowchart TD
 責務: ユースケース実行時の失敗を表現する
 
 - 対象教員が存在しない、または同校でない
+- **版が一致しない（他の利用者が先に更新した）**
 
 ## Infrastructure Error
 
@@ -498,12 +520,16 @@ Domain ErrorにHTTPステータスを持たせないのは、「権限不足を4
 |更新対象が校内で最後の有効教員である|BusinessRuleViolation|Domain（判定）→ Application（変換）|422|
 |`grade_scope`が許容値でない|Validation|Domain（判定）→ Application（変換）|422|
 |`grade_scope` / `manage_other_teachers`が未送信・型不正|Validation|Presentation|422|
+|**`lock_version`が未送信**|Validation|Presentation|422|
 |対象教員が存在しない、同校でない、または論理削除済み|NotFound|Application|404|
+|**版が一致しない（他の利用者が先に更新した）**|**Conflict**|Infrastructure（検出）→ Application（変換）|**409**|
 |未認証|Unauthorized|Middleware|401|
 |`teacher`ロールでない|Forbidden|Middleware|403|
 |DB接続・永続化の失敗|Internal|Infrastructure → Application（変換）|500|
 
 対象教員の特定は権限判定より先に行う。存在しないIDを指定した場合は、操作者の権限の有無によらず404とする（Rails現行仕様と同じ処理順）。
+
+**版の判定は最後に行う。** 保護ルール違反（自己更新・最後の教員）と権限不足は、版が古い場合でも先に返る。Rails現行の`before_action`と`update`の順序に一致する（①「5. API / 処理詳細」`#update`の処理順）。版の不一致はRepositoryの更新で検出され、Gorm規約「12. 楽観ロック（Optimistic Locking）」の`ErrOptimisticLockConflict`として返る。
 
 ---
 
@@ -535,22 +561,23 @@ Domain ErrorにHTTPステータスを持たせないのは、「権限不足を4
 
 - Request: クエリパラメータ`page`（任意・整数。1以上の整数以外は未指定として扱う）、`per_page`（任意・整数。既定値20、上限100。1以上の整数以外は既定値を使う）
 - Response: 操作者自身の情報、同校教員の権限一覧（氏名カナ昇順）、ページ情報の3要素
+- **一覧の各要素の権限には版（`lock_version`）を含める。** 操作者自身の権限には含めない。更新の対象になるのは一覧の各要素のみであるためである（①「5. API / 処理詳細」`#index`）
 - Status Code: 正常系200。異常系は未認証401・`teacher`ロール不一致403
 - Error Response方針: `page` / `per_page`の形式不正はエラーとせず、Rails現行仕様と同じ既定値での処理を維持する
 
 ### GET /api/v1/teacher/permissions/:id
 
 - Request: パスパラメータ`id`（対象教員）
-- Response: 対象教員の識別子・氏名・権限
+- Response: 対象教員の識別子・氏名・権限（**版を含む**）。最上位は単体のオブジェクトであり、キーで包まない
 - Status Code: 正常系200。異常系は対象教員不存在404（他校・論理削除済みを含む）、未認証401、`teacher`ロール不一致403
 - Error Response方針: 他校の教員・論理削除済みの教員を指定した場合も、存在しない場合と区別せず404とする
 
 ### PATCH /api/v1/teacher/permissions/:id
 
-- Request: パスパラメータ`id`（対象教員）。ボディは`teacher_permission`キーの下に`grade_scope`・`manage_other_teachers`を持つ（Rails現行の`params.require(:teacher_permission).permit(...)`と同じ形）
+- Request: パスパラメータ`id`（対象教員）。ボディは`teacher_permission`キーの下に`grade_scope`・`manage_other_teachers`・**`lock_version`**を持つ（Rails現行の`params.require(:teacher_permission).permit(...)`と同じ形）。3項目すべてが必須であり、部分更新はできない
 - Response: 更新成功を示すメッセージ。更新後の権限そのものは返さない
-- Status Code: 正常系200。異常系は他教員管理権限の不足403、対象教員不存在404、保護ルール違反および入力不正422
-- Error Response方針: 既存のerrors形式と日本語メッセージ（`自分自身は更新できません`・`他教員を編集する権限がありません`等）を踏襲する
+- Status Code: 正常系200。異常系は他教員管理権限の不足403、対象教員不存在404、保護ルール違反および入力不正（`lock_version`の未送信を含む）422、**版の不一致409**
+- Error Response方針: 既存のerrors形式と日本語メッセージ（`自分自身は更新できません`・`他教員を編集する権限がありません`・`lock_versionは必須です`・`他のユーザーによってデータが更新されています。再読み込みしてください`等）を踏襲する
 
 権限不足を403、保護ルール違反を422として区別する。対象教員の特定は権限判定より先に行うため、存在しないIDを指定した場合は権限の有無によらず404を返す（「17. Error設計」）。
 
@@ -560,7 +587,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 内部の呼び出し経路には次の差分がある。
 
-- Rails仕様: 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し（①「7. 権限制御」）、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」）
+- Rails仕様: 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し（①「8. 権限制御」）、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」）
 - Go設計での変更: 書き換え経路を本Contextの更新操作に一本化し、管理者の教員更新も同じ操作を呼ぶ。保護ルールと他教員管理権限の判定は操作者が教師である場合にのみ適用する
 - 変更理由: 権限の書き換えが2箇所にあると、保護ルールや権限項目の追加時に片方だけが修正される。経路を1つにすることで、権限体系の変更が本Contextに閉じる
 - 影響範囲: 本機能の3エンドポイントの外部仕様に変更はない。管理者教員管理機能側は、自前で`teacher_permissions`を更新せず本Contextの更新操作を呼ぶ形になる。操作者が管理者の場合は保護ルールを適用しないため、管理者の教員更新の挙動もRailsと変わらない
@@ -584,6 +611,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 - 既存カラムの型・制約もそのまま利用する。とくに次の2点は、現行DBを継続利用する以上、Go側の永続化がこれに合わせる必要がある（①「6. データモデル」）
   - `grade_scope` はRailsの `enum` として**整数**で保持される（`own_grade`=0 / `all_grades`=1）。APIの入出力は文字列であり、永続化との間で相互変換が必要になる
   - `user_id` に一意制約があり、権限レコードは教員1人につき1件である
+  - **`lock_version`（既定値0・NULL不可）が楽観ロックの版を保持する。** 列名はRailsの慣習に由来し、Gorm規約「12. 楽観ロック（Optimistic Locking）」の例が示す`version`とは異なる。Schema変更を行わないため列名はそのままとし、GORMモデル側で対応付ける（「11. Repository設計」の「楽観ロックによる競合の検出」）
 
 ---
 
@@ -594,12 +622,13 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 - 対象テーブル: `teacher_permissions`（本Contextが所有する）、`users`（所属校・有効状態・氏名の判定のために参照する）
 - 値の表現: `grade_scope` は整数で保持されるため、Value Object が扱う文字列表現との相互変換を永続化の境界で行う（「20. DB設計方針」）
 - 操作種別:
-  - 参照: 同校教員の権限一覧、指定教員の権限1件
-  - 更新: 指定教員の`grade_scope`・`manage_other_teachers`
+  - 参照: 同校教員の権限一覧、指定教員の権限1件（**いずれも版を取得する**）
+  - 更新: 指定教員の`grade_scope`・`manage_other_teachers`（**版を更新条件に含め、版を1つ進める**）
 - 主な検索条件・絞り込み条件:
   - 所属校が一致すること
   - 教員が論理削除されていない（有効である）こと
   - 詳細取得・更新時は対象教員が一致すること
+  - **更新時は版が取得時の値と一致すること。** 更新された行数が0件なら競合として扱う（「11. Repository設計」の「楽観ロックによる競合の検出」）
 - 関連テーブルとの結合: 必要である。`teacher_permissions`は`user_id`・`grade_scope`・`manage_other_teachers`のみを持ち、所属校・有効状態・氏名を持たない（①「6. データモデル」）。これらは`users`との結合で判定する
 - ページネーション・ソート: 一覧取得で必要である。氏名カナの昇順で並べ、ページ単位で取得するとともに、絞り込み条件に一致する総件数を取得する
 
@@ -625,15 +654,20 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 ## Repository Test
 
-- 目的: TeacherPermissionRepositoryによる同校絞り込み・氏名カナ順のソート・ページネーションの正確性を検証する。`user` Contextの公開参照（`CountUsers` / `GetUserAttributes`）を呼び出す部分は、本Contextが定義したインターフェースの実装として、委譲内容が正しいことを検証する
+- 目的: TeacherPermissionRepositoryによる同校絞り込み・氏名カナ順のソート・ページネーションの正確性と、**楽観ロックの挙動（版が一致するとき更新され版が1つ進むこと、一致しないとき更新されず競合が返ること）**を検証する。`user` Contextの公開参照（`CountUsers` / `GetUserAttributes`）を呼び出す部分は、本Contextが定義したインターフェースの実装として、委譲内容が正しいことを検証する
 
 ## Handler Test
 
-- 目的: API入力のバリデーション結果とHTTPステータスの変換を検証する
+- 目的: API入力のバリデーション結果とHTTPステータスの変換を検証する。**`lock_version`の未送信が422、版の不一致が409へ変換されること**を含む
 
 ## Integration Test
 
 - 目的: エンドポイント経由で、正常更新・自己更新拒否・最後の教員保護・権限不足拒否のそれぞれが正しく動作することを確認する
+- 重点を置く観点:
+  - **同じ版で2回更新すると、1回目が成功し2回目が409になること**
+  - **`lock_version`を送らないと422になり、権限情報が変化しないこと**
+  - 版が古い場合でも、自己更新・最後の教員の更新は422が先に返ること（判定の順序）
+  - 一覧・詳細のレスポンスに版が含まれ、その値で更新できること
 
 ---
 
@@ -691,7 +725,7 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 
 - Controllerのbefore_actionとアクション内条件分岐（`RequireManageOtherTeachers` concernの`require_manage_other_teachers!`、`only_active_teacher?`、自己更新チェック）に保護ルールが直接実装されている
 - 保護ルール違反時のエラーメッセージがController内にハードコードされている
-- 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し（①「7. 権限制御」）、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」）
+- 教員権限（`grade_scope` / `manage_other_teachers`）の書き換え経路が2つある。教師の権限管理画面は保護ルールを適用し（①「8. 権限制御」）、管理者の教員更新は同じ項目を保護ルールなしで更新している（`管理者教員管理機能_Rails現行仕様書.md`「`Api::V1::Admin::TeachersController#update`」）
 
 ## Go設計での変更内容
 
