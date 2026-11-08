@@ -234,17 +234,24 @@ Aggregate Rootである（②「5. Aggregate設計」）。
 |`ID` / `Title` / `Content` / `Status` / `PublishedAt` / `ScheduledAt` / `PublisherID` / `SystemGenerated` / `Targets`|-|各値|参照用|
 |`IsEditable`|-|`bool`|配信済みでないかを返す|
 |`UpdateContent`|`title, content *string`|`error`|件名・本文を更新する。**`nil`の項目は変更しない**（部分更新のため）|
-|`ChangeStatus`|`status valueobject.AnnouncementStatus, scheduledAt valueobject.ScheduledAt`|`error`|状態と予約日時を変更する。遷移の可否と予約日時の整合を検証し、配信済みになるときは配信日時を設定する|
+|`ChangeStatus`|`status valueobject.AnnouncementStatus, scheduledAt valueobject.ScheduledAt`|`error`|状態と予約日時を変更する。遷移の可否と予約日時の整合を検証し、配信済みになるときは配信日時を設定する。**現在と同じ状態が渡された場合は遷移の判定を行わず、予約日時のみを変更する**|
 |`PublishManually`|-|`error`|手動配信する。既に配信済みなら拒否する。配信日時を設定し、**予約日時を消す**|
 |`PublishByScheduler`|-|`error`|自動切替で配信する。配信日時を設定し、**予約日時を消さない**|
 |`ReplaceTargets`|`targets []*AnnouncementTarget`|`error`|配信先を全件入れ替える。1件以上であることを検証する|
-|`EnsureEditable`|-|`error`|配信済みなら業務ルール違反を返す。更新・削除の前に呼ぶ|
+|`EnsureEditable`|-|`error`|配信済みなら`ErrNotEditable`を返す。更新の前に呼ぶ|
+|`EnsureDeletable`|-|`error`|配信済みなら`ErrNotDeletable`を返す。削除の前に呼ぶ|
 
 `UpdateContent`が`*string`を取るのは、管理者お知らせ管理機能の更新が部分更新であるためである（管理者お知らせ管理機能②「12. UseCase設計」）。教師お知らせ機能の更新は全項目を渡すが、同じメソッドを使う。
 
 `PublishManually`と`PublishByScheduler`を分けるのは、予約日時の扱いが異なるためである（②「10. 状態遷移図」）。
 
+**`ChangeStatus`に現在と同じ状態が渡された場合を遷移として扱わない。** `AnnouncementStatus.CanTransitionTo`は同じ状態への遷移を偽とするが、これは「配信済みから配信済みへの再配信を通さない」ための規則である（「3. Domain層設計」の`AnnouncementStatus`）。一方、予約のお知らせの予約日時だけを変更する操作は正当であり、このとき状態は予約のまま渡される。遷移の判定を行うと`ErrInvalidStatusTransition`になってしまう。同じ状態が渡された場合は予約日時の整合（予約状態なら設定済みかつ未来日時）のみを検証する。配信済みの場合は`ErrNotEditable`が先に返るため、再配信の経路は塞がれたままである。
+
+この扱いは管理者お知らせ管理機能の部分更新で必要になる（管理者お知らせ管理機能③「6. Application層設計」の`UpdateAnnouncement`）。
+
 `EnsureEditable`を`IsEditable`と別に設けるのは、呼び出し側が真偽値を見て自分でエラーを組み立てる形を避けるためである。エラーの文言を1か所に保つ。
+
+`EnsureDeletable`を`EnsureEditable`と別に設けるのは、同じ「配信済みでない」という条件に対してRails現行のメッセージが異なるためである（「配信済みのため編集できません」と「配信済みのため削除できません」。管理者お知らせ管理機能①「5. API / 処理詳細」`#update`・`#destroy`）。判定は同じでも返すエラーが異なるため、呼び出し側で選べる形にする。
 
 検証の内容:
 
@@ -258,6 +265,7 @@ Aggregate Rootである（②「5. Aggregate設計」）。
 |状態遷移が許される|`ChangeStatus`|`ErrInvalidStatusTransition`|
 |予約状態で予約日時が設定され未来日時|作成・`ChangeStatus`|`ErrScheduledAtRequired` / `ErrScheduledAtNotFuture`|
 |配信済みでない|`EnsureEditable`・`UpdateContent`・`ChangeStatus`・`ReplaceTargets`|`ErrNotEditable`|
+|配信済みでない（削除）|`EnsureDeletable`|`ErrNotDeletable`|
 |既に配信済みでない|`PublishManually`|`ErrAlreadyPublished`|
 
 **配信日時の設定は`||=`相当とする。** 状態が配信済みに変わるとき、配信日時が未設定であれば現在時刻を設定し、既に設定されている場合は上書きしない（①「7. 状態管理」）。現在時刻の取得手段はコンストラクタで受け取る（「17. ②からの補足事項」参照）。
@@ -491,11 +499,15 @@ Aggregate Rootである（②「5. Aggregate設計」）。
 |`ErrGradeNotAllowed`|学年制限があるため指定できない学年|422|
 |`ErrUserNotAllowed`|学年制限があるため指定できないユーザー|422|
 |`ErrAnnouncementNotFound`|お知らせが存在しない|404|
+|`ErrHighSchoolNotFound`|高校別一覧で指定された高校が存在しない|404|
+|`ErrAnnouncementOperationForbidden`|発行者でなく、かつ発行者が在籍中のため操作できない|403|
 |`ErrNotEditableForEdit`|**編集フォームの取得で配信済み**|404|
 
 `ErrNotEditable`と`ErrNotEditableForEdit`を分けるのは、同じ状態に対して経路によってステータスが異なるためである。更新は`422`、編集フォームの取得は`404`である（②「17. Error設計」）。
 
 `ErrNotDeletable`を`ErrNotEditable`と分けるのは、Rails現行のメッセージが異なるためである（「配信済みのため編集できません」と「配信済みのため削除できません」。管理者お知らせ管理機能①「5. API / 処理詳細」）。
+
+`ErrHighSchoolNotFound`・`ErrAnnouncementOperationForbidden`は業務ルール違反ではなく、対象の不存在と権限の不足を表す。管理者お知らせ管理機能②「17. Error設計」がApplication Errorに分類しているが、**宣言の置き場所は`domain/errors.go`に揃える。** Context内でセンチネルエラーの定義を1ファイルに集めることで、同じ条件に対して層ごとに別のエラーが生まれることを避ける（管理者お知らせ管理機能③「14. Error実装方針」）。
 
 エラーのメッセージはRails現行の文言を維持する（②「15. Validation設計」）。項目名が英語表記になる点も維持する。
 
@@ -517,6 +529,7 @@ classDiagram
         -[]*AnnouncementTarget targets
         +IsEditable() bool
         +EnsureEditable() error
+        +EnsureDeletable() error
         +UpdateContent(*string, *string) error
         +ChangeStatus(AnnouncementStatus, ScheduledAt) error
         +PublishManually() error
@@ -1339,10 +1352,14 @@ Repository実装・アダプタは、DBや相手Contextが返したエラーを�
 ||**複数の検証に失敗したとき、すべてのエラーが返ること**|
 |`Announcement.IsEditable`|下書き・予約で真、配信済みで偽になること|
 |`Announcement.EnsureEditable`|配信済みで`ErrNotEditable`を返すこと|
+|`Announcement.EnsureDeletable`|配信済みで`ErrNotDeletable`を返すこと|
+||下書き・予約で`nil`を返すこと|
 |`Announcement.UpdateContent`|`nil`の項目が変更されないこと|
 ||配信済みで`ErrNotEditable`を返すこと|
 ||空文字を渡したとき`ErrTitleRequired`・`ErrContentRequired`を返すこと|
 |`Announcement.ChangeStatus`|許されない遷移で`ErrInvalidStatusTransition`を返すこと|
+||**現在と同じ状態を渡したとき遷移の判定が行われず、予約日時のみが変わること**|
+||**予約のまま予約日時を過去にしたとき`ErrScheduledAtNotFuture`を返すこと**|
 ||配信済みへの遷移で配信日時が設定されること|
 ||**配信日時が既に設定されている場合に上書きしないこと**|
 ||予約への遷移で予約日時が未設定・過去のとき拒否すること|
