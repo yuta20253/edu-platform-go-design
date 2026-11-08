@@ -74,7 +74,7 @@
 |アカウント連携（`account-linking`）|統合対象候補とログイン中アカウントが同一高校に所属するかの判定に使う高校IDの参照（アカウント連携機能②「3. Bounded Context」）|FindHighSchools。ただし所属の判定自体は`user`が答える|
 |教師教員管理（`teacher-management`）|担当学年の存在確認、学年が対象高校に属するかの判定（教師教員管理機能②「11. Repository設計」の`GradeStore`）|FindGrades（`high_school_id`を含むため所属の判定が呼び出し元で可能）|
 |管理者教員管理（`teacher-management`）|対象高校の存在確認、`grade_ids`が対象高校に属する学年であることの確認、学年の表示名（管理者教員管理機能②「11. Repository設計」の`HighSchoolStore`・`GradeStore`）|FindHighSchools、FindGrades（表示名を含む）|
-|教師生徒参照（`student-directory`）|登録先の学年が教師の所属校に属することの確認（教師生徒参照機能②「9. Repository設計」）|FindGrades|
+|教師生徒参照（`student-directory`）|登録先の学年が教師の所属校に属することの確認（教師生徒参照機能②「11. Repository設計」）|FindGrades|
 |生徒CSVインポート（`student-import`）|CSV上の学年名から実在する学年を解決する（表示名から識別子への解決）（生徒CSVインポート機能②「11. Repository設計」の`GradeClassResolutionRepository`）|FindGradesByHighSchoolID（表示名を含む一覧を返し、突き合わせは呼び出し元が行う）|
 |クラス編成（`school-class`）|学年情報の参照（クラス編成機能②「11. Repository設計」）|FindGrades、FindGradesByHighSchoolID|
 |分析（`learning-analytics`）|学年の識別子から年次、年次から同じ年次を持つ学年の識別子の集合（分析機能②「11. Repository設計」の`master-data`への参照）|FindGrades（年次を含む）、FindGradeIDsByYear|

@@ -6,7 +6,7 @@
 
 ## 機能概要
 
-教師が同校の生徒一覧および生徒詳細を参照し、あわせて生徒アカウントを1件ずつ新規登録できる機能である。生徒詳細は`tab`の指定により、プロフィール・目標・タスクの3つの切り口を返す。Rails現行仕様では、一覧取得・詳細取得に加え、氏名・氏名（カナ）・メールアドレス・学年・クラスを指定した生徒アカウントの新規作成（create）を提供する。一覧・詳細取得では、担当学年権限を持つ教師は担当学年の生徒のみに閲覧範囲が制限される。新規作成の作成経路は、生徒CSVインポート機能と共通のアカウント作成処理（仮パスワード発行・招待メール送信を含む）を利用する。
+教師が同校の生徒一覧および生徒詳細を参照し、あわせて生徒アカウントを1件ずつ新規登録できる機能である。一覧は氏名・氏名（カナ）の部分一致で絞り込める。生徒詳細は`tab`の指定により、プロフィール・目標・タスクの3つの切り口を返す。Rails現行仕様では、一覧取得・詳細取得に加え、氏名・氏名（カナ）・メールアドレス・学年・クラスを指定した生徒アカウントの新規作成（create）を提供する。一覧・詳細取得では、担当学年権限を持つ教師は担当学年の生徒のみに閲覧範囲が制限される。新規作成の作成経路は、生徒CSVインポート機能と共通のアカウント作成処理（仮パスワード発行・招待メール送信を含む）を利用する。
 
 ## 利用者
 
@@ -31,7 +31,7 @@
 - 責務分離: HTTP・検索条件構築・権限スコープ・登録時の同校妥当性検証・レスポンス整形を分離する
 - 保守性: 学校・学年による絞り込み条件を一箇所に集約し、権限ルール変更の影響範囲を限定する。生徒アカウント作成自体の業務ルール（仮パスワード発行・生徒番号採番・招待メール送信等）は`user` Contextに委譲し、本機能側の変更範囲を「誰が・どの学年/クラスに登録してよいか」に限定する
 - テスト容易性: 検索条件の組み立てとページングをユースケース単位で検証できるようにする。新規登録時の同校妥当性検証も独立して検証できるようにする
-- 拡張性: 将来的な検索条件（氏名検索等）の追加に対応しやすい構造とする
+- 拡張性: 将来的な検索条件の追加に対応しやすい構造とする。氏名・氏名カナによる絞り込みは現行にすでに存在する（①「5. API / 処理詳細」`#index`）
 - API互換性: 既存エンドポイント・レスポンス構造（`students` + `meta`）およびcreateエンドポイントを維持する
 
 ---
@@ -51,7 +51,8 @@
 ## 他Contextとの依存関係
 
 - `user` Context（`user`。②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 生徒アカウント本体の作成を、公開操作`CreateStudentAccount`の直接の呼び出しで依頼する。入力は氏名・氏名カナ・メールアドレス・所属校ID・学年ID・クラスIDで、招待待ち・作成時の招待メール送信は固定（入力に持たない）、生徒番号は`user`が発行する。学年・クラスの実在と整合は、本Contextが検証済みの内容を渡す（`user`②「15. Validation設計」）。生徒・学年・所属校の一覧・詳細の参照は、ページネーション・結合を伴うため、本Context自身が参照モデルを持つ（`user`②「3. Bounded Context」）
-- `master-data` Context: 登録先の学年・クラスが教師の所属校に属することの確認に依存する
+- `master-data` Context: 登録先の学年が教師の所属校に属することの確認に依存する。学年の属性の参照（公開操作）を呼ぶ（`master-data`②「11. Repository設計」の「本Contextが他Contextへ公開する操作」）
+- `school-class` Context（②は`クラス編成機能_Go移行・設計仕様書.md`）: 登録先のクラスが指定学年に属することの確認に依存する。**クラスを所有するのは`school-class`であり、`master-data`ではない。** `master-data`が公開するのは高校・学年・住所の3つであり、クラスは含まれない（`master-data`②「11. Repository設計」）。`school-class`に「クラスの属性の参照」の公開操作が必要になる（「19. API仕様」の「Railsとの差分」）
 - `goal-management` Context・`task-management` Context: 生徒詳細の目標タブ・タスクタブで、対象生徒の目標とタスクを参照する。いずれも画面向けの一覧（並び替え・ページネーション・単元との結合を伴う）であるため、`user`②「3. Bounded Context」の「画面向けの一覧は、一覧を必要とする各Contextが自前の参照モデルとして持つ」に従い、本Contextが参照専用の参照モデルを持つ。目標・タスクの作成・更新・状態遷移は各Contextに残し、本Contextは持たない
 - `question-answering` Context: タスクタブの解答状況（単元ごとの問題数・解答数・正答数）の集計元データを参照する。集計そのものは本Contextの参照モデルで行う
 
@@ -116,7 +117,7 @@ Transaction Script
 ## Grade / SchoolClass / HighSchool（参照対象）
 
 - 役割: 絞り込み条件、および新規登録時の同校妥当性検証の判定材料として利用される外部概念
-- 判断根拠: 本機能の中心はStudentの参照・登録受付であり、Grade/SchoolClass/HighSchoolは条件判定用の参照情報として扱う。SchoolClassは、生徒単体新規登録（学年・クラス指定）の追加に伴い新たに参照対象として加わった
+- 判断根拠: 本機能の中心はStudentの参照・登録受付であり、Grade/SchoolClass/HighSchoolは条件判定用の参照情報として扱う。SchoolClassは、生徒単体新規登録（学年・クラス指定）の追加に伴い新たに参照対象として加わった。所有Contextは、GradeとHighSchoolが`master-data`、SchoolClassが`school-class`である
 
 ---
 
@@ -140,7 +141,7 @@ Transaction Script
 
 ## Value Objectを採用しないもの
 
-- 氏名・かな氏名・メールアドレス: 形式検証（氏名カナのカタカナ形式・メールアドレス形式）は入力検証（Presentation。12章）で行い、文字数・メールアドレスの一意性は`user`の`CreateStudentAccount`が検証するため、本Context内では独自のValue Objectとして持たない
+- 氏名・かな氏名・メールアドレス: 形式検証（氏名カナのカタカナ形式・メールアドレス形式）は入力検証（Presentation。「15. Validation設計」）で行い、文字数・メールアドレスの一意性は`user`の`CreateStudentAccount`が検証するため、本Context内では独自のValue Objectとして持たない
 
 ---
 
@@ -149,7 +150,7 @@ Transaction Script
 ## StudentEnrollmentPolicy
 
 - 責務: 新規登録時に指定された学年ID・クラスIDが、登録する教師の所属校に属し、かつクラスが指定学年に属しているかどうかを判定する
-- Entityへ持たせない理由: 判定にはGrade/SchoolClassという、Student Entity単体では保持しない外部情報が必要なため
+- Entityへ持たせない理由: 判定にはGrade（`master-data`が所有）/SchoolClass（`school-class`が所有）という、Student Entity単体では保持しない外部情報が必要なため
 - 判断根拠: 教師教員管理機能におけるTeacherGradeAssignmentPolicyと同様、同校制約の判定は単一のEntityの責務に寄せると不自然であり、独立したDomain Serviceとして切り出すことで判定ロジックの所在を明確にする
 
 ## 追加で必要としないもの
@@ -158,7 +159,76 @@ Transaction Script
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
+
+```mermaid
+classDiagram
+    class Student {
+        <<参照・登録受付>>
+        +ID
+        +Name
+        +NameKana
+        +Email
+        +GradeID
+        +SchoolClassID
+        +HighSchoolID
+    }
+    class GradeScope {
+        <<Value Object>>
+        +Restricted bool
+        +GradeID
+        +Applies() bool
+    }
+    class StudentEnrollmentTarget {
+        <<Value Object>>
+        +GradeID
+        +SchoolClassID
+    }
+    class StudentEnrollmentPolicy {
+        <<Domain Service>>
+        +Verify(操作者の所属校, 担当学年の制限, StudentEnrollmentTarget) error
+    }
+    class Grade {
+        <<参照>>
+        +ID
+        +HighSchoolID
+    }
+    class SchoolClass {
+        <<参照>>
+        +ID
+        +GradeID
+    }
+
+    StudentEnrollmentPolicy ..> StudentEnrollmentTarget
+    StudentEnrollmentPolicy ..> Grade
+    StudentEnrollmentPolicy ..> SchoolClass
+    StudentEnrollmentPolicy ..> GradeScope
+    Student ..> StudentEnrollmentTarget
+```
+
+**Aggregate境界を持たない。** 本Contextは`users`への書き込みを自身で行わないため、整合性を保証すべき境界が存在しない（「5. Aggregate設計」）。図はEntity相当の表現とValue Object・Domain Serviceの関係のみを示す。
+
+`Student`を`<<参照・登録受付>>`としているのは、一覧・詳細では読み取り専用の表現であり、新規登録では`user` Contextへ引き渡す入力の受け皿であるためである（「6. Entity設計」）。本Contextに状態も振る舞いもない。
+
+`Grade`は`master-data` Context、`SchoolClass`は`school-class` Contextが所有する概念であり、本Contextは判定材料として参照するだけである。図には判定に必要な属性のみを示す。
+
+目標・タスク・解答状況は、`Student`と関連を持つEntityとして図示しない。本Contextが持つのは画面向けの参照モデルであり、Entityとしての表現を持たないためである（「3. Bounded Context」）。
+
+---
+
+# 10. 状態遷移図
+
+省略する。
+
+理由: 本Contextに状態を持つEntityが存在しない（「6. Entity設計」）。
+
+- 一覧・詳細は参照のみであり、状態を変化させる操作がない
+- 新規登録で作成される生徒アカウントの状態（招待待ち → パスワード設定済み）は`user` Contextが管理する。本Contextはその遷移に関与しない（①「7. 状態管理」）
+- 詳細取得の`tab=goals` / `tab=tasks`が返す目標・タスクの状態は、`goal-management`・`task-management`が管理する。本Contextは参照するだけである
+
+---
+
+# 11. Repository設計
 
 **実装上の位置づけ**: 本機能はTransaction Script採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はinfrastructure層の関数として直接実装する(規約: アーキテクチャ規約.md「3. 設計パターンごとの構造適用方針」)。
 
@@ -179,27 +249,40 @@ Transaction Script
   - 生徒アカウント作成の実処理（仮パスワード発行・生徒番号採番・招待メール送信は`user`の`CreateStudentAccount`の責務）
 - 判断根拠: 検索・参照および作成依頼の受け渡しに特化させ、権限判定ロジックと作成の実処理は、それぞれ呼び出し元のapplication関数・`user`の`CreateStudentAccount`に置くことで責務を分離するため
 
-## GradeRepository / SchoolClassRepository（`master-data` Context提供・参照専用）
+## 学年の参照（`master-data` Contextの公開操作）
 
-- 管理対象: Grade, SchoolClass（参照専用）
-- 責務: 新規登録時、指定された学年・クラスが教師の所属校の学年・クラスであり、クラスが指定学年に属することの存在確認
-- 保持しない責務: 学年・クラス自体の作成・更新（クラス編成機能の責務）
-- 判断根拠: 登録先の妥当性検証に必要な参照確認に限定するため
+- 管理対象: Grade（参照専用）
+- 責務: 新規登録時、指定された学年が教師の所属校に属することの確認
+- 保持する検索機能: 学年IDによる属性の取得（所属校の識別子を含む）
+- 保持しない責務: 学年自体の作成・更新（`master-data`の責務）。学年の表示名の組み立て（同）
+- 判断根拠: 学年を所有するのは`master-data`であり、本Contextは`grades`を直接読まない（規約「5. Context間連携ルール」）
+
+## クラスの参照（`school-class` Contextの公開操作）
+
+- 管理対象: SchoolClass（参照専用）
+- 責務: 新規登録時、指定されたクラスが指定学年に属することの確認
+- 保持する検索機能: クラスIDによる属性の取得（所属学年の識別子を含む）
+- 保持しない責務: クラスの新設・改名・削除（`school-class`の責務。承認ワークフローを伴う）
+- 判断根拠: **クラスを所有するのは`school-class`であり、`master-data`ではない。** `master-data`が公開するのは高校・学年・住所の3つであり、クラスは含まれない（「3. Bounded Context」）
 
 ---
 
-# 10. UseCase設計
+# 12. UseCase設計
 
 **実装上の位置づけ**: 本機能はTransaction Script採用のため、UseCase層(struct)を設けない。以下は業務操作の設計意図であり、実装時はapplication層の関数として直接実装する。
 
 ## ListStudents
 
 - 目的: 教師が閲覧可能な同校生徒一覧を取得する
-- 入力: current teacher, page, per_page
+- 入力: current teacher, keyword（任意）, page, per_page
 - 出力: 生徒一覧、ページ情報
 - トランザクション範囲: 読み取りのみ、トランザクション不要
-- 呼び出す関数: 生徒一覧検索関数
-- 判断根拠: 権限に基づく絞り込み条件と、リクエストごとに可変のページング条件を組み立てた上で一覧を取得することが主目的であるため
+- 呼び出す関数: 生徒一覧検索関数、担当学年の制限の参照（`teacher-permission`）
+- 絞り込み: 所属校、生徒ロール、論理削除されていないこと。担当学年のみの権限区分であれば学年。`keyword`があれば氏名または氏名カナの部分一致
+- 並び順: 氏名カナの昇順（①「5. API / 処理詳細」`#index`）
+- 判断根拠: 権限に基づく絞り込み条件と、リクエストごとに可変の検索語・ページング条件を組み立てた上で一覧を取得することが主目的であるため
+
+**`keyword`が空文字・未指定のときは絞り込みを行わない。** エラーにしない（①「5. API / 処理詳細」`#index`）。
 
 ## ShowStudent
 
@@ -240,13 +323,168 @@ Transaction Script
 - 出力: 作成結果
 - トランザクション範囲: 本Context自身の書き込みはなく、アカウントの保存と招待メール送信依頼の登録は`user`の`CreateStudentAccount`が1つのトランザクションで扱う（呼び出し側がトランザクションを開始していなければ`user`が開始する）。学年・クラスの事前確認は読み取りのみで、このトランザクションには含めない
 - 呼び出す関数:
-  - GradeRepository / SchoolClassRepository（登録先の学年・クラスが同校であることの存在確認。StudentEnrollmentPolicyの判定材料）
+  - 学年の参照（`master-data`の公開操作）・クラスの参照（`school-class`の公開操作）（登録先の学年が同校に属し、クラスが指定学年に属することの確認。StudentEnrollmentPolicyの判定材料）
   - StudentRepository（`user`の`CreateStudentAccount`への作成依頼。入力は氏名・氏名カナ・メールアドレス・所属校ID（操作者の所属校）・学年ID・クラスID）
 - 判断根拠: StudentEnrollmentPolicyによる同校妥当性検証を行った上で、実際のアカウント生成処理は`user`の`CreateStudentAccount`に委ねることで、本機能側の責務を登録可否の判定と作成依頼の起点に限定するため。Rails現行の`Teacher::CreateStudentForm`→`Student::CreateStudentService`の流れと同じ分担である
 
 ---
 
-# 11. Transaction設計
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図
+
+### ListStudents
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant M as Middleware
+    participant H as Handler
+    participant A as application関数（ListStudents）
+    participant TP as teacher-permission
+    participant R as 生徒一覧検索関数
+    participant DB as MySQL
+
+    C->>M: GET /api/v1/teacher/students?keyword=&page=&per_page=
+    M->>M: 認証・teacherロール判定
+    M->>H: 認証済み教師をcontextへ格納
+    H->>H: keyword・ページ指定を解釈（既定10・上限100）
+    H->>A: 実行（操作者・keyword・page・per_page）
+    A->>TP: 担当学年の制限を取得
+    TP-->>A: 制限のある学年ID、または制限なし
+    A->>A: GradeScopeを組み立てる
+    A->>R: 検索（所属校・GradeScope・keyword・ページ指定）
+    R->>DB: users を所属校・生徒ロールで絞り、論理削除を除外
+    R->>DB: GradeScopeが適用されるなら学年で絞る
+    R->>DB: keywordがあれば氏名・氏名カナの部分一致で絞る
+    R->>DB: name_kana 昇順、LIMIT/OFFSET。総件数も取得
+    DB-->>R: 行と総件数
+    R-->>A: 生徒の一覧とページ情報
+    A-->>H: 一覧とページ情報
+    H-->>C: 200（students・meta）
+```
+
+### CreateStudent
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant H as Handler
+    participant A as application関数（CreateStudent）
+    participant TP as teacher-permission
+    participant MD as master-data
+    participant P as StudentEnrollmentPolicy
+    participant U as user（CreateStudentAccount）
+
+    C->>H: POST /api/v1/teacher/students
+    H->>H: 入力形式を検証（氏名・氏名カナ・メール形式・必須）
+    alt 形式が不正
+        H-->>C: 422
+    else 形式が正しい
+        H->>A: 実行（操作者・氏名・氏名カナ・メール・学年ID・クラスID）
+        A->>TP: 担当学年の制限を取得
+        TP-->>A: 制限のある学年ID、または制限なし
+        A->>MD: 学年・クラスの属性を取得
+        MD-->>A: 学年の所属校、クラスの所属学年
+        A->>P: Verify(操作者の所属校, 担当学年の制限, 登録先)
+        alt 学年が他校・クラスが学年に属さない・担当学年と不一致
+            P-->>A: 業務ルール違反
+            A-->>H: 業務ルール違反
+            H-->>C: 422
+        else 妥当
+            A->>A: メールアドレスの使用状況を3条件で判定
+            alt 使用済み
+                A-->>H: 業務ルール違反（該当する条件すべて）
+                H-->>C: 422
+            else 未使用
+                A->>U: CreateStudentAccount（userがトランザクションを開始）
+                Note over U: 仮パスワード発行・生徒番号採番<br/>招待待ちで保存・招待メール送信をコミット後に登録
+                alt 一意インデックス違反（同時実行）
+                    U-->>A: 重複エラー
+                    A-->>H: 業務ルール違反
+                    H-->>C: 422
+                else 成功
+                    U-->>A: 完了
+                    A-->>H: 成功
+                    H-->>C: 201（生徒の新規作成に成功しました。）
+                end
+            end
+        end
+    end
+```
+
+### ShowStudentTasks（tab=tasks）
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant H as Handler
+    participant A as application関数（ShowStudentTasks）
+    participant R as 生徒詳細取得関数
+    participant RT as 生徒タスク参照関数
+    participant RA as タスク解答状況集計関数
+
+    C->>H: GET /api/v1/teacher/students/:id?tab=tasks
+    H->>A: 実行（操作者・生徒ID・page・per_page）
+    A->>R: 対象生徒を所属校・GradeScopeの範囲で取得
+    alt 範囲外または不存在
+        R-->>A: 不存在
+        A-->>H: 不存在
+        H-->>C: 404
+    else 取得できた
+        R-->>A: 生徒
+        A->>RT: タスクを取得（論理削除済みの目標に紐づくものを除く、期限昇順・ID昇順、ページ指定）
+        RT-->>A: タスクとページ情報
+        A->>RA: 単元の問題数・解答数をそれぞれ1クエリで取得
+        RA-->>A: 単元ごとの集計
+        A->>A: タスク単位の進捗率・正答率を件数の合計から算出
+        A-->>H: 生徒の識別情報・タスク一覧・ページ情報
+        H-->>C: 200（student・tasks・meta）
+    end
+```
+
+## 処理フロー図
+
+### 閲覧範囲の絞り込み
+
+```mermaid
+flowchart TD
+    S[操作者を受け取る] --> HS[所属校で絞る]
+    HS --> R{担当学年のみの権限区分か}
+    R -- いいえ --> ALL[学年で絞らない]
+    R -- はい --> G{操作者に学年が設定されているか}
+    G -- はい --> ONE[操作者の学年で絞る]
+    G -- いいえ --> NONE[学年が未設定の値で絞る<br/>結果は0件になる]
+    ALL --> OUT[検索条件が確定]
+    ONE --> OUT
+    NONE --> OUT
+```
+
+**操作者に学年が設定されていない場合を分けて示す。** 担当学年のみの権限区分であれば、絞り込みに使う学年IDは操作者自身の学年である（①「8. 権限制御」）。この値が未設定の教師は、絞り込みの結果が0件になる。Rails現行も同じ挙動である（`own_grade_restriction`が`nil`を返すため絞り込みが行われず全件になる、という挙動ではない点に注意が必要である。「19. API仕様」の「Railsとの差分」参照）。
+
+### 新規登録の判定
+
+```mermaid
+flowchart TD
+    S[入力を受け取る] --> F{入力形式が正しいか}
+    F -- いいえ --> E1[422 Presentation]
+    F -- はい --> G{学年が操作者の所属校に属するか}
+    G -- いいえ --> E2[422 学年が他校]
+    G -- はい --> SC{クラスが指定学年に属するか}
+    SC -- いいえ --> E3[422 クラスが学年に属さない]
+    SC -- はい --> GS{担当学年のみの権限区分か}
+    GS -- はい --> GM{登録先の学年が担当学年と一致するか}
+    GM -- いいえ --> E4[422 担当学年以外への登録]
+    GM -- はい --> M[メールアドレスの使用状況を判定]
+    GS -- いいえ --> M
+    M --> MR{使用済みか}
+    MR -- はい --> E5[422 該当する条件すべてを返す]
+    MR -- いいえ --> CALL[userのCreateStudentAccountを呼ぶ]
+```
+
+---
+
+# 14. Transaction設計
 
 ## Transaction開始位置
 
@@ -263,11 +501,12 @@ Transaction Script
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
 - 型チェック: page / per_pageパラメータが整数であることを検証する
+- `keyword`は検証しない: 長さ・文字種の制約がなく、空文字は絞り込みを行わない値として扱う（①「5. API / 処理詳細」`#index`）。ワイルドカード文字のエスケープは検索の実装で行う（「21. DB操作仕様」）
 - 必須チェック: 詳細取得時のid（route由来）、新規登録時のname / name_kana / email / grade_id / school_class_idを検証する
 - フォーマットチェック: 新規登録時のメールアドレス形式、氏名カナのカタカナ形式（Rails現行の`NameValidatable`。`user`は氏名カナの形式を検証しないため、本Contextが行う）、per_pageの上限値（100件）を超えていないかの形式的な検証
 
@@ -294,7 +533,7 @@ Transaction Script
 
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
 ## Middleware
 
@@ -326,7 +565,7 @@ Transaction Script
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
@@ -359,7 +598,7 @@ Transaction Script
 
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
 不要と判断する。
 
@@ -367,47 +606,73 @@ Transaction Script
 
 ---
 
-# 16. API互換方針
+# 19. API仕様
 
-## URL
+## エンドポイント一覧
 
-- Rails現行仕様と同じエンドポイントを維持する
-  - GET /api/v1/teacher/students
-  - GET /api/v1/teacher/students/:id
-  - POST /api/v1/teacher/students
+|エンドポイント|HTTP Method|概要|
+|-|-|-|
+|`/api/v1/teacher/students`|GET|同校の生徒一覧を取得（氏名・氏名カナの部分一致で絞り込める）|
+|`/api/v1/teacher/students/:id`|GET|生徒詳細を取得（`tab`でプロフィール・目標・タスクを切り替える）|
+|`/api/v1/teacher/students`|POST|生徒アカウントを1件新規登録|
 
-## HTTP Method
+## 各エンドポイントの仕様
 
-- 既存仕様どおりに維持する
+### `GET /api/v1/teacher/students`
 
-## Request
+- Request: クエリパラメータ `keyword`（任意。氏名・氏名カナの部分一致）・`page`（任意）・`per_page`（任意。**既定10**・上限100）
+- Response: `{"students": [...], "meta": {...}}`。`meta`は`current_page` / `total_pages` / `total_count` / `per_page`
+- Status Code: 正常系 `200`。異常系 `422`（ページ指定が整数として解釈できない）・`401`・`403`・`500`
+- Error Response方針: 規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の`{"errors": [...]}`に従う
+- 該当する生徒がいない場合は空の配列とページ情報を返す。エラーにしない
 
-- 一覧取得: `page`（ページ番号、未指定時は1ページ目）、`per_page`（1ページあたりの件数。未指定時は10件、最大100件）の意味を維持する
-- 詳細取得: `tab`（`goals` / `tasks`。未指定および上記以外の値はプロフィール）の意味を維持する。`tab=tasks`では`page` / `per_page`も受け付ける
-- 新規登録: `name` / `name_kana` / `email` / `grade_id` / `school_class_id` はGo側で入力DTOとして吸収する
+### `GET /api/v1/teacher/students/:id`
 
-## Response
+- Request: パスパラメータ `id`、クエリパラメータ `tab`（任意。`goals` / `tasks`。未指定および上記以外の値はプロフィール）、`tab=tasks`のとき`page` / `per_page`
+- Response:
+  - `tab`未指定（プロフィール）: 生徒の基本情報と関連情報。最上位は単体のオブジェクト
+  - `tab=goals`: `{"student": {...}, "goals": [...]}`。**`meta`を返さない**
+  - `tab=tasks`: `{"student": {...}, "tasks": [...], "meta": {...}}`
+- Status Code: 正常系 `200`。異常系 `404`（不存在・閲覧範囲外）・`422`・`401`・`403`・`500`
+- Error Response方針: `404`はRails現行の`{"message": "..."}`を維持する。それ以外は`{"errors": [...]}`
 
-- 一覧: `students`（一覧）+ `meta`（current_page/total_pages/total_count/per_page）の構造を維持する
-- 詳細（プロフィール）: 生徒の基本情報と関連情報を維持する
-- 詳細（`tab=goals`）: `student`（ID・氏名）+ `goals`の構造を維持する。`meta`は返さない
-- 詳細（`tab=tasks`）: `student`（ID・氏名）+ `tasks` + `meta`の構造を維持する。単元の項目は単元の基本情報に解答状況5項目（`total_questions` / `answered_count` / `correct_count` / `progress_rate` / `correct_rate`）を加えた形を維持する
-- 新規登録: `message`（「生徒の新規作成に成功しました。」相当）を維持する
+### `POST /api/v1/teacher/students`
 
-## Status Code
+- Request: ボディ `user`（`name` / `name_kana` / `email` / `grade_id` / `school_class_id`。すべて必須）
+- Response: `{"message": "生徒の新規作成に成功しました。"}`。**作成した生徒の識別子を返さない**
+- Status Code: 正常系 `201`。異常系 `422`（入力形式・学年／クラスの同校不整合・担当学年以外への登録・メールアドレス重複）・`401`・`403`・`500`
+- Error Response方針: `{"errors": [...]}`。**メールアドレスの使用状況の判定は、該当する条件をすべて返す**（「15. Validation設計」）
 
-- 200: 取得成功
-- 201: 新規登録成功
-- 404: 対象生徒不存在（権限範囲外を含む）
-- 422: 入力・業務ルール違反（新規登録時）
+## Railsとの差分
 
-## Error Response
+フロントエンドを変更しない方針のため、URL・HTTPメソッド・レスポンス項目名・HTTPステータスは変更しない。**外部から見た差分はない。**
 
-- 既存のerrors形式を踏襲する
+### 設計上の前提として他Contextに必要となるもの
+
+|必要なもの|所有Context|状態|
+|-|-|-|
+|クラスの属性の参照（クラスIDから所属学年の識別子を取得する）|`school-class`|**同Contextの②に公開操作として未定義。** 本Contextが`school_classes`を直接読まないために必要である（「11. Repository設計」）|
+|担当学年の制限の参照|`teacher-permission`|同Contextの②に定義済み|
+|学年の属性の参照|`master-data`|同Contextの②に定義済み（`master-data`②「11. Repository設計」）|
+|生徒アカウントの作成（`CreateStudentAccount`）|`user`|同Contextの②に定義済み|
+
+### 変更しないもの（Rails現行の振る舞いを踏襲する点）
+
+|項目|Rails現行の振る舞い|
+|-|-|
+|1ページあたりの既定が10件|他のAPIの既定（20件）と異なる。Controllerが`DEFAULT_PER_PAGE = 10`で上書きしている（①「5. API / 処理詳細」`#index`）|
+|`keyword`は氏名・氏名カナのみを検索|メールアドレス・生徒番号は検索しない。検索語のワイルドカード文字はエスケープされる（同）|
+|論理削除済みの生徒を一覧・詳細から除外|教員一覧（教師教員管理機能・管理者教員管理機能）は論理削除済みを含める。同じ`users`に対する一覧で扱いが異なる（同）|
+|`tab`に既知でない値を渡すとプロフィールを返す|エラーにしない（同`#show`）|
+|`tab=goals`がページネーションを持たない|目標の件数が多いと全件返る（同）|
+|閲覧範囲外の生徒が`404`|存在する生徒でも、所属校・担当学年の範囲外なら不存在として扱う（①「8. 権限制御」）|
+|担当学年のみの権限区分で学年が未設定の教師は0件|絞り込みに使う学年IDが未設定になるため、一覧が空になる（「13. シーケンス図・処理フロー図」）|
+|作成が識別子を返さない|メッセージのみを返す（①「5. API / 処理詳細」`#create`）|
+|作成の`422`に複数のメッセージが入りうる|メールアドレスの使用状況が複数条件に同時に該当する場合など（同）|
 
 ---
 
-# 17. DB設計方針
+# 20. DB設計方針
 
 ## 現行DBを利用するか
 
@@ -423,7 +688,34 @@ Transaction Script
 
 ---
 
-# 18. テスト戦略
+# 21. DB操作仕様
+
+|参照・操作|対象テーブル|操作種別|主な検索条件|結合|ページネーション/ソート|
+|-|-|-|-|-|-|
+|生徒一覧の検索|`users`, `user_roles`|参照|所属校、ロールが生徒、論理削除されていない、GradeScopeが適用されるなら学年、`keyword`があれば氏名・氏名カナの部分一致|`user_roles`（ロールの判定）。表示項目のため`grades`・`high_schools`・`user_personal_infos`・`addresses`・`prefectures`|`name_kana`昇順。ページネーションあり（既定10・上限100）|
+|生徒1件の取得|同上|参照|同上＋`users.id`|同上|不要|
+|学年の属性の確認|`master-data`の公開操作|参照|学年ID|-|不要|
+|クラスの属性の確認|`school-class`の公開操作|参照|クラスID|-|不要|
+|メールアドレスの使用状況の確認|`users`, `user_roles`|参照|メールアドレス（完全一致）。論理削除済みも対象に含める|`user_roles`（ロールの判定）|不要|
+|生徒アカウントの作成|`user`の公開操作（`CreateStudentAccount`）|作成|-|-|不要|
+|目標の参照（`tab=goals`）|`goals`, `tasks`|参照|対象生徒、論理削除されていない|`tasks`（目標ごとのタスクと進捗）|期限昇順・ID昇順。ページネーションなし|
+|タスクの参照（`tab=tasks`）|`tasks`, `goals`, `task_units`, `units`|参照|対象生徒、論理削除済みの目標に紐づくものを除く|`goals`（目標の表示と除外条件）、`task_units`・`units`（単元の表示）|期限昇順・ID昇順。ページネーションあり|
+|解答状況の集計（`tab=tasks`）|`units`, `questions`, `question_histories`|参照|対象のタスクに紐づく単元、対象生徒の解答|単元ごとの問題数と解答数をそれぞれ1クエリで取得する|不要|
+
+本Context固有の点:
+
+- **`keyword`は氏名と氏名カナの両方に対する部分一致である。** メールアドレス・生徒番号は検索しない。検索語に含まれるワイルドカード文字（`%`・`_`）をエスケープしてから渡す。Rails現行も`sanitize_sql_like`でエスケープしている（①「5. API / 処理詳細」`#index`）
+- **生徒一覧・生徒1件の取得では論理削除済みを除外する。** 教員一覧（教師教員管理機能・管理者教員管理機能）が論理削除済みを含めるのとは扱いが異なる（①「5. API / 処理詳細」`#index`）
+- **メールアドレスの使用状況の確認では論理削除済みも対象に含める。** 論理削除済みのアカウントが使っているメールアドレスは再利用できない（`users.email`の一意インデックスが論理削除を考慮しないため）
+- 学年の属性は`master-data`の公開操作で取得する。本Contextが`grades`を直接読まない（規約「5. Context間連携ルール」）
+- **クラスの属性は`school-class`の公開操作で取得する。** 本Contextが`school_classes`を直接読まない（規約「5. Context間連携ルール」）。`master-data`はクラスを公開していない（「3. Bounded Context」）
+- タスクの解答状況の集計は、タスク件数に比例してクエリが増えないよう、単元の問題数と解答数をそれぞれ1クエリで取得してアプリケーション側で突き合わせる（「12. UseCase設計」）
+
+具体的なSQL・GORMのクエリコードは③Go実装仕様書（`規約/Gorm規約.md`）で扱う。
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
@@ -431,11 +723,11 @@ Transaction Script
 
 ## UseCase Test
 
-- 目的: 権限（同校・担当学年）に応じた一覧・詳細取得の挙動、CreateStudentにおける同校妥当性検証と`user`の`CreateStudentAccount`の呼び出し（入力の受け渡し・メールアドレス重複の結果の変換）の挙動を検証する
+- 目的: 権限（同校・担当学年）に応じた一覧・詳細取得の挙動、`keyword`が検索条件へ渡ること（空文字で絞り込まないこと）、CreateStudentにおける同校妥当性検証と`user`の`CreateStudentAccount`の呼び出し（入力の受け渡し・メールアドレス重複の結果の変換）の挙動を検証する
 
 ## Repository Test
 
-- 目的: 検索条件・可変ページングの正確性、GradeRepository/SchoolClassRepositoryによる存在確認の正確性を検証する
+- 目的: 検索条件（所属校・担当学年・`keyword`）・可変ページングの正確性、`master-data`・`school-class`の公開操作を呼ぶアダプタが属性を正しく取り出すことを検証する
 
 ## Handler Test
 
@@ -444,10 +736,17 @@ Transaction Script
 ## Integration Test
 
 - 目的: エンドポイント経由で一覧・詳細取得が権限どおりに動作すること、新規登録が同校妥当性検証を経て`user`の`CreateStudentAccount`へ連携され、招待待ちの生徒アカウントが作成されることを確認する
+- 重点を置く観点:
+  - 担当学年のみの権限区分の教師に、担当学年以外の生徒が一覧・詳細のいずれでも見えないこと
+  - 他校の生徒が見えないこと
+  - 論理削除済みの生徒が一覧・詳細のいずれでも見えないこと
+  - `keyword`が氏名・氏名カナの両方に当たること、ワイルドカード文字がそのまま文字として扱われること
+  - `per_page`を指定しないとき10件で返ること
+  - 担当学年以外の学年を指定した新規登録が拒否されること
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
 | Rails | Go | 設計方針 |
 |---|---|---|
@@ -461,7 +760,7 @@ Transaction Script
 
 ---
 
-# 20. 採用しなかった設計
+# 24. 採用しなかった設計
 
 ## Active Record
 
@@ -480,7 +779,7 @@ Transaction Script
 
 ---
 
-# 21. 設計判断サマリー
+# 25. 設計判断サマリー
 
 | 項目 | 採用 | 判断理由 |
 |---|---|---|
@@ -500,7 +799,7 @@ Transaction Script
 ## Rails現行仕様
 
 - Query（Teacher::StudentsQuery）とSerializerがControllerから直接利用され、権限による絞り込みロジックがController/Query間に分散している
-- 一覧取得は`per_page`パラメータで1ページあたりの件数を可変に指定でき、未指定時は10件・上限100件である
+- 一覧取得は`per_page`パラメータで1ページあたりの件数を可変に指定でき、未指定時は10件・上限100件である。`keyword`で氏名・氏名カナの部分一致による絞り込みができる
 - 生徒単体新規登録（create）は、Teacher::CreateStudentFormが入力検証・同校妥当性確認を行い、Student::CreateStudentService / Common::CreateUserServiceが、生徒CSVインポート機能の新規行と共通のアカウント作成処理（仮パスワード発行・招待メール送信を含む）を実行する
 
 ## Go設計での変更内容

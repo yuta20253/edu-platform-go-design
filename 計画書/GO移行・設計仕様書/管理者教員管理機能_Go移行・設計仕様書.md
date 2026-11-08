@@ -11,7 +11,7 @@
 ## 利用者
 
 - `admin` ロールのユーザー（管理者）
-- 対象は、パスパラメータで指定された高校に所属する教員に限定される（①「7. 権限制御」）。Rails現行は、指定された高校を取得してからその高校に所属する教員として対象を絞り込むことでこの制約を実現しており、操作する管理者と高校の対応は確認していない（①「5. API / 処理詳細」の各アクションの処理内容）。本設計もこれを変更しない（「16. Authorization設計」）
+- 対象は、パスパラメータで指定された高校に所属する教員に限定される（①「8. 権限制御」）。Rails現行は、指定された高校を取得してからその高校に所属する教員として対象を絞り込むことでこの制約を実現しており、操作する管理者と高校の対応は確認していない（①「5. API / 処理詳細」の各アクションの処理内容）。本設計もこれを変更しない（「16. Authorization設計」）
 
 ## 業務上の目的
 
@@ -815,7 +815,7 @@ HighSchoolStore・GradeStoreは`master-data` Contextが所有するデータへ�
 
 - ControllerがHighSchool取得・教員取得を直接行い、ServiceがUser・TeacherPermission・TeacherGradeの更新を一括で担う
 - 学年の所属確認ロジックがServiceの手続きの中に埋め込まれている
-- `Admin::UpdateTeacherService`が`teacher_permissions`を直接更新しており、教師の権限管理画面（`Api::V1::Teacher::PermissionsController#update`。`教師権限管理機能_Rails現行仕様書.md`）と権限の書き換え経路が二重化している。管理者経路には自己更新禁止・最後の有効教員保護・他教員管理権限の判定がない（教師側の判定は同書「7. 権限制御」）
+- `Admin::UpdateTeacherService`が`teacher_permissions`を直接更新しており、教師の権限管理画面（`Api::V1::Teacher::PermissionsController#update`。`教師権限管理機能_Rails現行仕様書.md`）と権限の書き換え経路が二重化している。管理者経路には自己更新禁止・最後の有効教員保護・他教員管理権限の判定がない（教師側の判定は同書「8. 権限制御」）
 - 教員の招待（`Admin::CreateTeacherService`）は、共通の作成処理（`Common::CreateUserService`）を継承し、`name` / `email` / `grade_scope` / `manage_other_teachers` / `grade_ids`を受け取る。仮パスワードの発行・教員アカウントの作成・権限と担当学年の作成を1つのトランザクションで行い、作成時に招待メール（`AuthMailer#invite_user`）をコミット後に非同期で送る。教員アカウントは招待待ち（`password_reset_required`）にならず、氏名カナには氏名と同じ値を設定し、学年は設定しない
 
 ## Go設計での変更内容
