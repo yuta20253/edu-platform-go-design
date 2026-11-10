@@ -57,7 +57,7 @@
 
 - Domain Model（②「4. 設計パターン」）
 
-アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）により、ディレクトリ名は`internal/schoolclass/`となる。
+アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名`school-class`から`-`を取り除いて連結した全小文字の名前とし、短縮・省略はしない。したがってディレクトリ名は`internal/schoolclass/`、package名は同じ`schoolclass`となる。
 
 ## 作成するディレクトリ一覧
 
@@ -76,9 +76,8 @@ internal/schoolclass/
 │   ├── dto/
 │   └── usecase/
 ├── infrastructure/
-│   ├── persistence/
-│   │   └── gorm/
-│   ├── repository/
+│   ├── gormrepo/
+│   ├── contextadapter/
 │   └── queue/
 └── presentation/
     ├── handler/
@@ -87,7 +86,7 @@ internal/schoolclass/
     └── routes.go
 ```
 
-Domain Modelを採用するため、Contextディレクトリ直下には`context.go`と`dependency.go`のみを置き、他は`domain/`等のサブディレクトリに配置する（アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」）。他Contextの参照手段のためのインターフェース（`ClassOccupancyRepository`・`TeacherPermissionRepository`・`SchoolClassRequestEventPublisher`）は`dependency.go`に置き、`domain/repository/`には本Contextが所有するデータのRepository Interfaceのみを置く。
+Domain Modelを採用するため、Contextディレクトリ直下には`context.go`と`dependency.go`のみを置き、他は`domain/`等のサブディレクトリに配置する（アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」）。他Contextの公開操作を呼ぶためのインターフェース（`StudentOccupancyDirectory`・`TeacherPermissionRepository`・`SchoolClassRequestEventPublisher`）は`dependency.go`に置き、その実装は`infrastructure/contextadapter/`に置く（同章。`gormrepo/`には置かない）。本Contextが自らクエリを発行して読むデータのRepository Interfaceは`domain/repository/`に置き、実装とGORMモデルを`infrastructure/gormrepo/`に置く。`ClassOccupancyRepository`は後者であり、クラス詳細の表示用の在籍生徒一覧（`users`）と所属教員（`teacher_school_classes`）を自前の参照モデルとして読む（「3. Domain層設計」）。
 
 - `domain/specification/`: 対象外（②に該当する複雑な仕様判定パターンの記載がなく、業務ルールはDomain Service（3種のPolicy）として②8章に明記されているため）
 - `infrastructure/mail/`・`infrastructure/cache/`: 対象外（②に該当する外部連携要件の記載がないため）
@@ -108,6 +107,7 @@ internal/schoolclass/dependency.go
 
 internal/schoolclass/domain/repository/school_class_repository.go
 internal/schoolclass/domain/repository/school_class_request_repository.go
+internal/schoolclass/domain/repository/class_occupancy_repository.go
 
 internal/schoolclass/domain/service/school_class_request_reflection_policy.go
 internal/schoolclass/domain/service/school_class_deletion_eligibility_policy.go
@@ -141,6 +141,8 @@ internal/schoolclass/infrastructure/gormrepo/school_class_request_repository.go
 internal/schoolclass/infrastructure/gormrepo/class_occupancy_repository.go
 internal/schoolclass/infrastructure/gormrepo/teacher_permission_repository.go
 
+internal/schoolclass/infrastructure/contextadapter/student_occupancy_directory.go
+
 internal/schoolclass/infrastructure/queue/school_class_request_event_publisher.go
 
 internal/schoolclass/presentation/handler/school_class_handler.go
@@ -149,7 +151,13 @@ internal/schoolclass/presentation/response/school_class_response.go
 internal/schoolclass/presentation/routes.go
 ```
 
-**②からの補足**: `ClassOccupancyRepository`（在籍生徒・所属教員の参照）・`TeacherPermissionRepository`（他職員操作権限の確認）は、②「11. Repository設計」の「外部参照Repository（在籍する生徒・所属する教員）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「5. Context間連携ルール」に従い具体的なRepository Interfaceとして具体化したものである。`TeacherPermissionRepository`は、`teacher-permission` Contextが公開する参照手段に対応する（`teacher-permission`③「3. Domain層設計」の`TeacherPermissionRepository`は同Contextの内部実装であり、本Contextからは参照しない）。`ClassOccupancyRepository`のうち、在籍生徒の確認は`user` Contextが所有する`users`が対象であり、`user`②が`CountUsers`を公開しているが、その③が未作成のため、対象テーブルへの直接クエリで暫定対応する。所属教員の確認は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは、現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
+**②からの補足**: `StudentOccupancyDirectory`・`ClassOccupancyRepository`・`TeacherPermissionRepository`は、②「11. Repository設計」の「外部参照Repository（在籍する生徒・所属する教員）」および②「16. Authorization設計」の記載を、アーキテクチャ規約「5. Context間連携ルール」に従って具体化したものである。
+
+在籍する生徒の人数の確認は`user` Contextの`CountUsers`へ委譲する（②「11. Repository設計」が「人数の確認は`user`の`CountUsers`を、クラス指定・無効化済みを含む指定で呼び出す」と定めている）。`dependency.go`に`StudentOccupancyDirectory`として宣言し、実装は`infrastructure/contextadapter/`に置く（規約「4. Bounded Context構成」）。
+
+クラス詳細の表示用の在籍生徒一覧は、並び替えを伴う画面向けの一覧であるため、ユーザー基盤②「3. Bounded Context」の「画面向けの一覧は、一覧を必要とする各Contextが自前の参照モデルとして持つ」に従い、本Contextが`users`の必要列を読む（教師権限管理③「8. Infrastructure層設計」が一覧・詳細の氏名について同じ扱いをしている）。所属教員の確認・一覧は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
+
+`TeacherPermissionRepository`は`teacher-permission` Contextが所有する`teacher_permissions`を対象とするが、同Contextの②「11. Repository設計」は他Contextへ向けた公開操作を定めていない（公開するのは本Contextの更新操作のみで、参照手段は`user`からの取得に限られる）。このため本Contextで参照専用のモデルを定義して読む形を取る（「17. ②からの補足事項」）。
 
 ---
 
@@ -159,8 +167,8 @@ internal/schoolclass/presentation/routes.go
 
 |文書|担当するファイル|
 |-|-|
-|`_1_Domain.md`|`dependency.go`、`domain/`配下のすべて（entity 3・valueobject 3・repository 2・service 3・event 1・errors 1）|
-|`_2_Infrastructure.md`|`infrastructure/`配下のすべて（gormrepo 8・queue 1）|
+|`_1_Domain.md`|`dependency.go`、`domain/`配下のすべて（entity 3・valueobject 3・repository 3・service 3・event 1・errors 1）|
+|`_2_Infrastructure.md`|`infrastructure/`配下のすべて（gormrepo 8・contextadapter 1・queue 1）|
 |`_3_Application・Presentation.md`|`context.go`、`application/`配下のすべて（dto 3・usecase 9）、`presentation/`配下のすべて（4）|
 
 上の一覧は機能全体のファイルである。本書が担当するのは上記のうち該当する行のみで、他の文書が担当するファイルは本書では定義しない。
@@ -328,14 +336,21 @@ internal/schoolclass/presentation/routes.go
 
 - 保持しない責務: クラスデータへの反映そのもの（`SchoolClassRepository`の責務）
 
-### ClassOccupancyRepository（`dependency.go`、在籍生徒は`user` Context所有の`users`・所属教員は`teacher_school_classes`の参照専用）
+### ClassOccupancyRepository（`domain/repository/class_occupancy_repository.go`、在籍生徒・所属教員を自前の参照モデルとして読む参照専用）
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`HasEnrolledStudents`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに在籍する生徒が1人以上いるかを確認する。無効化済み（`deleted_at`あり）のユーザーも含めて確認する（②「3. Bounded Context」。`user`②の`CountUsers`をクラス指定・無効化済みを含む指定で呼び出す場合に相当する）|
 |`ListEnrolledStudents`|`(ctx context.Context, schoolClassID uint)`|`([]StudentSummary, error)`|クラス詳細の表示用に、対象クラスに在籍する生徒の`id` / `name` / `name_kana`を氏名カナ昇順で取得する（①「5. API / 処理詳細」）|
 |`ListAssignedTeachers`|`(ctx context.Context, schoolClassID uint)`|`([]AssignedTeacher, error)`|クラス詳細の表示用に、対象クラスの担当教員の`id` / `name` / `role`を`teacher_school_classes`の順で取得する（①「5. API / 処理詳細」）|
 |`HasAssignedTeachers`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに所属する教員が1人以上いるかを、`teacher_school_classes`に対象クラスの行があるかで確認する。担任・副担任（`role`）の別は問わず、教員の`users`が無効化済みであっても、行があれば所属するとみなす|
+
+在籍生徒の一覧が`users`を直接読むのは、並び替えを伴う画面向けの一覧であり、ユーザー基盤②「3. Bounded Context」が「画面向けの一覧は、一覧を必要とする各Contextが自前の参照モデルとして持つ」と定めているためである。人数の確認は画面向けの一覧ではないため、次の`StudentOccupancyDirectory`で`user` Contextへ委譲する。
+
+### StudentOccupancyDirectory（`dependency.go`、`user` Contextの`CountUsers`へ委譲）
+
+|メソッド|引数|戻り値|責務|
+|-|-|-|-|
+|`HasEnrolledStudents`|`(ctx context.Context, schoolClassID uint)`|`(bool, error)`|対象クラスに在籍する生徒が1人以上いるかを確認する。無効化済み（`deleted_at`あり）のユーザーも含めて確認する（②「11. Repository設計」が「人数の確認は`user`の`CountUsers`を、クラス指定・無効化済みを含む指定で呼び出す」と定めている）|
 
 ### TeacherPermissionRepository（`dependency.go`、`teacher-permission` Context参照専用）
 
@@ -355,9 +370,11 @@ internal/schoolclass/presentation/routes.go
 ### SchoolClassDeletionEligibilityPolicy（`domain/service/school_class_deletion_eligibility_policy.go`）
 
 - struct名: `SchoolClassDeletionEligibilityPolicy`
-- コンストラクタ: `NewSchoolClassDeletionEligibilityPolicy(occupancyRepo repository.ClassOccupancyRepository) *SchoolClassDeletionEligibilityPolicy`
-- 公開メソッド: `(p *SchoolClassDeletionEligibilityPolicy) Check(ctx context.Context, schoolClassID uint) error`
+- コンストラクタ: `NewSchoolClassDeletionEligibilityPolicy() *SchoolClassDeletionEligibilityPolicy`
+- 公開メソッド: `(p *SchoolClassDeletionEligibilityPolicy) Check(hasEnrolledStudents bool, hasAssignedTeachers bool) error`
 - 責務: 削除申請の対象クラスに、在籍する生徒または所属する教員が1人もいないことを判定する。いずれかが存在する場合は`domainerrors.ErrClassHasOccupants`を返す（②8章）
+
+> **②からの補足**: 在籍・所属の事実確認は本Policyが行わず、UseCaseが`StudentOccupancyDirectory.HasEnrolledStudents`（`user`の`CountUsers`へ委譲）と`ClassOccupancyRepository.HasAssignedTeachers`を呼び、判定済みの事実を引数で渡す。Domain層がContextディレクトリ直下の`dependency.go`のpackageを参照しない形にするためである（アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）。教師権限管理③「3. Domain層設計」の`TeacherPermissionUpdateGuard`が`hasOtherActiveTeacher bool`を引数で受け取るのと同じ扱いであり、②「8. Domain Service」の「独立したポリシーとして一箇所に集約する」という責務は変わらない。
 
 ### DuplicatePendingRequestPolicy（`domain/service/duplicate_pending_request_policy.go`）
 
@@ -690,7 +707,9 @@ Infrastructure層（Repository実装）で発生したエラーは、`fmt.Errorf
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
 |ディレクトリ名・package名を`schoolclass`とした|②のContext名は`school-class`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」（Context名から`-`を取り除いた連結形）に従って変換した|規約に基づく（推測ではない）|
-|`ClassOccupancyRepository`・`TeacherPermissionRepository`を新設した。`ClassOccupancyRepository`の在籍生徒の確認は`user` Contextが所有する`users`（③が未作成のため暫定で直接クエリ）、所属教員の確認は`teacher_school_classes`（所有するContextが現行の②群に未定義の参照専用の依存）を対象とし、`TeacherPermissionRepository`は`teacher-permission` Contextが公開する参照手段として扱った|②「11. Repository設計」「16. Authorization設計」が依存関係を明記しているが、具体的なInterface名・配置場所までは規定していない。`teacher_school_classes`を所有するContextは、現行の②群のいずれにも定義されていない|推測|
+|在籍する生徒の人数の確認を`dependency.go`の`StudentOccupancyDirectory`（`user`の`CountUsers`へ委譲）に分け、表示用の在籍生徒一覧・所属教員の参照を`domain/repository/`の`ClassOccupancyRepository`に残した|②「11. Repository設計」は人数の確認を`user`の`CountUsers`で行うと定める一方、表示用の一覧の取得元を定めていない。後者はユーザー基盤②「3. Bounded Context」の「画面向けの一覧は各Contextが自前の参照モデルとして持つ」に従った。インターフェースを分けたのは、規約「4. Bounded Context構成」が`dependency.go`の実装を`infrastructure/contextadapter/`に限り、アダプタがDBへクエリを発行することを禁じているためである|補足（取得元は②・規約に基づく。インターフェースの分割は配置規則から導いた判断）|
+|`TeacherPermissionRepository`を本Contextで定義し、`teacher_permissions`を参照専用のモデルで読む形にした|②「16. Authorization設計」は他職員操作権限の確認を依存として明記しているが、`teacher-permission`②「11. Repository設計」は他Contextへ向けた公開操作を定めていない。所有Context側に公開操作が定まるまでの形である|推測（所有Contextの②に公開操作が加わった時点で、`dependency.go`＋`infrastructure/contextadapter/`の委譲へ改める必要がある）|
+|`teacher_school_classes`を参照専用の依存として扱った|このテーブルを所有・管理するContextは現行の②群のいずれにも定義されていない（教員をクラスへ割り当てる機能が移行対象範囲にない）|推測|
 |クラスの削除の承認時に、対象クラスの`teacher_school_classes`の行を、クラスの削除より前に同一トランザクションで削除する|Rails現行の`SchoolClass`が`has_many :teacher_school_classes, dependent: :destroy`でクラスの削除時に行を連動削除しており、DBの外部キー制約（`teacher_school_classes.school_class_id`→`school_classes`）もあるため。②「3. Bounded Context」に記載した|推測ではない（Rails現行の挙動に基づく）|
 |`SchoolClassRequestEventPublisher`の`announcement` Context呼び出し先の正確なpackage path|②「3. Bounded Context」「18. Domain Event」は`announcement` Contextへの依存を明記するが、当該Contextの②/③文書（お知らせ機能）との具体的な接続方法は本タスクの対象外文書に依存する|推測|
 |`SchoolClass.Delete`（Repository）を物理削除とするか論理削除とするかを確定していない|②20章はスキーマ変更なしとするのみで、削除方式（`deleted_at`利用の有無）を明記していない。Gorm規約「0. 本プロジェクトでの採用方針」は原則論理削除だが、クラス自体に削除申請というワークフローが既にあるため、物理削除の可能性も残る|推測（実装時に①または業務要件を確認する必要がある）|
