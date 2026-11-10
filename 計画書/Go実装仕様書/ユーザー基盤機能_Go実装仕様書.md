@@ -138,7 +138,7 @@ func (c *Context) CountUsers(ctx context.Context, cond SearchCondition, unit Agg
 type SearchCondition struct {
     IDs                 []uint
     Roles               []Role
-    HighSchoolID        *uint
+    HighSchoolIDs       []uint
     GradeIDs            []uint
     SchoolClassID       *uint
     InvitationCompleted *bool
@@ -337,6 +337,6 @@ return tx.Save(&u).Error
 |`DeactivatedScope`・`DeliveryMode`にゼロ値を割り当てず、`iota + 1`から始める|②は「無効化の扱い」「実行方式」を必須指定としているが、Goの`int`型のゼロ値は0であり、指定の欠落と有効な値を区別できない。1から始めることで、指定忘れを実行時に検出できる|補足（②の必須指定という方針をGoで表現するための判断）|
 |`CreateTeacherAccountInput`の`PendingInvitation`・`SendInvitationEmail`をポインタにする|②は両方を必須指定としている。`bool`では「false」と「指定なし」が区別できず、既定値を置くと教師経路・管理者経路のいずれかが黙って誤った状態で作成される|補足（同上）|
 |`FindUserByEmail`が「存在しない」を`found`で返す|②は出力を「ユーザーの基本属性、または『存在しない』」としている。呼び出し側は存在しないことを正常系として扱うため、エラーではなく真偽値で返す|補足（②の出力の定義をGoのシグネチャに落としたもの）|
-|`SearchCondition`の学年の絞り込みを`GradeIDs []uint`（複数指定）にする|学年は学校ごとに独立しており、同じ年次の学年が学校の数だけ存在する。分析が「同じ年次に属するユーザー」を取得するには複数の学年IDを1回で渡せる必要がある（②「11. Repository設計」、分析機能②「11. Repository設計」）。単一指定の用途はスライスに1件を入れれば満たせる|補足（②が学年の絞り込みを複数指定可としたことをGoのシグネチャに落としたもの）|
+|`SearchCondition`の所属校・学年の絞り込みを`HighSchoolIDs []uint`・`GradeIDs []uint`（複数指定）にする|②「11. Repository設計」は所属校・学年のいずれも複数指定で絞り込めるものとしている。学年は学校ごとに独立しており、同じ年次の学年が学校の数だけ存在するため、分析が「同じ年次に属するユーザー」を取得するには複数の学年IDを1回で渡せる必要がある（分析機能②「11. Repository設計」）。所属校は、管理者高校学年参照が1ページあたり最大100件の高校の人数を識別子の集合で1回に集計するためである（管理者高校学年参照②「12. UseCase設計」）。いずれも単一指定の用途はスライスに1件を入れれば満たせる|補足（②の絞り込み条件をGoのシグネチャに落としたもの）|
 |`ValidateStudentNumberFormat`をpackageレベルの関数にする|書式検証はDB接続も他Contextへの依存も必要としない。`Context`の組み立てを呼び出し側に要求しないため|補足|
 |`CountResult.Key`を集計単位に応じたIDとし、`AggregateNone`では0とする|②は出力を「集計の単位が『なし』なら人数1件、それ以外ならグループごとの人数」としている。単位ごとに別の型を用意せず1つの型で表現するため|補足|
