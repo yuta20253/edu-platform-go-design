@@ -60,6 +60,16 @@
 
 - `task-management` Context: タスクの着手時に、本Contextが公開する「目標の状態の再評価」操作を呼ぶ（①「7. 状態管理」の`Student::TaskStartService`に対応）
 - `question-answering` Context: 問題の提出時に、同じ操作を呼ぶ（同`Student::SubmissionService`に対応）
+- `calendar` Context: カレンダー表示のため、本Contextが公開する「期間内の目標の参照」操作を呼ぶ（カレンダー機能②「3. Bounded Context」）
+
+## 本Contextが公開する操作
+
+|操作|呼び出し元|内容|
+|-|-|-|
+|目標の状態の再評価|`task-management`・`question-answering`|紐づくタスクの状況から状態を再評価し、変化があれば更新する|
+|期間内の目標の参照|`calendar`|期限日が指定期間内にある操作者の目標を、識別子・件名・期限日・状態とともに返す。論理削除済みを除外する|
+
+いずれもHTTPを経由せず、Goのパッケージとして直接呼ばれる。認可は呼び出し側Contextが行う（「16. Authorization設計」）。
 
 ## 依存する理由
 
@@ -281,6 +291,7 @@ stateDiagram-v2
 - 保持する検索機能:
   - user_idによる絞り込み
   - due_date昇順ソート。期限が同じ場合はid昇順で並べる（①「5. API / 処理詳細」`#index`）
+  - due_dateの範囲による絞り込み（「3. Bounded Context」の公開操作「期間内の目標の参照」から呼ばれる。両端を含む）
   - ページネーション
   - 論理削除済みを除外する絞り込み（①「6. データモデル」の`default_scope`に相当）
 - 保持しない責務:
@@ -363,6 +374,17 @@ stateDiagram-v2
   - GoalStore（状態の更新）
 - 呼び出し元: `task-management` Context（タスクの着手）、`question-answering` Context（問題の提出）
 - 判断根拠: ①「7. 状態管理」のとおり、Rails現行は判定（`Student::GoalCompletionService`）と更新（`Student::GoalStatusUpdaterService`）を目標側のServiceに置き、タスクの着手・問題の提出から呼んでいる。同じ責務分担を維持する。本操作は認可を行わない。「その目標の状態を変えてよいか」は呼び出し側が判定済みである（「16. Authorization設計」）
+
+## FindGoalsInPeriod(他Contextから呼ばれる公開操作)
+
+- 目的: 期限日が指定期間内にある操作者の目標を返す
+- 入力: 操作者の識別子、期間の開始日・終了日（いずれも暦日。両端を含む）
+- 出力: 目標の一覧（識別子・件名・期限日・状態）
+- トランザクション範囲: 読み取りのみ、トランザクションは不要
+- 呼び出すStore・Context: GoalStore（due_dateの範囲による絞り込み）
+- 呼び出し元: `calendar` Context（カレンダー表示）
+- 判断根拠: カレンダー機能は期限日という観点で目標・タスク・面談を横断するが、期限日の意味と論理削除済みの扱いを決めているのは本Contextである（カレンダー機能②「11. Repository設計」）。呼び出し側が`goals`を直接読むと、同じ判断が2か所に分かれる。紐づくタスクは返さない。カレンダーの表示に必要なのは目標そのものの期限日・件名・状態のみである（カレンダー機能①「5. API / 処理詳細」Response）
+- 並び順は指定しない。呼び出し側が3種類の予定を結合したあとに並べ替えるためである（カレンダー機能②「12. UseCase設計」）
 
 ---
 

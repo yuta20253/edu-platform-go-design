@@ -55,17 +55,19 @@
 |`interview-request` Context（②は`面談機能_Go移行・設計仕様書.md`）|面談日時が指定期間内にあり、取り消し済みでない、操作者が当事者の面談（識別子・相談理由の詳細・面談日時・状態）|同|
 |`user` Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`）|認証済み生徒の識別|同「8. 権限制御」|
 
-## 本Contextが必要とする公開操作
+## 本Contextが利用する公開操作
 
-**3つの所有Contextに、期間指定の公開参照手段が必要になる。** いずれも現時点では同②に定義がない。
+本Contextが必要とする期間指定の参照は、3つの所有Contextが公開操作として定めている。
 
-|必要な操作|所有Context|内容|
+|利用する操作|所有Context|所有Context側の定義|
 |-|-|-|
-|期間内の目標の参照|`goal-management`|期限日が期間内にある操作者の目標を返す。論理削除済みを除外する|
-|期間内のタスクの参照|`task-management`|期限日が期間内にある操作者のタスクを返す。論理削除済みを除外する|
-|期間内の面談の参照|`interview-request`|面談日時が期間内にあり取り消し済みでない、操作者が当事者の面談を返す。面談日時が未設定のものは含まれない|
+|期間内の目標の参照|`goal-management`|目標管理機能②「3. Bounded Context」「12. UseCase設計」`FindGoalsInPeriod`|
+|期間内のタスクの参照|`task-management`|タスク管理機能②「3. Bounded Context」「12. UseCase設計」`FindTasksInPeriod`|
+|期間内の面談の参照|`interview-request`|面談機能②「3. Bounded Context」「12. UseCase設計」`FindInterviewsInPeriod`|
 
-分析機能が所有Contextへ参照手段を要求したのと同じ構図である（分析機能②「3. Bounded Context」）。面談については、同Contextが教師面談機能の一覧で同じ期間検索を既に持っており（面談機能②「11. Repository設計」・教師面談機能②「11. Repository設計」）、公開参照手段はその検索条件を当事者指定で呼び出せる形になる。面談機能②「3. Bounded Context」は本機能からの参照要求を記録している。
+いずれも操作者の識別子と期間（暦日）を渡し、識別子・表示名・日付・状態を受け取る。並び順は指定せず、本Contextが結合後に並べ替える。論理削除済み・取り消し済みの除外は所有Context側が行う。
+
+分析機能が所有Contextへ参照手段を要求したのと同じ構図である（分析機能②「3. Bounded Context」）。面談については、同Contextが教師面談機能の一覧で同じ期間検索を既に持っており（面談機能②「11. Repository設計」・教師面談機能②「11. Repository設計」）、公開操作はその検索条件を当事者指定で呼び出す形である。
 
 ## 依存する理由
 

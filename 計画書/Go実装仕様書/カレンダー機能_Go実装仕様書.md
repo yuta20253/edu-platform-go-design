@@ -98,15 +98,15 @@ internal/calendar/presentation/routes.go
 
 ```go
 type GoalScheduleDirectory interface {
-    FindGoalsByDueDateRange(ctx context.Context, userID uint, period Period) ([]ScheduleItem, error)
+    FindGoalsInPeriod(ctx context.Context, userID uint, period Period) ([]ScheduleItem, error)
 }
 
 type TaskScheduleDirectory interface {
-    FindTasksByDueDateRange(ctx context.Context, userID uint, period Period) ([]ScheduleItem, error)
+    FindTasksInPeriod(ctx context.Context, userID uint, period Period) ([]ScheduleItem, error)
 }
 
 type InterviewScheduleDirectory interface {
-    FindInterviewsByScheduledDateRange(ctx context.Context, userID uint, period Period) ([]ScheduleItem, error)
+    FindInterviewsInPeriod(ctx context.Context, userID uint, period Period) ([]ScheduleItem, error)
 }
 
 // Period は取得期間である。From・To はいずれも暦日（時刻を持たない）。
@@ -125,13 +125,15 @@ type ScheduleItem struct {
 }
 ```
 
-|インターフェース|委譲先|状態|
+|インターフェース|委譲先|所有Context側の定義|
 |-|-|-|
-|`GoalScheduleDirectory`|`goal-management`の期間指定の目標参照|**同②に公開操作が未定義**（②「3. Bounded Context」の「本Contextが必要とする公開操作」）|
-|`TaskScheduleDirectory`|`task-management`の期間指定のタスク参照|**同②に公開操作が未定義**（同）|
-|`InterviewScheduleDirectory`|`interview-request`の期間指定の面談参照|**同②に公開操作が未定義**（同。面談機能②「3. Bounded Context」が本機能からの参照要求を記録している）|
+|`GoalScheduleDirectory`|`goal-management`の`FindGoalsInPeriod`|目標管理機能②「12. UseCase設計」|
+|`TaskScheduleDirectory`|`task-management`の`FindTasksInPeriod`|タスク管理機能②「12. UseCase設計」|
+|`InterviewScheduleDirectory`|`interview-request`の`FindInterviewsInPeriod`|面談機能②「12. UseCase設計」|
 
-**②からの補足**: 3つのインターフェースのメソッド名・シグネチャは②に明記がないため、コーディング規約「7. インターフェース」（利用側で定義する）・アーキテクチャ規約「5. Context間連携ルール」に従って実装のために補った。所有Context側の②に公開操作が定まった時点で、その形へ合わせる。
+メソッド名は所有Context側の公開操作名に揃えた。取得経路を1つに保ち、どの操作を呼んでいるかが利用側の宣言から分かるようにするためである（②「3. Bounded Context」の「本Contextが利用する公開操作」）。
+
+**②からの補足**: 引数・戻り値の型は②に明記がないため、コーディング規約「7. インターフェース」（利用側で定義する）・アーキテクチャ規約「5. Context間連携ルール」に従って実装のために補った。メソッド名は所有Context側の②が定める公開操作名と同じにしている。
 
 **3つの参照手段が同じ`ScheduleItem`を返す形にした理由**: 3種類の予定はカレンダー上で同じ形に揃えられる（②「6. Entity設計」）。種別ごとに別の型で受け取ると、結合の前に3通りの変換を書くことになる。種別（`goal` / `task` / `interview_request`）は呼び出し側が参照手段ごとに決まるため、`ScheduleItem`には持たせない（**②からの補足**。②は出力の要素が種別を持つと定めるが、参照手段の戻り値の形までは定めていない）。
 
@@ -181,9 +183,9 @@ type ScheduleItem struct {
 
 処理ステップ:
 
-1. `GoalScheduleDirectory.FindGoalsByDueDateRange`で期間内の目標を取得する。失敗した場合はエラーを返す
-2. `TaskScheduleDirectory.FindTasksByDueDateRange`で期間内のタスクを取得する。失敗した場合はエラーを返す
-3. `InterviewScheduleDirectory.FindInterviewsByScheduledDateRange`で期間内の面談を取得する。失敗した場合はエラーを返す
+1. `GoalScheduleDirectory.FindGoalsInPeriod`で期間内の目標を取得する。失敗した場合はエラーを返す
+2. `TaskScheduleDirectory.FindTasksInPeriod`で期間内のタスクを取得する。失敗した場合はエラーを返す
+3. `InterviewScheduleDirectory.FindInterviewsInPeriod`で期間内の面談を取得する。失敗した場合はエラーを返す
 4. 手順1〜3の結果を、それぞれ種別`goal` / `task` / `interview_request`を付与して1つのスライスへ結合する
 5. 日付の昇順、同じ日付では種別の文字列の昇順、同じ種別では識別子の昇順に並べる（②「12. UseCase設計」）
 6. 並べ替えたスライスを返す
@@ -217,11 +219,11 @@ sequenceDiagram
     H->>H: ShouldBindQuery（from・toの必須と形式）
     H->>H: 前後関係と期間の長さを検証
     H->>A: ListCalendarEventsQuery（操作者・期間）
-    A->>GD: FindGoalsByDueDateRange
+    A->>GD: FindGoalsInPeriod
     GD-->>A: []ScheduleItem
-    A->>TD: FindTasksByDueDateRange
+    A->>TD: FindTasksInPeriod
     TD-->>A: []ScheduleItem
-    A->>ID: FindInterviewsByScheduledDateRange
+    A->>ID: FindInterviewsInPeriod
     ID-->>A: []ScheduleItem
     A->>A: 種別を付けて結合し、日付・種別・IDの順に並べる
     A-->>H: []CalendarEvent
@@ -507,7 +509,7 @@ Presentation層（Gin規約「8. エラーハンドリングミドルウェア�
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
 |内部ディレクトリ名・package名を`calendar`とし、`dependency.go`のインターフェースの実装を`infrastructure/contextadapter/`に置いた|アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」および同章の`contextadapter/`の定めによる。`gormrepo/`は所有するテーブルがないため作成しない|規約に基づく（推測ではない）|
-|3つの参照インターフェースの名前・シグネチャを`GoalScheduleDirectory.FindGoalsByDueDateRange`等とした|②は必要な参照の内容のみを定めており、メソッド名・シグネチャを定めていない。コーディング規約「7. インターフェース」（利用側で定義する）に従って補った。他Contextの参照には`Directory`を用いる既存③文書（ダッシュボード・分析・管理者高校学年参照）の形に合わせた|補足（所有Context側の②に公開操作が定まった時点で、その形へ合わせる）|
+|3つの参照インターフェースを`GoalScheduleDirectory`等とし、メソッド名を所有Context側の公開操作名（`FindGoalsInPeriod`等）に揃えた|他Contextの参照には`Directory`を用いる既存③文書（ダッシュボード・分析・管理者高校学年参照）の形に合わせた。メソッド名を所有Context側と揃えるのは、どの公開操作を呼んでいるかを利用側の宣言から読み取れるようにするためである（教師生徒参照機能③・教師お知らせ機能③_1が`FindGradeRestriction`で同じ扱いをしている）|補足（引数・戻り値の型は②に明記がなく、実装のために補った）|
 |3つの参照手段が共通の`ScheduleItem`を返す形にした|3種類の予定はカレンダー上で同じ形に揃えられる（②「6. Entity設計」）。種別ごとに別の型で受け取ると、結合の前に3通りの変換を書くことになる。種別は参照手段ごとに決まるため`ScheduleItem`には持たせない|補足（②は参照手段の戻り値の形を定めていない）|
 |`Period`・`ScheduleItem`を`dependency.go`に置いた|`dependency.go`のインターフェースの引数・戻り値の型である。domain層を持たないため、`domain/repository/`に置く選択肢がない|補足（規約に定めがなく、本機能の構成から導いた）|
 |該当0件のとき`nil`ではなく長さ0のスライスを返す|`nil`スライスはJSONで`null`になり、Rails現行の`[]`と異なる（①「5. API / 処理詳細」）。管理者高校学年参照機能③「6. Application層設計」が同じ扱いをしている|①に基づく（推測ではない）|
@@ -520,5 +522,5 @@ Presentation層（Gin規約「8. エラーハンドリングミドルウェア�
 
 ## 未確定事項
 
-- **3つの所有Contextの公開操作が未定義である。** `goal-management`・`task-management`・`interview-request`のいずれも、②に期間指定の公開参照手段を持たない（②「3. Bounded Context」の「本Contextが必要とする公開操作」）。本書のインターフェースは利用側の宣言であり、所有Context側の②へ操作を追加したうえで、シグネチャを合わせる必要がある
+- **3つの公開操作の引数・戻り値の型は所有Context側の③で確定する。** 操作そのものは3つの②が定めているが（②「3. Bounded Context」の「本Contextが利用する公開操作」）、Goのシグネチャは所有Contextの③に属する。本書のインターフェースは利用側の宣言であり、型が確定した時点で合わせる
 - **面談の暦日の決定方法。** 面談日時はUTCで保存されており、暦日との突き合わせに時刻とタイムゾーンの解釈が必要になる。その解釈を所有Context側に閉じ込める方針は②「11. Repository設計」が定めているが、具体的な基準（日本時間の暦日として扱う）は`interview-request`の③で確定する
