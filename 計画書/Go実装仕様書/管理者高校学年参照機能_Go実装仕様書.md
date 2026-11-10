@@ -484,10 +484,10 @@ var _ schooldirectory.TeacherCountDirectory = (*userCountDirectory)(nil)
 
 |本Contextのメソッド|`user`への引数|
 |-|-|
-|`CountActiveStudentsByHighSchool`|`Roles`に生徒、`HighSchoolIDs`に相当する絞り込み、`Deactivated`に「有効のみ」、集計の単位に「所属校別」|
+|`CountActiveStudentsByHighSchool`|`Roles`に生徒、`HighSchoolIDs`に高校の識別子の集合、`Deactivated`に「有効のみ」、集計の単位に「所属校別」|
 |`CountTeachersByHighSchool`|`Roles`に教員、同じ絞り込み、`Deactivated`に「無効化済みを含む」、集計の単位に「所属校別」|
 
-**ユーザー基盤機能③の`SearchCondition`は所属校の絞り込みを`HighSchoolID *uint`（単一指定）としている。** 本Contextは高校の識別子の集合で絞り込む必要があるため、同Contextの③で複数指定を受け取れる形にする必要がある（「17. ②からの補足事項」参照）。
+ユーザー基盤機能③の`SearchCondition`は所属校の絞り込みを`HighSchoolIDs []uint`（複数指定）としているため、取得したページの高校の識別子の集合をそのまま渡せる（「17. ②からの補足事項」3）。
 
 ## 外部連携実装
 
@@ -934,11 +934,11 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 - 判断理由: Ginは同じ位置のパスパラメータに異なる名前を割り当てられず、`:id`と`:high_school_id`を同時に登録すると衝突する。Rails現行は`:id`（詳細）と`:high_school_id`（ネスト）で名前が分かれているが、これはRailsのルーティングの都合であり、URLの文字列には現れない
 - 推測かどうか: **②からの補足**。②「19. API仕様」はURLを変更しないとしているが、パスパラメータの内部的な名前までは定めていない。URLの文字列は変わらないため、フロントエンドから見た差分は生じない。同じ`/admin/high_schools/:id`配下にルートを登録する他Context（教員管理・お知らせ）も同じ名前に揃える必要がある
 
-## 3. `user`の所属校の絞り込みを複数指定にする必要がある
+## 3. 人数の集計を高校の識別子の集合で1回呼ぶ
 
-- 判断した内容: 本Contextは高校の識別子の集合で人数を集計する必要があり、`user`の`SearchCondition`に所属校の複数指定が必要である
-- 判断理由: ユーザー基盤機能③「3. 公開操作の定義」の`SearchCondition`は所属校の絞り込みを`HighSchoolID *uint`（単一指定）としている。1ページあたり最大100件の高校について人数を集計するため、単一指定では100回の問い合わせが必要になる。Rails現行は`by_high_school(school_ids)`として識別子の集合で1回のクエリにまとめている（①「5. API / 処理詳細」`#index`）
-- 推測かどうか: 推測ではない。①の実体と`user`の公開操作の形から導かれる帰結である。**`user`側の③に反映が必要である。** 同Contextでは学年の絞り込みが分析機能の要求で`GradeIDs []uint`へ変更されており（ユーザー基盤機能③「7. ②からの補足事項」）、所属校も同じ形へ揃えることになる
+- 判断した内容: 人数の集計を高校ごとに1回ずつ呼ばず、取得したページの高校の識別子の集合を1回で渡す
+- 判断理由: 1ページあたり最大100件の高校について人数を集計するため、単一指定では100回の問い合わせが必要になる。ユーザー基盤機能③「3. 公開操作の定義」の`SearchCondition`は所属校の絞り込みを`HighSchoolIDs []uint`（複数指定）としており、集合を1回で渡せる。Rails現行も`by_high_school(school_ids)`として識別子の集合で1回のクエリにまとめている（①「5. API / 処理詳細」`#index`）
+- 推測かどうか: 推測ではない。②「12. UseCase設計」が識別子の集合に対して集計を呼ぶ手順を定めており、`user`の公開操作がその形を持つ
 
 ## 4. ページ情報のResponse DTOの置き場所を確定しない
 
