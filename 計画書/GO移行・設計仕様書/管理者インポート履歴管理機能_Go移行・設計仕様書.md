@@ -62,11 +62,11 @@ CSVアップロードの受付・進行状態管理・行単位の記録とい�
 ## 他Contextとの依存関係
 
 - curriculum Context: 一覧・詳細表示におけるコース名・単元名の参照に依存する
-- User(Admin) Context: 一覧・詳細表示における実行者（管理者）名の参照に依存する
+- `user` Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 一覧・詳細表示における実行者（管理者）名の参照に依存する（参照のみ）
 
 ## 依存する理由
 
-インポート履歴自体は`unit_id`・`user_id`という外部キーのみを保持し、表示に必要なコース名・単元名・実行者名はそれぞれcurriculum Context・User(Admin) Contextが真正な情報源であるため、参照のみを行う。
+インポート履歴自体は`unit_id`・`user_id`という外部キーのみを保持し、表示に必要なコース名・単元名・実行者名はそれぞれ`curriculum`・`user`が真正な情報源であるため、参照のみを行う。
 
 ---
 
@@ -257,7 +257,7 @@ classDiagram
 
 # 10. 状態遷移図
 
-本機能はImportHistoryの状態を変更しないため、独自の状態遷移図は持たない。ImportHistoryの状態（processing/success/partial_failure/failure）とその遷移条件は、管理者問題インポート機能_Go移行・設計仕様書「10. 状態遷移図」の定義をそのまま参照する。本機能は、この状態を`status`検索条件として参照するのみである。
+本機能はImportHistoryの状態を変更しないため、独自の状態遷移図は持たない。ImportHistoryの状態（`pending` / `processing` / `completed` / `failed`）とその遷移条件は、管理者問題インポート機能_Go移行・設計仕様書「10. 状態遷移図」の定義をそのまま参照する。本機能は、この状態を`status`検索条件として参照するのみである。
 
 ---
 

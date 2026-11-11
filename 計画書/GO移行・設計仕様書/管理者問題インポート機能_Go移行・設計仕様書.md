@@ -99,7 +99,7 @@ Domain Model
 
 ### Transaction Script
 
-CSV行の処理自体は手続き的だが、進行状態（processing/success/partial/failure）の決定ルールや、append/overwriteに応じた業務判断、さらに事前検証と本番実行で共有すべき行検証ルールを直接ユースケースに書き込むと、ルールが散在し、事前検証と本番実行の判定基準がずれるリスクが生じる。これらは業務上重要なルールであるため、手続きから独立させる必要がある。
+CSV行の処理自体は手続き的だが、進行状態（pending/processing/completed/failed）の決定ルールや、上書きモードでの事前削除の業務判断、さらに事前検証と本番実行で共有すべき行検証ルールを直接ユースケースに書き込むと、ルールが散在し、事前検証と本番実行の判定基準がずれるリスクが生じる。これらは業務上重要なルールであるため、手続きから独立させる必要がある。
 
 ### Active Record
 
@@ -176,7 +176,8 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 ## ImportStatus
 
 - 採用理由: 進行状態を文字列のまま扱うと、不正な遷移や表記揺れが起きやすいため
-- 独自ルール: processingから開始し、行処理結果の集計によって終了状態が決定される。終了後の再遷移は許容しない
+- 取りうる値: `pending` / `processing` / `completed` / `failed`（①「7. 状態管理」）。**「一部成功」を表す値は持たない**
+- 独自ルール: インポートの受付が`processing`でレコードを作成するため、`pending`は既定値として存在するのみで通常の経路では経由しない。終了状態は`completed`か`failed`のいずれかで、終了後の再遷移は許容しない
 - Entity属性ではなくValue Objectにする理由: 状態遷移という意味をコード上に明示し、業務ルールの変更に対する影響範囲を型に閉じ込めるため
 
 ## ImportRowResult
@@ -201,15 +202,20 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 
 ## QuestionImportPolicy
 
-- 責務: CSV1行のデータとmode（append/overwrite）から、Questionを新規作成すべきか既存Questionを更新すべきかを判定する
-- Entityへ持たせない理由: この判定はImportHistory（進行状態管理）にもQuestion（問題データ）にも一元的に属さず、両者の情報（モードと対象データ）を横断して判断する必要があるため
-- 判断根拠: append/overwriteの判定は業務上重要なルールであり、UseCaseに直接書くと再利用性・テスト容易性が下がるため、独立したポリシーとして切り出す。なお本ポリシーは、QuestionCsvRowValidatorによる形式検証に合格した行のみを対象とし、事前検証（dry_run）では呼び出されない（実際の作成・更新を行わないため）
+- 責務: modeから「行の処理の前に対象単元の既存データを論理削除するか」を判定する
+- Entityへ持たせない理由: この判定はImportHistory（進行状態管理）にもQuestion（問題データ）にも一元的に属さず、モードと対象単元を横断して判断する必要があるため
+- 判断根拠: 上書きの意味（既存を消してから入れ直す）はインポートの業務ルールであり、UseCaseに直接書くと再利用性・テスト容易性が下がるため、独立したポリシーとして切り出す。なお本ポリシーは事前検証（dry_run）では呼び出されない（実際の作成・更新・削除を行わないため）
+
+**行ごとの処理はモードによって変わらない。** append / overwrite のいずれでも、問題は単元・問題文・正解の組で既存を引き当て（なければ作成）、解説・選択肢・ヒントはそれぞれの一意キーで引き当てて内容を更新する（①「9. 非同期処理」）。モードが決めるのは、行の処理に入る前に対象単元の既存データを一括で論理削除するかどうかだけである。
+
+**上書きモードで論理削除するのは問題とその子（選択肢・ヒント・解説）に限る。** 解答履歴は残す（①「9. 非同期処理」）。履歴を消すと、過去に解答した生徒の学習記録が失われるためである。
 
 ## ImportResultAggregationPolicy
 
-- 責務: 行単位の処理結果（ImportRowResultの集合）から、ImportHistoryの最終的な状態（成功 / 一部失敗 / 失敗）と各種カウントを決定する
-- Entityへ持たせない理由: ImportHistoryに持たせることも可能だが、集計ルール自体が今後複雑化する可能性（失敗率による判定基準の変更等）を考慮し、独立したポリシーとして切り出すことでImportHistory Entityをシンプルに保つ
-- 判断根拠: 状態決定ロジックの変更がEntity本体に影響しないようにするため。事前検証（dry_run）でも、total_count / valid_countの集計にこのポリシーの集計ロジックの一部（ImportHistoryの状態決定を除く件数集計部分）を再利用する
+- 責務: 行単位の処理結果（ImportRowResultの集合）から、ImportHistoryの最終的な状態（`completed` / `failed`）と各種カウントを決定する
+- 判定規則: エラーが1件もなければ`completed`、1件以上あれば`failed`（①「7. 状態管理」）。失敗率による中間状態は持たない
+- Entityへ持たせない理由: ImportHistoryに持たせることも可能だが、件数の集計（総件数・成功件数・エラー件数）と状態の決定をまとめて扱う単位として切り出すことで、ImportHistory Entityをシンプルに保つ
+- 判断根拠: 事前検証（dry_run）でも、total_count / valid_countの集計にこのポリシーの件数集計部分を再利用する（状態の決定は行わない）
 
 ---
 
@@ -281,19 +287,21 @@ classDiagram
 
 ```mermaid
 stateDiagram-v2
+    [*] --> pending : レコードの既定値
+    pending --> processing : 取り込みの開始
     [*] --> processing : StartQuestionImportUseCaseによるImportHistory作成
-    processing --> success : 全行が成功
-    processing --> partial_failure : 一部の行が失敗
-    processing --> failure : 全行が失敗、またはファイル自体が不正
-    success --> [*]
-    partial_failure --> [*]
-    failure --> [*]
+    processing --> completed : 全行が成功
+    processing --> failed : 1行でもエラー、ヘッダーが不正、または処理中に例外
+    completed --> [*]
+    failed --> [*]
 
     note right of processing
         事前検証（dry_run）はこの状態遷移の
         対象外。ImportHistoryを作成しないため。
     end note
 ```
+
+**終了状態は2つだけである。** 取り込みは全件成功か全件失敗のいずれかであり、「一部の行だけ取り込まれた」状態は存在しない（①「7. 状態管理」「9. 非同期処理」）。インポートの受付は`processing`でレコードを作成するため、`pending`は既定値として存在するのみで通常の経路では経由しない。
 
 ---
 
@@ -329,7 +337,10 @@ stateDiagram-v2
 ## QuestionRepository（`curriculum`が公開する操作。外部依存として利用）
 
 - 管理対象: Question, QuestionChoice, QuestionHint, QuestionExplanation
-- 責務: 問題の新規作成、既存問題の更新（overwrite時）
+- 責務:
+  - 問題の引き当て（単元・問題文・正解の組。論理削除済みは対象としない）と新規作成
+  - 解説・選択肢・ヒントの引き当て（それぞれの一意キー。**論理削除済みを含めて引き当てる**）と、内容の更新・論理削除の解除
+  - 上書きモードでの、対象単元の既存の問題と子の一括論理削除（解答履歴は対象としない）
 - 保持しない責務: CSV解析、モード判定
 - 判断根拠: 問題データの永続化は`curriculum`の責務であり、question-import Contextはこれを同Contextの公開操作経由で利用する立場に留める（推測: `curriculum` Context側の詳細なRepository設計は本書のスコープ外であり、別途整理される前提とする）
 
@@ -351,9 +362,17 @@ stateDiagram-v2
 - 目的: 非同期ワーカーから呼び出され、CSVの各行を処理してQuestionを作成/更新し、結果をImportHistoryへ反映する
 - 入力: import history id
 - 出力: 更新後のImportHistory（状態・カウント）
-- トランザクション範囲: 行単位（またはバッチ単位）でQuestion作成/更新をトランザクション化し、全体を1つの巨大なトランザクションにはしない（詳細は14.Transaction設計を参照）
+- トランザクション範囲: 全行の処理を1つのトランザクションで行う。1行でもエラーがあれば巻き戻す（「14. Transaction設計」）
 - 呼び出すRepository: ImportHistoryRepository, ImportErrorRepository, QuestionRepository
-- 判断根拠: 一部の行が失敗しても他の行の成功を保持する（部分的成功を許容する）業務要件があるため。行ごとにQuestionCsvRowValidator（形式検証）→QuestionImportPolicy（作成/更新判定）の順で処理する
+- 処理の順序:
+  1. 対象の履歴を取得し、状態を`processing`にして開始日時を記録する
+  2. トランザクションを開始する
+  3. CSVのヘッダーが要求項目と一致するかを検証する。不一致の場合は行の処理に入らず、ヘッダー行に対するエラーとして扱う
+  4. 上書きモードであれば、`QuestionImportPolicy`の判定に従い、対象単元の既存の問題と子を論理削除する（解答履歴は残す）
+  5. 行ごとに`QuestionCsvRowValidator`で形式検証し、合格した行を`QuestionRepository`で取り込む
+  6. エラーが1件もなければコミットし、`ImportResultAggregationPolicy`の集計に従って`completed`にする
+  7. エラーが1件以上あれば巻き戻し、`failed`にしたうえでエラー行を`ImportErrorRepository`で保存する
+- 判断根拠: 取り込みは全件成功か全件失敗のいずれかである（①「7. 状態管理」「9. 非同期処理」）。行ごとの処理はモードによって変わらず、モードが決めるのは手順4の事前削除の有無だけである（「8. Domain Service」）
 
 ## ValidateQuestionImportUseCase（事前検証／dry_run）
 
@@ -461,19 +480,21 @@ flowchart TD
 ## Transaction開始位置
 
 - StartQuestionImportUseCaseはUseCase開始時にトランザクションを開始する
-- ExecuteQuestionImportUseCaseは行（またはバッチ）単位でトランザクションを開始する
+- ExecuteQuestionImportUseCaseは、状態を`processing`にしたあとに1つのトランザクションを開始し、全行の処理をその中で行う
 - ValidateQuestionImportUseCase・DownloadQuestionCsvTemplateUseCaseはトランザクションを使用しない（データ変更を伴わないため）
 
 ## Transaction終了位置
 
 - StartQuestionImportUseCaseはImportHistory作成完了時にコミットする
-- ExecuteQuestionImportUseCaseは各行（またはバッチ）のQuestion作成/更新が完了する都度コミットし、全行処理完了後にImportHistoryの最終状態を別途コミットする
+- ExecuteQuestionImportUseCaseは、全行の処理が成功した場合にコミットし、状態を`completed`にする。1行でもエラーがあれば巻き戻して`failed`にする
+- **エラー行の情報（ImportError）は巻き戻しのあとに保存する。** 同じトランザクションの中で保存すると、巻き戻しで消えてしまう（①「9. 非同期処理」）
+- 状態と件数・日時の更新は、取り込みのトランザクションとは別に行う
 
 ## 理由
 
-基本方針は「UseCase単位」でのトランザクション管理だが、ExecuteQuestionImportUseCaseは「一部の行が失敗しても他の行の成功を確定させる」という業務要件（部分的成功の許容）を持つ。UseCase全体を1トランザクションにすると、1行のエラーで全行がロールバックされてしまい、この業務要件を満たせない。
+**取り込みは全件成功か全件失敗のいずれかである**（①「7. 状態管理」「9. 非同期処理」）。1行でもエラーがあれば全行を巻き戻し、部分的に取り込まれた状態を残さない。CSVの一部だけが反映された単元は、利用者から見てどこまで入ったのかが分からないためである。
 
-そのため、UseCase単位の原則を維持しつつ、UseCase内部の実行単位を行/バッチレベルに分割することで、整合性と部分的成功の両立を図る。これは基本方針からの意図的な逸脱であり、その理由を明示した上で採用する。
+これは「UseCase単位」という基本方針と一致する。状態の更新とエラー行の保存だけが取り込みのトランザクションの外に出るが、これは巻き戻しても残す必要がある情報であるためである。
 
 事前検証（ValidateQuestionImportUseCase）はデータ変更を一切行わないため、そもそもトランザクションの対象にならない。
 
@@ -640,6 +661,22 @@ Rails現行仕様でもActiveJob（`perform_later`）によって同期処理と
 ## 現行DBを利用するか
 
 - 既存Rails DBを継続利用する（import_histories / import_errorsテーブルは継続利用する）
+
+## 子レコードの一意制約の扱い
+
+`question_choices`・`question_explanations`・`question_hints`には、それぞれ一意索引がある（①「6. データモデル」）。
+
+|テーブル|一意索引のキー|
+|-|-|
+|`question_choices`|問題 + 選択肢番号|
+|`question_explanations`|問題 + 解説種別|
+|`question_hints`|問題 + 手順番号|
+
+**いずれも論理削除を索引に含めない。** そのため、論理削除済みの行が残っていると同じキーの行を新規に作成できない。上書きモードは既存の子を論理削除してから行を処理するため、同じ単元へ同じ内容のCSVを繰り返し取り込むとこの衝突が必ず起きる。
+
+本設計では、子レコードを**一意キーで論理削除済みを含めて引き当て、内容を更新して論理削除を解除する**（①「9. 非同期処理」）。新規作成を試みて一意制約違反を捕まえる形は採らない。衝突が例外ではなく通常の経路であり、毎回エラーを経由することになるためである。
+
+この引き当てと復活は`curriculum`が公開する操作の責務とする（「11. Repository設計」QuestionRepository）。一意索引は`curriculum`が所有するテーブルの制約であり、その回避方法を本Contextに持ち込まない。
 
 ## 共有テーブルの所有
 

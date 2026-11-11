@@ -252,9 +252,11 @@ internal/questionimport/presentation/routes.go
 ### QuestionImportPolicy
 
 - struct/interface名: `QuestionImportPolicy`（struct、ステートレス）
-- メソッドシグネチャ: `Decide(row QuestionCSVRow, mode valueobject.ImportMode, existingQuestionID *string) ImportAction`
-  - `ImportAction` は「新規作成すべきか」「既存Questionを更新すべきか」を表す値（②「8. Domain Service」の記載に対応する型。具体的な列挙値・判定条件は①未提供のため参照不可であり、③でも詳細ロジックは記述しない）
-- 責務: CSV1行のデータとmode（append/overwrite）から、Questionを新規作成すべきか既存Questionを更新すべきかを判定する（②の記載どおり）。`QuestionCsvRowValidator` による形式検証に合格した行のみを対象とし、事前検証（dry_run）では呼び出されない（②「8. Domain Service」の記載どおり）
+- メソッドシグネチャ: `RequiresPurge(mode valueobject.ImportMode) bool`
+- 責務: modeから「行の処理の前に対象単元の既存データを論理削除するか」を判定する（②「8. Domain Service」）。上書きモードのときだけ真を返す
+- 事前検証（dry_run）では呼び出さない（実際の作成・更新・削除を行わないため。②「8. Domain Service」）
+
+**行ごとの処理はモードによって変わらない。** append / overwrite のいずれでも、問題は単元・問題文・正解の組で引き当て（なければ作成）、解説・選択肢・ヒントは一意キーで引き当てて内容を更新する（①「9. 非同期処理」、②「8. Domain Service」）。
 
 ### ImportResultAggregationPolicy
 
@@ -427,19 +429,22 @@ stateDiagram-v2
 - 処理ステップ（呼び出し順序）:
   1. `ImportHistoryRepository.FindByID` で対象の ImportHistory を取得する
   2. 対象ファイルを読み込み、CSV行に分解する（パース処理の詳細は①未提供のため参照不可）
-  3. 各行について `QuestionCsvRowValidator.Validate` で形式検証を行う
-  4. 検証に合格した行のみ、`QuestionImportPolicy.Decide` でアクション（新規作成/更新）を判定する
-  5. 判定結果に応じて `QuestionRepository.Create` または `QuestionRepository.Update` を呼び出す（行またはバッチ単位でトランザクション化。詳細は本書「11. Transaction実装方針」）
-  6. 各行の結果を `valueobject.ImportRowResult` として収集する（検証不合格の行は`ErrInvalidCSVRow`起因の失敗結果として収集する）
-  7. 全行処理後、`ImportResultAggregationPolicy.Aggregate` で最終状態とカウントを決定する
-  8. `ImportHistory.Complete(...)` で Entity を終了状態へ遷移させる
-  9. `ImportHistoryRepository.Update` で最終状態を永続化する（ステップ5とは別トランザクション）
-  10. 失敗行があれば `ImportErrorRepository.CreateBatch` で一括保存する
-  11. `dto.ExecuteQuestionImportResult` に変換して返す
-- トランザクション境界: ②「14. Transaction設計」の記載どおり、行（またはバッチ）単位でQuestion作成/更新をトランザクション化し、全行処理完了後にImportHistoryの最終状態を別途コミットする。UseCase全体を1トランザクションにはしない（部分的成功を許容するための意図的な逸脱であることは②に明記済み）
+  3. `ImportHistory.Start()` で状態を `processing` にし、`ImportHistoryRepository.Update` で開始日時を記録する
+  4. `TransactionManager.WithinTransaction` のクロージャ内で、以下の 5〜8 を行う
+  5. CSVのヘッダーが要求項目と一致するかを検証する。不一致の場合は行の処理に入らず、ヘッダー行（行番号1）に対するエラーとして収集してクロージャからエラーを返す
+  6. `QuestionImportPolicy.RequiresPurge(mode)` が真であれば、`QuestionRepository.PurgeUnitQuestions` で対象単元の既存の問題と子を論理削除する（解答履歴は対象としない）
+  7. 各行について `QuestionCsvRowValidator.Validate` で形式検証を行い、合格した行を `QuestionRepository.UpsertRow` で取り込む
+  8. 各行の結果を `valueobject.ImportRowResult` として収集する。エラーが1件以上あればクロージャからエラーを返す（巻き戻す）
+  9. `ImportResultAggregationPolicy.Aggregate` で最終状態とカウントを決定する
+  10. 成功なら `ImportHistory.Complete(...)`、失敗なら `ImportHistory.Fail(...)` で終了状態へ遷移させ、`ImportHistoryRepository.Update` で永続化する（取り込みのトランザクションの外）
+  11. 失敗していれば `ImportErrorRepository.CreateBatch` でエラー行を一括保存する（同じく外）
+  12. `dto.ExecuteQuestionImportResult` に変換して返す
+- トランザクション境界: 全行の処理を1つのトランザクションで行う。1行でもエラーがあれば巻き戻し、部分的に取り込まれた状態を残さない（②「14. Transaction設計」）。状態の更新とエラー行の保存は、巻き戻しても残す必要があるためトランザクションの外で行う
 - 発生しうる Application Error: `ErrImportHistoryNotFound` / `ErrInvalidStatusTransition`
 
-**②からの補足**: バッチ処理の粒度（1行ごとか、複数行をまとめたバッチ単位か）や具体的なバッチサイズは②に明記がなく、「行（またはバッチ）単位」という選択の余地がある表現に留まっている。本書でも具体的な数値・粒度は確定させず、実装時に決定可能なパラメータとして扱う（推測ではなく②の未確定事項をそのまま実装仕様に引き継ぐ扱いとする）。
+**②からの補足**: `QuestionRepository` のメソッド名（`PurgeUnitQuestions` / `UpsertRow`）は②に明記がなく、②「11. Repository設計」QuestionRepositoryの責務（上書き時の一括論理削除、行の引き当てと更新）をメソッドに落としたものである。実体は`curriculum`が公開する操作であり、シグネチャはコース参照機能③で確定する。
+
+**行ごとのトランザクションにしない。** エラーが1件でもあれば全体を巻き戻すため、行ごとに区切る意味がない（①「9. 非同期処理」）。バッチサイズの検討も不要になる。
 
 ### ValidateQuestionImportUseCase（事前検証／dry_run）
 
@@ -683,14 +688,14 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 ## Transaction終了箇所（Commit / Rollback条件）
 
 - `StartQuestionImportUseCase`: `WithinTransaction`のクロージャ内で`ImportHistoryRepository.Create`と`JobPublisher.Publish`の両方が成功した時点でコミットする（アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」のTransactional Outboxパターン）。いずれかが失敗した場合は両方ロールバックし、「業務データは保存されたがジョブが登録されない」「ジョブは登録されたが業務データが保存されない」という不整合を防ぐ
-- `ExecuteQuestionImportUseCase`: 各行（またはバッチ）のQuestion作成/更新が成功した時点でコミットする（失敗した行はそのバッチのみロールバックし、ImportRowResultとして失敗を記録して後続の行の処理を継続する）。全行処理完了後、ImportHistoryの最終状態（Complete後の状態）を別途コミットする
+- `ExecuteQuestionImportUseCase`: 全行の処理を1つのトランザクションで行い、エラーが1件もない場合にのみコミットする。1行でもエラーがあればクロージャからエラーを返して巻き戻す。エラーがあっても後続の行の検証は続け、エラー行をすべて収集してから巻き戻す（利用者が1回の取り込みで全ての問題行を把握できるようにするため。①「5. API / 処理詳細」`#dry_run`のエラー行一覧と同じ扱い）
 
 ## 複数Repositoryにまたがる場合の扱い
 
 - `StartQuestionImportUseCase`: `ImportHistoryRepository.Create`と`JobPublisher.Publish`（jobsテーブルへのINSERT）を同一トランザクション内で実行する（CourseRepository/UnitRepositoryは参照確認のみで、トランザクション開始前に完了させる）
-- `ExecuteQuestionImportUseCase`: QuestionRepositoryへの作成/更新と、当該行に対応する処理結果の記録は、行（またはバッチ）単位のトランザクション内で完結させる。ImportHistoryRepository.Update（最終状態の反映）およびImportErrorRepository.CreateBatch（失敗行の記録）は、全行処理完了後の別トランザクションで実施する
+- `ExecuteQuestionImportUseCase`: QuestionRepositoryへの取り込み（上書き時の一括論理削除を含む）を1つのトランザクション内で完結させる。ImportHistoryRepository.Update（状態・件数・日時の反映）およびImportErrorRepository.CreateBatch（エラー行の記録）は、巻き戻しても残す必要があるため、そのトランザクションの外で実施する
 
-②「14. Transaction設計」に明記されているとおり、UseCase単位でのトランザクション管理という基本方針からの意図的な逸脱であり、部分的成功を許容する業務要件を満たすための対応である。ジョブ登録をトランザクション内に含める点は、アーキテクチャ規約13章制定に伴う②からの補足（②の設計意図である「ImportHistoryの整合性維持」をより確実にする、矛盾しない具体化）である。
+②「14. Transaction設計」のとおり、取り込みは全件成功か全件失敗のいずれかである。状態の更新とエラー行の保存だけが取り込みのトランザクションの外に出る。ジョブ登録をトランザクション内に含める点は、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」制定に伴う②からの補足（②の設計意図である「ImportHistoryの整合性維持」をより確実にする、矛盾しない具体化）である。
 
 ---
 
@@ -825,7 +830,7 @@ SQL文そのものは記載しない。
 |QuestionCsvRowValidator|事前検証・本番実行のいずれから呼び出しても同一の行に対して同一の判定結果を返すこと（②「8. Domain Service」の「事前検証と本番実行で判定基準がずれるリスク」への対策確認）|
 |QuestionImportPolicy|append/overwriteそれぞれのモードで新規作成/更新の判定が正しく行われること|
 |ImportResultAggregationPolicy|全行成功時にstatusがsuccessとなること|
-|ImportResultAggregationPolicy|一部失敗時にstatusがpartial failureとなること|
+|ImportResultAggregationPolicy|エラーが1件もないとき`completed`、1件以上あるとき`failed`になること（中間状態を持たないこと）／総件数・成功件数・エラー件数が正しく集計されること|
 |ImportResultAggregationPolicy|全行失敗時にstatusがfailureとなること|
 |ImportResultAggregationPolicy|success/error/totalカウントの整合性|
 |ImportResultAggregationPolicy|事前検証で用いる件数集計（total_count/valid_count相当）が本番実行と同一の集計ロジックで算出されること|
@@ -839,7 +844,7 @@ SQL文そのものは記載しない。
 |StartQuestionImportUseCase|Unitがcourse配下に存在しない、または非activeの場合にエラーを返すこと|
 |StartQuestionImportUseCase|ImportHistory作成とjob登録（JobPublisher.Publish呼び出し）が同一トランザクション内で行われ、一方が失敗した場合に両方ロールバックされること|
 |ExecuteQuestionImportUseCase|全行成功時に最終状態がsuccessとなり、ImportHistoryが更新されること|
-|ExecuteQuestionImportUseCase|一部行が失敗した場合に、成功した行のQuestionが保持されたまま失敗行がImportErrorとして記録されること（部分的成功の担保）|
+|ExecuteQuestionImportUseCase|1行でもエラーがある場合に、成功した行の取り込みも巻き戻されること（部分的に取り込まれないこと）／巻き戻したうえでエラー行がImportErrorとして記録され、状態が`failed`になること／ヘッダー不一致のときに行の処理に入らずヘッダー行のエラーになること／上書きモードで既存の問題と子が論理削除され、解答履歴が残ること|
 |ExecuteQuestionImportUseCase|存在しないImportHistoryIDを指定した場合にエラーを返すこと|
 |ValidateQuestionImportUseCase|Course/Unitが存在し有効な場合に検証結果（total_count/valid_count/rows）が返ること|
 |ValidateQuestionImportUseCase|実行後にImportHistoryが1件も作成されていないこと|
