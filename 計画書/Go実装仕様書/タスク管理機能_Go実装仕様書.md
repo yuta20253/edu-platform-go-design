@@ -72,6 +72,8 @@ internal/taskmanagement/task_store.go                   # TaskStore（永続化�
 internal/taskmanagement/task_unit_link_store.go         # TaskUnitLinkStore（紐づけの一括追加・一括削除）
 internal/taskmanagement/start_task.go                   # StartTask（他Contextから呼ばれる公開操作）
 internal/taskmanagement/update_task_status.go           # UpdateTaskStatus（他Contextから呼ばれる公開操作）
+internal/taskmanagement/find_tasks_in_period.go         # FindTasksInPeriod（他Contextから呼ばれる公開操作）
+internal/taskmanagement/count_task_stats.go             # CountTasks / CountTasksByDueDate / CountTasksForUsers（他Contextから呼ばれる公開操作）
 internal/taskmanagement/infrastructure/contextadapter/goal_directory.go          # GoalDirectoryの実装
 internal/taskmanagement/infrastructure/contextadapter/unit_directory.go          # UnitDirectoryの実装
 internal/taskmanagement/infrastructure/contextadapter/started_unit_directory.go  # StartedUnitDirectoryの実装
@@ -84,7 +86,9 @@ internal/taskmanagement/presentation/routes.go
 
 ## 文書の分割
 
-本書は分割しない。実装ファイルは上記の21であり、テストが付くもの（Task・TaskStatus・Priority・DueDate・TaskUnitRelationPolicy・TaskStore・TaskUnitLinkStore・StartTask・UpdateTaskStatus・4つのアダプタ・TaskHandlerの14）を加えると35となる。1文書あたり30〜35という範囲の上限にあたるため分割しないが、アダプタのシグネチャが相手Contextの③で確定した時点でファイル数が増える場合は、Domain・Infrastructure・Presentationの3文書への分割を検討する。
+実装ファイルは上記の23であり、テストが付くもの（Task・TaskStatus・Priority・DueDate・TaskUnitRelationPolicy・TaskStore・TaskUnitLinkStore・StartTask・UpdateTaskStatus・FindTasksInPeriod・CountTaskStats・4つのアダプタ・TaskHandlerの16）を加えると39となる。**1文書あたり30〜35という範囲を超えている。**
+
+分割の単位は、公開操作が増えた経緯から Domain・Infrastructure・Presentation の3文書が候補になる（③自動生成プロンプト「文書の分割（1文書あたり30〜35ファイル）」。本Contextに属するHandlerは`TaskHandler`の1つのみであり、スライス分割ができない）。分割は本書の構成を作り直す作業であるため、着手の判断を別に行う。
 
 ---
 
@@ -550,6 +554,8 @@ flowchart TD
 |`Create`|`ctx context.Context, task *Task`|`error`|Taskレコードの新規作成。`status`は`TaskStatusNotStarted`（0）、`estimated_time`は`0`で作成する（①「5. API / 処理詳細」`#create`）|
 |`Update`|`ctx context.Context, task *Task`|`error`|idに一致するTaskレコードの`title`・`content`・`priority`・`due_date`・`memo`列を更新する。`goal_id`・`status`・`completed_at`は更新しない（①「5. API / 処理詳細」`#update`）|
 |`UpdateStatus`|`ctx context.Context, id uint, status TaskStatus, completedAt *time.Time`|`error`|対象レコードの`status`・`completed_at`列のみを更新する（公開操作が用いる）|
+|`FindByUserIDAndDueDateRange`|`ctx context.Context, userID uint, from, to time.Time`|`([]Task, error)`|user_idと`due_date`の範囲（両端を含む）による絞り込み。`FindTasksInPeriod`が用いる。**状態による絞り込みを行わない**。紐づく単元は取得しない。並び順は指定しない（②「12. UseCase設計」）|
+|`CountStats`|`ctx context.Context, cond TaskCountCondition`|`(TaskCountStats, error)`|総件数と完了件数を1回のクエリで集計する。`cond`は`UserID *uint`・`UserIDs []uint`・`DueDateFrom *time.Time`・`DueDateTo *time.Time`を持ち、指定されたものだけを条件に加える。`CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`が用いる|
 
 `status`の絞り込みは、`status`が`nil`のとき「未着手または進行中」を条件とする。Handlerが`ParseTaskStatus`に失敗した場合も`nil`を渡すため、未定義の値が指定されたときもこの条件になる（①「5. API / 処理詳細」`#index`の`by_status`）。
 
@@ -632,6 +638,41 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 3. `TaskStore.UpdateStatus`で`status`・`completed_at`を更新する
 
 `goal-management`の再評価は呼ばない。Rails現行では問題の提出の経路（`Student::SubmissionService`）が目標の状態の再評価を自ら呼んでおり、`Student::TaskStatusUpdaterService`は呼んでいないためである（②「12. UseCase設計」の補足）。この分担を変えるかは問題解答機能の②で決める。
+
+## FindTasksInPeriod（`find_tasks_in_period.go`）
+
+他Contextから呼ばれる公開操作である（②「12. UseCase設計」）。
+
+|項目|内容|
+|-|-|
+|関数|`FindTasksInPeriod(ctx context.Context, userID uint, from, to time.Time) ([]TaskSchedule, error)`|
+|受け取る依存|`*TaskStore`|
+
+処理ステップ:
+
+1. `TaskStore.FindByUserIDAndDueDateRange`で対象のタスクを取得する
+2. 各タスクを`TaskSchedule`へ変換して返す
+
+`TaskSchedule`（`task.go`で定義する）は`ID uint`・`Title string`・`DueDate time.Time`・`Status string`を持つ。`Task`structそのものを返さないのは、呼び出し側（`calendar`）に本Contextの内部モデルを渡さないためである（規約「5. Context間連携ルール」）。
+
+**②からの補足**: `TaskSchedule`の名前とフィールドは②に明記がない。②「12. UseCase設計」`FindTasksInPeriod`の出力（識別子・件名・期限日・状態）をGoの型に落としたものである。`DueDate`をポインタにしないのは、期限日の範囲で絞り込んだ結果であり未設定のタスクが含まれないためである。
+
+## CountTasks / CountTasksByDueDate / CountTasksForUsers（`count_task_stats.go`）
+
+他Contextから呼ばれる公開操作である（②「12. UseCase設計」）。3つを同じファイルに置くのは、いずれも`TaskStore.CountStats`へ条件を組み立てて渡すだけの薄い関数であり、集計の意味が1つにまとまっているためである。
+
+|関数|条件の組み立て|
+|-|-|
+|`CountTasks(ctx context.Context, userID uint) (TaskCountStats, error)`|`UserID`のみを設定する。期限日の条件を付けないため、期限日が未設定のタスクも総件数に含まれる|
+|`CountTasksByDueDate(ctx context.Context, userID uint, from, to time.Time) (TaskCountStats, error)`|`UserID`と`DueDateFrom`・`DueDateTo`を設定する。期限日が`NULL`のタスクは範囲の条件を満たさず除外される|
+|`CountTasksForUsers(ctx context.Context, userIDs []uint) (TaskCountStats, error)`|`UserIDs`を設定する。空のスライスを渡された場合は問い合わせずに0件を返す|
+
+|項目|内容|
+|-|-|
+|受け取る依存|`*TaskStore`|
+|戻り値|`TaskCountStats`（`task.go`で定義する。`Total int64`・`Completed int64`）|
+
+空のスライスで問い合わせないのは、条件が空になって全ユーザーを数える結果になることを防ぐためである（**②からの補足**。管理者高校学年参照機能③「6. Application層設計」が同じ扱いをしている）。
 
 ## 外部連携実装
 
@@ -999,6 +1040,8 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
+- `TaskStore.FindByUserIDAndDueDateRange`: `user_id`と`due_date BETWEEN ? AND ?`で絞り込む（両端を含む）。状態の条件を付けず、`ORDER BY`も付けない。単元の`Preload`も行わない（②「12. UseCase設計」`FindTasksInPeriod`）
+- `TaskStore.CountStats`: `COUNT(*)`と`SUM(CASE WHEN status = completed THEN 1 ELSE 0 END)`相当を1回のクエリで取得する。条件は`user_id`単独・`user_id IN (?)`・`user_id`＋`due_date`の範囲のいずれかであり、指定のないものは条件に加えない。`deleted_at IS NULL`はGORMが自動付与する（②「12. UseCase設計」の3つの集計操作）
 - `TaskStore.FindByUserID`: `user_id`で絞り込み（`deleted_at IS NULL`はGORMが自動付与する）、状態で絞り込み、`due_date`昇順（同値は`id`昇順）でソートし、`page`・`per_page`に基づくページネーションを行う。総件数は同じ絞り込み条件で`COUNT`を発行する
 - 状態の絞り込みは、指定がある場合はその値、ない場合は「未着手または進行中」（`status IN (0, 1)`）を条件とする（①「5. API / 処理詳細」`#index`の`by_status`）
 - 期日が同じタスクの第2ソートキーに`id`を置く。Rails現行は第2の並び順を指定しておらず順序が保証されていないが、ページネーションを行う以上、順序が決定的でないとページ間で重複・欠落が起きるためである（②「21. DB操作仕様」）
@@ -1053,6 +1096,8 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 |対象|テストケース|
 |-|-|
+|`TaskStore.FindByUserIDAndDueDateRange`|期限日が範囲の境界にある タスクが含まれ、範囲外が含まれないこと／状態で絞り込まれないこと（完了済みも含まれること）／他の生徒のタスクが含まれないこと／論理削除済みが含まれないこと|
+|`TaskStore.CountStats`|`user_id`のみの条件で期限日が未設定のタスクも総件数に含まれること／期限日の範囲を指定すると未設定のタスクが除外されること／`user_id`の集合で合計されること／完了件数が状態`completed`のものだけを数えること／論理削除済みが含まれないこと|
 |`TaskStore.FindByUserID`|指定`user_id`のTaskのみ取得できること|
 |`TaskStore.FindByUserID`|状態の指定がない場合に未着手と進行中のみが返り、完了が含まれないこと|
 |`TaskStore.FindByUserID`|状態を指定した場合にその状態のみが返ること|
@@ -1073,6 +1118,8 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`StartTask`|未着手のタスクが進行中になり、目標の状態の再評価が呼ばれること|
 |`StartTask`|進行中・完了のタスクでは何も更新されず、再評価も呼ばれないこと|
 |`StartTask`|呼び出し側が開始したトランザクションに参加すること（ロールバックで更新が巻き戻ること）|
+|`FindTasksInPeriod`|`TaskSchedule`へ変換して返すこと／該当0件のとき空のスライスを返すこと|
+|`CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`|それぞれ`TaskCountCondition`の該当フィールドだけを設定して`CountStats`を呼ぶこと／`CountTasksForUsers`に空のスライスを渡した場合に問い合わせず0件を返すこと|
 |`UpdateTaskStatus`|指定した状態が反映され、完了なら`completed_at`が設定されること|
 |`UpdateTaskStatus`|目標の状態の再評価を呼ばないこと|
 

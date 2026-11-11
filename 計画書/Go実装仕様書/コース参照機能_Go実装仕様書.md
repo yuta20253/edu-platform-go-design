@@ -280,7 +280,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 
 ### 他Contextへ公開する操作
 
-②「11. Repository設計」の5つである。いずれも検索関数を呼ぶだけであり、手続きを持たない。
+②「11. Repository設計」の6つである。いずれも検索関数を呼ぶだけであり、手続きを持たない。
 
 |関数|シグネチャ|呼び出し元|
 |-|-|-|
@@ -289,6 +289,11 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |`FindUnitQuestions`|`(ctx context.Context, unitID uint) ([]QuestionInfo, error)`|`question-answering`|
 |`FindQuestionForAnswer`|`(ctx context.Context, unitID, questionID, questionChoiceID uint) (AnswerTargetInfo, error)`|同|
 |`CountQuestions`|`(ctx context.Context, unitIDs []uint) (int, error)`|同|
+|`FindCourseSubjects`|`(ctx context.Context, courseIDs []uint) ([]CourseSubjectInfo, error)`|`learning-analytics`|
+
+`CourseSubjectInfo`は`CourseID uint`・`SubjectID uint`・`SubjectName string`を持つ。渡した識別子に対応する行がない場合（論理削除済みのコースを含む）は、その要素を戻り値に含めない。エラーにしない（②「11. Repository設計」の「公開操作における論理削除の扱い」）。
+
+**②からの補足**: 型名`CourseSubjectInfo`とフィールドは②に明記がない。②が定める「コースの識別子から所属する教科の識別子と教科名を返す」を、他の公開操作（`UnitInfo`・`QuestionInfo`）と同じ命名で型に落としたものである。分析機能③基盤編「8. Infrastructure層設計」の`CurriculumDirectory.FindCourseSubjects`が受け取る形へは、呼び出し元のアダプタが変換する。
 
 **識別子の集合を`[]uint`で受け取る。** 呼び出し元が持つ集合型（`UnitIDSet`）をそのまま受け取らない。相手Contextの型を本Contextに持ち込まないためである（②「11. Repository設計」）。
 
@@ -427,6 +432,7 @@ sequenceDiagram
 |`FindQuestionsByUnitID`|`ctx context.Context, unitID uint`|`([]questionModel, error)`|`unit_id`で取得。`question_choices`・`question_hints`を`Preload`で一括取得する。`deleted_at`を条件に含めない|
 |`FindAnswerTarget`|`ctx context.Context, unitID, questionID, questionChoiceID uint`|`(*answerTargetModel, error)`|`questions`を`id`・`unit_id`で絞り、`question_choices`を`question_id`・`id`で結合し、`units`と結合してコースの識別子を得る。該当がなければ該当なしを返す。`deleted_at`を条件に含めない|
 |`CountQuestionsByUnitIDs`|`ctx context.Context, unitIDs []uint`|`(int64, error)`|`unit_id IN (...)`で件数を数える。**`deleted_at`を条件に含めない**（②「11. Repository設計」）|
+|`FindCourseSubjects`|`ctx context.Context, courseIDs []uint`|`([]courseSubjectModel, error)`|`courses`を`id IN (...)`で取得し、`subjects`と結合して教科の識別子・教科名を得る。`deleted_at`を条件に含めない。空のスライスを渡された場合は問い合わせず空の結果を返す|
 
 `FindAnswerTarget`が3つのテーブルを結合するのは、1回のクエリで「問題が単元に属するか」「選択肢が問題のものか」「コースの識別子」をまとめて得るためである。確認と取得を分けると往復が増える（問題解答機能②「11. Repository設計」）。
 
@@ -797,6 +803,8 @@ GORMが返すエラーは`fmt.Errorf`でラップして返す（コーディン�
 
 ---
 
+- `FindCourseSubjects`: `courses`を`id IN (...)`で取得し、`subjects`と結合して`subject_id`・教科名を返す。`deleted_at`を条件に含めない（②「11. Repository設計」の「公開操作における論理削除の扱い」）。該当しない識別子は結果に含めない
+
 # 16. テストケース設計
 
 ②「22. テスト戦略」のうち、本書が担当する範囲のテストケースを記載する。単元参照機能のテストは同機能③に記載する。
@@ -856,6 +864,7 @@ application層の関数のテストである。検索関数を差し替えて検
 |`FindAnswerTarget`|3つのテーブルの結合で必要な値が取得できること|
 |`FindAnswerTarget`|問題が単元に属さない組み合わせで該当なしが返ること|
 |`FindAnswerTarget`|選択肢が問題のものでない組み合わせで該当なしが返ること|
+|`FindCourseSubjects`|指定したコースの教科の識別子と教科名が返ること／論理削除済みのコースも返ること／存在しない識別子が結果に含まれないこと／空のスライスで問い合わせないこと|
 |`CountQuestionsByUnitIDs`|件数が返ること、**論理削除済みの問題も数えること**|
 |全検索関数|`gormtx.DBFromContext`で接続を取得すること（トランザクションの内側から呼ばれた場合に同じ接続を使うこと）|
 
