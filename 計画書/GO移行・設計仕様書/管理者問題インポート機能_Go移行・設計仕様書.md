@@ -52,13 +52,26 @@
 
 ## 他Contextとの依存関係
 
-- Course/Unit Context: 対象単元の存在確認・スコープ検証に依存する
-- Question Context: 問題・選択肢・ヒント・解説の作成/更新に依存する（推測: 現状のRails実装にはBounded Context分割が存在しないため、Questionを中心とする問題管理領域を独立したContextとして仮定する）
-- User(Admin) Context: 実行者（管理者）の識別に依存する
+- `curriculum` Context（②は`コース参照機能_Go移行・設計仕様書.md`）: 対象単元の存在確認・スコープ検証に依存する。あわせて問題・選択肢・ヒント・解説の作成／更新も同Contextへ依頼する。`courses`・`units`・`questions`とその子を所有しているのは同Contextである（コース参照機能②「3. Bounded Context」）
+- `user` Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 実行者（管理者）の識別に依存する
+
+他Contextから本Contextへの依存（本Contextが公開する操作）:
+
+- `admin-dashboard` Context: 管理者ダッシュボードに表示する直近の問題インポート履歴を、本Contextが公開する操作から取得する（管理者ダッシュボード機能②「11. Repository設計」）
+
+## 本Contextが他Contextへ公開する操作
+
+|公開する操作|呼び出し元|内容|
+|-|-|-|
+|直近の問題インポート履歴の参照|`admin-dashboard`|作成日時の新しい順（同時刻は識別子の降順）に、指定された件数までの履歴を返す。識別子・ファイル名・状態・総件数・成功件数・エラー件数・作成日時を含む|
+
+**種別と論理削除の絞り込みは本Contextが行う。** 本Contextが所有するのは`import_type`が問題インポートである行のみであり（「20. DB設計方針」の「共有テーブルの所有」）、論理削除済みは除外する。呼び出し側は件数の上限だけを渡す。これにより、ダッシュボードに生徒インポートの履歴が混入しないことを所有Context側で保証する。
+
+エラー明細は返さない。ダッシュボードの表示に必要なのは履歴の概要のみである（管理者ダッシュボード機能①「5. API / 処理詳細」`#show`）。
 
 ## 依存する理由
 
-インポート機能自体の責務は「CSVを解析し、進行状態と結果を管理すること」であり、実際の問題データ（Question等）の作成・更新はQuestion Contextの責務に委譲する。これにより、question-import Contextが問題データの構造知識を過度に持たずに済み、将来問題データの構造が変わってもインポートContextへの影響を局所化できる。Course/Unitへの依存は、routeで指定されたunit_idの正当性を検証しIDORを防ぐために必要である。
+インポート機能自体の責務は「CSVを解析し、進行状態と結果を管理すること」であり、実際の問題データ（Question等）の作成・更新は`curriculum`の責務に委譲する。これにより、question-import Contextが問題データの構造知識を過度に持たずに済み、将来問題データの構造が変わってもインポートContextへの影響を局所化できる。コース・単元への依存は、routeで指定されたunit_idの正当性を検証しIDORを防ぐために必要である。
 
 インポート履歴の検索・参照・CSVエクスポートを別Contextに分けず本Contextに含めた理由については「23. Railsとの責務対応」および「管理者インポート履歴管理機能_Go移行・設計仕様書」の「3. Bounded Context」を参照。
 
@@ -113,14 +126,14 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 
 - ImportHistoryが「1回のインポート処理の進行状態・結果集計」を一貫して管理する単位とする
 - ImportErrorはImportHistoryに従属し、単独では存在しない
-- Question / QuestionChoice / QuestionHint / QuestionExplanationはAggregateに含めない。これらはQuestion Context側のAggregateであり、question-import Contextからは「作成/更新を依頼する対象」として外部参照する
+- Question / QuestionChoice / QuestionHint / QuestionExplanationはAggregateに含めない。これらは`curriculum` Context側のAggregateであり、question-import Contextからは「作成/更新を依頼する対象」として外部参照する
 - 事前検証（dry_run）はImportHistoryを作成しないため、Aggregateの書き込みを一切発生させない。検証結果（ImportRowResultの集合）は一時的な出力データであり、永続化対象ではない
 
 ## 整合性を保証する単位
 
 - 1回のインポート処理におけるImportHistoryの状態（status / success_count / error_count / total_count）とImportErrorの一覧が常に整合していること
 
-理由: ImportHistoryの状態は行単位の処理結果に依存して決定されるため、ImportHistoryとImportErrorを1つのAggregateとして扱うことで、集計結果と状態の不整合を防ぐ。一方、Questionデータの整合性はQuestion Context側の責務であるため、Aggregateを分離することで責務境界を明確にする。事前検証はAggregateへの書き込みを伴わないため、整合性保証の対象外である。
+理由: ImportHistoryの状態は行単位の処理結果に依存して決定されるため、ImportHistoryとImportErrorを1つのAggregateとして扱うことで、集計結果と状態の不整合を防ぐ。一方、Questionデータの整合性は`curriculum` Context側の責務であるため、Aggregateを分離することで責務境界を明確にする。事前検証はAggregateへの書き込みを伴わないため、整合性保証の対象外である。
 
 ---
 
@@ -148,7 +161,7 @@ CSV行単位の処理操作をすべてイベントとして永続化・再生�
 ## Question / QuestionChoice / QuestionHint / QuestionExplanation（外部参照）
 
 - 役割: インポートによって作成・更新される対象
-- 判断根拠: 本Contextの中心はImportHistoryであり、Question自体の構造・整合性管理はQuestion Contextの責務であるため、本機能では「作成・更新を依頼する対象」として扱う
+- 判断根拠: 本Contextの中心はImportHistoryであり、Question自体の構造・整合性管理は`curriculum`の責務であるため、本機能では「作成・更新を依頼する対象」として扱う
 
 ---
 
@@ -313,12 +326,12 @@ stateDiagram-v2
 - 保持しない責務: Unit自体の作成・更新
 - 判断根拠: routeスコープ検証（IDOR防止）に必要な参照確認に限定するため
 
-## QuestionRepository（Question Context提供、外部依存として利用）
+## QuestionRepository（`curriculum`が公開する操作。外部依存として利用）
 
 - 管理対象: Question, QuestionChoice, QuestionHint, QuestionExplanation
 - 責務: 問題の新規作成、既存問題の更新（overwrite時）
 - 保持しない責務: CSV解析、モード判定
-- 判断根拠: 問題データの永続化はQuestion Contextの責務であり、question-import ContextはこれをQuestion Context経由で利用する立場に留める（推測: Question Context側の詳細なRepository設計は本書のスコープ外であり、別途整理される前提とする）
+- 判断根拠: 問題データの永続化は`curriculum`の責務であり、question-import Contextはこれを同Contextの公開操作経由で利用する立場に留める（推測: `curriculum` Context側の詳細なRepository設計は本書のスコープ外であり、別途整理される前提とする）
 
 ---
 

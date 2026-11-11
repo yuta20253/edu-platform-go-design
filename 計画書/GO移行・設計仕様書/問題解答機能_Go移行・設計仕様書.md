@@ -74,6 +74,7 @@
 - `dashboard` Context: 当日の解答件数を参照する（ダッシュボード機能②「11. Repository設計」）
 - `task-management` Context: タスクの単元ごとに学習を開始済みかどうか（解答履歴があるか）を参照する（タスク管理機能②「11. Repository設計」の`StartedUnitDirectory`）
 - `learning-analytics` Context: 正答率・理解度スコア・教科別正答率・順位の算出のため、解答履歴の集計を参照する（分析機能②「11. Repository設計」）
+- `admin-dashboard` Context: アクティブな生徒の判定のため、指定時刻以降に解答がある利用者の識別子を参照する（管理者ダッシュボード機能②「11. Repository設計」）
 
 ## 依存する理由
 
@@ -383,6 +384,7 @@ stateDiagram-v2
 |単元ごとの解答数・正答数の集計|`learning-analytics`|指定の生徒について、コースと単元の組ごとの解答数・正答数と、その組で最初に解答した日時を返す（同`UnitAnswerStatsDirectory.AggregateAnswersByUnit`）|
 |コースごとの解答数・正答数の集計|`learning-analytics`|指定の生徒について、指定期間のコースごとの解答数・正答数を返す（同`CourseAnswerStatsDirectory.AggregateAnswersByCourse`）|
 |ユーザーごとの解答数・正答数の集計|`learning-analytics`|指定のコース、または指定の単元について、解答履歴を持つユーザーごとの解答数・正答数を返す。在籍中かどうかで絞り込まない（同`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `AggregateAnswersByUserForUnit`）|
+|指定時刻以降に解答がある利用者の参照|`admin-dashboard`|解答日時が指定時刻以降である解答履歴を持つ利用者の識別子を、重複なく返す。論理削除済みの履歴は除外する（管理者ダッシュボード機能①「5. API / 処理詳細」`#show`）|
 
 **分析向けの集計は、論理削除済みの解答履歴と論理削除済みの問題に対する履歴をいずれも含む。** 提出の判定に用いる集計が両方を除外するのとは扱いが異なる（「11. Repository設計」`QuestionHistoryRepository`の論理削除の扱い）。Rails現行の分析が除外していないためであり、分析機能②がフロントエンドを変更しない方針で維持している（分析機能②「19. API仕様」）。**同じテーブルに対して論理削除の扱いが3通りになるため、分析向けであることが分かる形で公開する。**
 

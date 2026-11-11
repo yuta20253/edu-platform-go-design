@@ -78,6 +78,7 @@
 |`draft-task`|同（タスク下書き機能②「11. Repository設計」）|
 |`question-answering`|単元に属する問題の一覧、解答対象（問題・選択肢）の確認、タスクに紐づく単元の問題数の集計（問題解答機能②「11. Repository設計」）|
 |`learning-analytics`|単元の階層（単元名・所属コース・所属教科）の解決と、コースの所属教科の取得（分析機能②「11. Repository設計」）|
+|`admin-dashboard`|論理削除されていない問題の総数の集計（管理者ダッシュボード機能②「11. Repository設計」）|
 
 科目（`subjects`）は本Context内で扱う。コースの絞り込みに用いるマスタであり、独立したContextとして切り出す業務上の意味がない（**②からの補足**）。分析機能は教科別の正答率を出すために教科を必要とするが、本Contextが公開する操作を通じて受け取る（「11. Repository設計」の「他Contextへ公開する参照手段」）。`subjects`へのクエリを本Contextに閉じ込めるためである。
 
@@ -242,6 +243,7 @@ Goのstruct定義（参照用の型のフィールド）は③Go実装仕様書�
 |解答対象の確認|`question-answering`|指定の問題がその単元に属し、指定の選択肢がその問題のものであることを確認し、コースの識別子・選択肢の番号・問題の正解を返す（同`QuestionDirectory.FindQuestionForAnswer`）|
 |問題数の集計|`question-answering`|指定された単元群に属する問題の件数を返す（同`UnitQuestionCountDirectory.CountQuestions`）|
 |コースの所属教科の取得|`learning-analytics`|指定されたコースの識別子から、所属する教科の識別子と教科名を返す（分析機能③基盤編「8. Infrastructure層設計」の`CurriculumDirectory.FindCourseSubjects`）|
+|問題の総数の集計|`admin-dashboard`|**論理削除されていない**問題の総数を返す。絞り込み条件を取らない（管理者ダッシュボード機能①「5. API / 処理詳細」`#show`）|
 
 分析機能は単元の階層（単元名・所属コース・所属教科）も必要とするが、そのための専用操作は設けない。既存の「単元情報の取得」で単元名と所属コースの識別子を得て、「コースの所属教科の取得」で教科を得たものを、分析側のアダプタが突き合わせる（分析機能②「11. Repository設計」`curriculum`への参照）。同じ項目を返す操作を重ねて持たないためである。
 
@@ -257,6 +259,7 @@ Goのstruct定義（参照用の型のフィールド）は③Go実装仕様書�
 |解答対象の確認|除外しない|Rails現行の`@unit.questions.find_by(id:)`が除外していない（同`#create`）|
 |問題数の集計|**除外しない**|Rails現行の`TaskAnswerStatsQuery#question_counts`が`Question.where(unit_id: ...)`で数えており、問題の論理削除を除外していない（問題解答機能①「6. データモデル」）|
 |コースの所属教科の取得|除外しない|他の操作と扱いを揃える。該当する行がない識別子（論理削除済みのコースを含む）は結果に含めず、エラーにしない（分析機能③基盤編「8. Infrastructure層設計」）|
+|問題の総数の集計|**除外する**|Rails現行が論理削除済みを除外して数えている（管理者ダッシュボード機能①「5. API / 処理詳細」`#show`）。他の公開操作が除外しないのとは扱いが逆であり、同じ`questions`に対する扱いが2通りになる|
 
 **②からの補足**: 問題数の集計について、Rails現行の`question_counts`は`Question.where(unit_id: task_unit_ids_scope).group(:unit_id).count`であり、**問題の論理削除を除外していない**。一方、解答済み件数（`answer_counts`）は`on_active_questions`で除外している。**分母が除外せず分子が除外するため、基準が食い違っている。**
 
