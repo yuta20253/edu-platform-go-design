@@ -673,7 +673,18 @@ Rails現行仕様でもActiveJob（`perform_later`）によって同期処理と
 
 ## 現行DBを利用するか
 
-- 既存Rails DBを継続利用する（`import_histories` / `import_errors` テーブルは、管理者問題インポート機能と共有する。成功行の記録には、既存Rails DBの`imported_students`テーブル（`import_history_id` / `user_id` / `action`。`import_history_id`と`user_id`の組で一意）を、本Contextが所有するテーブルとして利用する）
+- 既存Rails DBを継続利用する（`import_histories` / `import_errors` テーブルは、管理者問題インポート機能と同じ物理テーブルを使う。成功行の記録には、既存Rails DBの`imported_students`テーブル（`import_history_id` / `user_id` / `action`。`import_history_id`と`user_id`の組で一意）を、本Contextが所有するテーブルとして利用する）
+
+### 共有テーブルの所有
+
+`import_histories`・`import_errors`の所有は`import_type`による行の分割で表す。
+
+|行|所有Context|
+|-|-|
+|`import_type`が生徒インポート|`student-import`（本機能②・教師インポート履歴管理機能②）|
+|`import_type`が問題インポート|`question-import`（管理者問題インポート機能②・管理者インポート履歴管理機能②）|
+
+本Contextのクエリは`import_type`が生徒インポートである行のみを対象とし、問題インポートの行を読まない。相互の参照手段も設けない。線引きの詳細は管理者問題インポート機能②「20. DB設計方針」の「共有テーブルの所有」に定める。`imported_students`は本Contextが単独で所有する。
 
 ## Schema変更有無
 
