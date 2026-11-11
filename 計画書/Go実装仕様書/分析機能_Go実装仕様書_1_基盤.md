@@ -787,19 +787,19 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 
 いずれも**参照のみ**であり、所有Contextの状態を変更しない。分析が論理削除済みの解答履歴を含めて集計する点（他機能と扱いが異なる）は、`question-answering`側の参照手段に明記する必要がある。
 
-**6つの所有Contextすべてで公開参照手段が定義済みである。** `master-data`はバッチ5（共通マスタ参照機能）で、他の5つはバッチ3・バッチ4でそれぞれ定義した。
+**6つの所有Contextすべてで、②が公開操作として定めている。** 参照先は下表のとおりである。Goのシグネチャは所有Contextの③で確定するため、`task-management`・`study-log`・`question-answering`・`curriculum`については③への反映が残っている。
 
 所有Context側で確定した公開操作名は次のとおりである。アダプタはこれらを呼ぶ。
 
 |本Contextのインターフェース|所有Contextの公開操作|
 |-|-|
-|`TaskStatsDirectory.CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`|`task-management`の同名の3操作（タスク管理機能③「8. Infrastructure層設計」）|
-|`StudyLogDirectory.FindStudiedDates` / `SumStudyMinutesByDate`|`study-log`の同名の2操作（学習ログ機能③「8. Infrastructure層設計」）|
-|`AnswerRateDirectory.CountAnswers` / `CountAnswersForUsers`|`question-answering`の同名の2操作（問題解答機能③基盤編「8. Infrastructure層設計」）|
-|`UnitAnswerStatsDirectory.AggregateAnswersByUnit`|`question-answering`の`AggregateAnswersByUnit`（同）|
-|`CourseAnswerStatsDirectory.AggregateAnswersByCourse`|`question-answering`の`AggregateAnswersByCourse`（同）|
-|`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `ForUnit`|`question-answering`の同名の2操作（同）|
-|`CurriculumDirectory.FindCourseSubjects`|`curriculum`の`FindCourseSubjects`（コース参照機能③「6. Application層設計」）|
+|`TaskStatsDirectory.CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`|`task-management`の同名の3操作（タスク管理機能②「12. UseCase設計」）|
+|`StudyLogDirectory.FindStudiedDates` / `SumStudyMinutesByDate`|`study-log`の同名の2操作（学習ログ機能②「12. UseCase設計」）|
+|`AnswerRateDirectory.CountAnswers` / `CountAnswersForUsers`|`question-answering`の「解答数・正答数の集計」（問題解答機能②「11. Repository設計」の「本Contextが他Contextへ公開する参照手段」）|
+|`UnitAnswerStatsDirectory.AggregateAnswersByUnit`|`question-answering`の「単元ごとの解答数・正答数の集計」（同）|
+|`CourseAnswerStatsDirectory.AggregateAnswersByCourse`|`question-answering`の「コースごとの解答数・正答数の集計」（同）|
+|`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `ForUnit`|`question-answering`の「ユーザーごとの解答数・正答数の集計」（同）|
+|`CurriculumDirectory.FindCourseSubjects`|`curriculum`の「コースの所属教科の取得」（コース参照機能②「11. Repository設計」の「他Contextへ公開する参照手段」）|
 |`CurriculumDirectory.FindUnitHierarchies`|`curriculum`の`FindUnitsByIDs`と`FindCourseSubjects`をアダプタが組み合わせる（上記「他Contextの参照手段の実装（アダプタ）」）|
 |`UserGradeDirectory` / `ActiveUserDirectory`の3操作|`user`の`GetUserAttributes`（学年の識別子）と`SearchUsers`（学年IDの集合で絞り込み／ID指定・有効のみ）。新しい公開操作は不要（ユーザー基盤機能③「3. 公開操作の定義」）|
 |`GradeDirectory.FindGradeYear`|`master-data`の`FindGrades`に1件分の集合を渡し、返った属性の年次を取り出す（共通マスタ参照機能③基盤編「8. Infrastructure層設計」）|

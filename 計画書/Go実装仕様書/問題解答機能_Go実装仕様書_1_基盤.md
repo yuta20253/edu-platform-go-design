@@ -25,7 +25,7 @@
 
 ## 本書の位置づけ
 
-本機能の実装ファイルは43であり、1文書あたり30〜35という範囲を超える。そのためスライス編への分割を行う（③自動生成プロンプト「文書の分割（1文書あたり30〜35ファイル）」）。
+本機能の実装ファイルは45であり、1文書あたり30〜35という範囲を超える。そのためスライス編への分割を行う（③自動生成プロンプト「文書の分割（1文書あたり30〜35ファイル）」）。
 
 |文書|担当|実装|テスト込みの目安|
 |-|-|-|-|
@@ -107,11 +107,13 @@ internal/questionanswering/domain/valueobject/answered_at.go               # Ans
 internal/questionanswering/domain/valueobject/task_progress.go             # TaskProgress（タスクのあるべき状態）
 internal/questionanswering/domain/valueobject/id_set.go                    # QuestionIDSet・UnitIDSet（識別子の集合）
 internal/questionanswering/domain/repository/question_history_repository.go
+internal/questionanswering/domain/repository/answer_stats_repository.go
 internal/questionanswering/domain/repository/today_answer_count_repository.go
 internal/questionanswering/domain/service/answer_judge_policy.go           # 正誤判定
 internal/questionanswering/domain/service/task_completion_policy.go        # タスクのあるべき状態の判定
 internal/questionanswering/infrastructure/gormrepo/question_history_model.go
 internal/questionanswering/infrastructure/gormrepo/question_history_repository.go
+internal/questionanswering/infrastructure/gormrepo/answer_stats_repository.go
 internal/questionanswering/infrastructure/rediscounter/today_answer_count_repository.go
 internal/questionanswering/infrastructure/contextadapter/task_unit_directory.go
 internal/questionanswering/infrastructure/contextadapter/question_directory.go
@@ -281,6 +283,32 @@ Domain Model採用のため、`domain/repository/`にインターフェースを
 `CountAnsweredByTask`だけ除外するのは、提出の判定が教員画面の進捗率と一致する必要があり、Rails現行が同じ集計（`on_active_questions`）を使っているためである（①「10. Rails実装対応表」）。
 
 `QuestionIDSet`・`UnitIDSet`は識別子の集合を表す型である。`domain/valueobject/`に定義し、`domain/repository/`と`dependency.go`の双方がこれを参照する。Domain層がContextディレクトリ直下のpackageを参照しない形にするためである（アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）。
+
+### AnswerStatsRepository（`domain/repository/answer_stats_repository.go`）
+
+分析向けの集計を担う。**`QuestionHistoryRepository`と別のインターフェースに分ける**（②「11. Repository設計」の「本Contextが他Contextへ公開する参照手段」）。
+
+|メソッド|引数|戻り値|責務|
+|-|-|-|-|
+|`CountAnswers`|`ctx context.Context, userID uint`|`(AnswerCountStats, error)`|その生徒の全期間の解答数と正答数を返す|
+|`CountAnswersForUsers`|`ctx context.Context, userIDs []uint`|`(AnswerCountStats, error)`|指定されたユーザーの解答数と正答数の合計を返す|
+|`AggregateAnswersByUnit`|`ctx context.Context, userID uint`|`([]UnitAnswerStats, error)`|その生徒の解答数・正答数を、コースと単元の組ごとに返す。組ごとの最初の解答日時も返す|
+|`AggregateAnswersByCourse`|`ctx context.Context, userID uint, from, to time.Time`|`([]CourseAnswerStats, error)`|その生徒の指定期間の解答数・正答数を、コースごとに返す|
+|`AggregateAnswersByUserForCourse`|`ctx context.Context, courseID uint`|`([]UserAnswerStats, error)`|指定コースに解答履歴を持つユーザーごとの解答数・正答数を返す|
+|`AggregateAnswersByUserForUnit`|`ctx context.Context, unitID uint`|`([]UserAnswerStats, error)`|指定単元に解答履歴を持つユーザーごとの解答数・正答数を返す|
+
+**いずれも論理削除を除外しない。** 履歴自体の論理削除も、問題の論理削除も条件に加えない。Rails現行の分析が除外していないためである（②「11. Repository設計」）。`CountAnsweredByTask`が双方を除外するのと対照的であり、**同じテーブルに対する扱いが3通りになる**ため、インターフェースを分けて呼び出し箇所から用途が分かる形にする。
+
+戻り値の型は`domain/repository/`に定義する（Repositoryの戻り値の型であり、Domain層がContextディレクトリ直下のpackageを参照しない形にするためである。アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」）。
+
+|型|フィールド|
+|-|-|
+|`AnswerCountStats`|`Total int64`・`Correct int64`|
+|`UnitAnswerStats`|`CourseID uint`・`UnitID uint`・`Total int64`・`Correct int64`・`FirstAnsweredAt time.Time`|
+|`CourseAnswerStats`|`CourseID uint`・`Total int64`・`Correct int64`|
+|`UserAnswerStats`|`UserID uint`・`Total int64`・`Correct int64`|
+
+**②からの補足**: メソッド名は分析機能③基盤編「8. Infrastructure層設計」が`dependency.go`で宣言している名前に合わせた。戻り値の型の名前とフィールドは②に明記がなく、同書のインターフェース定義の責務から導いた。在籍中かどうかの絞り込みを行わないのは②「11. Repository設計」の定めである。
 
 ### TodayAnswerCountRepository（`domain/repository/today_answer_count_repository.go`）
 
@@ -531,6 +559,18 @@ stateDiagram-v2
 
 ## Repository実装
 
+### answerStatsRepository（`infrastructure/gormrepo/answer_stats_repository.go`）
+
+`domain/repository`の`AnswerStatsRepository`の実装である。
+
+|項目|内容|
+|-|-|
+|struct名|非公開struct（例: `answerStatsRepository`）|
+|コンストラクタ|`NewAnswerStatsRepository(db *gorm.DB) repository.AnswerStatsRepository`|
+|対応するGORMモデル|`QuestionHistoryModel`（`question_histories`）。コース・単元の識別子は`question_histories`の列から得る|
+
+発行するクエリは「15. GORM / DBクエリ設計」に整理する。いずれも`deleted_at`を条件に加えず、問題側の論理削除も結合条件に加えない（「3. Domain層設計」`AnswerStatsRepository`）。
+
 ### questionHistoryRepository（`infrastructure/gormrepo/question_history_repository.go`）
 
 `domain/repository`の`QuestionHistoryRepository`の実装である。
@@ -641,8 +681,14 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 |-|-|-|
 |`FindTodayAnswerCount(ctx context.Context, userID uint) (int, error)`|`dashboard`|当日の解答件数を返す（ダッシュボード機能③「8. Infrastructure層設計」の`TodayAnswerCountDirectory`）|
 |`FindStartedUnitIDs(ctx context.Context, userID, taskID uint) ([]uint, error)`|`task-management`|指定のタスクで解答履歴のある単元の識別子を返す（タスク管理機能③「8. Infrastructure層設計」の`StartedUnitDirectory`）|
+|`CountAnswers` / `CountAnswersForUsers`|`learning-analytics`|解答数・正答数の合計を返す（分析機能③基盤編「8. Infrastructure層設計」の`AnswerRateDirectory`）|
+|`AggregateAnswersByUnit`|`learning-analytics`|コースと単元の組ごとの解答数・正答数と最初の解答日時を返す（同`UnitAnswerStatsDirectory`）|
+|`AggregateAnswersByCourse`|`learning-analytics`|指定期間のコースごとの解答数・正答数を返す（同`CourseAnswerStatsDirectory`）|
+|`AggregateAnswersByUserForCourse` / `AggregateAnswersByUserForUnit`|`learning-analytics`|ユーザーごとの解答数・正答数を返す（同`RankAnswerStatsDirectory`）|
 
-いずれも`TodayAnswerCountRepository`・`QuestionHistoryRepository`へ委譲するだけである。業務ルールを持たない。
+いずれも`TodayAnswerCountRepository`・`QuestionHistoryRepository`・`AnswerStatsRepository`へ委譲するだけである。業務ルールを持たない。
+
+分析向けの6操作は`AnswerStatsRepository`へ委譲する。戻り値は`domain/repository/`の型をそのまま返す。呼び出し元の`learning-analytics`が自身の型へ変換する（アーキテクチャ規約「5. Context間連携ルール」）。
 
 `FindStartedUnitIDs`が返すのは識別子のスライスである。呼び出し元の`task-management`が自身の集合型へ変換する。本Contextの`UnitIDSet`を公開の型に使わない。相手Contextに本Contextの型を持ち込ませないためである。
 
@@ -921,6 +967,21 @@ RDBのトランザクションに含めることはできない（「11. Transac
 同一のタスク・単元・問題の組に対する一意制約はない。重複した履歴が作られうる（①「6. データモデル」）。本設計でも制約を追加しない。Rails現行の挙動を維持する（②「17. Error設計」の「Rails現行の挙動を維持するもの」）。
 
 ---
+
+## 分析向けの集計（`answerStatsRepository`）
+
+|メソッド|対象テーブル|条件・集計|
+|-|-|-|
+|`CountAnswers`|`question_histories`|`user_id`で絞り込み、件数と`is_correct`が真の件数を1回のクエリで集計する|
+|`CountAnswersForUsers`|同|`user_id IN (?)`で絞り込み、同じ集計を行う。空のスライスでは問い合わせず0件を返す|
+|`AggregateAnswersByUnit`|同|`user_id`で絞り込み、`course_id`・`unit_id`で`GROUP BY`して件数・正答数・`MIN(created_at)`を取得する|
+|`AggregateAnswersByCourse`|同|`user_id`と`created_at`の範囲で絞り込み、`course_id`で`GROUP BY`して件数・正答数を取得する|
+|`AggregateAnswersByUserForCourse`|同|`course_id`で絞り込み、`user_id`で`GROUP BY`して件数・正答数を取得する|
+|`AggregateAnswersByUserForUnit`|同|`unit_id`で絞り込み、`user_id`で`GROUP BY`して件数・正答数を取得する|
+
+**いずれも`deleted_at IS NULL`を条件に加えない。** 問題側の論理削除を見るための結合も行わない。`CountAnsweredByTask`が双方を除外するのとは異なる（「3. Domain層設計」）。
+
+**②からの補足**: `AggregateAnswersByCourse`の期間の絞り込みに`created_at`を使う。解答日時を表す専用の列がなく、Rails現行も解答履歴の作成日時で期間を絞っている（分析機能①「5. API / 処理詳細」`#show`の教科別正答率）。
 
 # 16. テストケース設計
 

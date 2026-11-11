@@ -73,6 +73,7 @@
 
 - `dashboard` Context: 当日の解答件数を参照する（ダッシュボード機能②「11. Repository設計」）
 - `task-management` Context: タスクの単元ごとに学習を開始済みかどうか（解答履歴があるか）を参照する（タスク管理機能②「11. Repository設計」の`StartedUnitDirectory`）
+- `learning-analytics` Context: 正答率・理解度スコア・教科別正答率・順位の算出のため、解答履歴の集計を参照する（分析機能②「11. Repository設計」）
 
 ## 依存する理由
 
@@ -323,7 +324,8 @@ stateDiagram-v2
 - 保持する検索機能:
   - `user_id` / `task_id` / `unit_id` / `question_id`による検索
   - タスク単位の集計。**論理削除されていない履歴のうち、論理削除されていない問題に対するものに限る**（①「6. データモデル」の`on_active_questions`）
-- 論理削除の扱い: 用途によって異なる。集計（提出の判定）では論理削除を除外するが、`answered`の判定・確認表示・解答の更新では除外しない。`QuestionHistory`が`default_scope`を持たないためである（①「6. データモデル」）
+  - 分析向けの集計（「3. Bounded Context」の公開操作から呼ばれる）。`user_id`単独・`user_id`の集合・`user_id`＋解答日時の期間・`course_id`・`unit_id`による絞り込みと、コース・単元・ユーザーを単位とした解答数・正答数の集計、組ごとの最初の解答日時の取得に対応する。**論理削除を除外しない**
+- 論理削除の扱い: 用途によって3通りに分かれる。提出の判定の集計では履歴・問題の双方の論理削除済みを除外し、`answered`の判定・確認表示・解答の更新では除外せず、分析向けの集計でも除外しない。`QuestionHistory`が`default_scope`を持たないためである（①「6. データモデル」）
 - 保持しない責務:
   - 正誤判定
   - 提出状態の決定
@@ -377,6 +379,14 @@ stateDiagram-v2
 |-|-|-|
 |当日の解答件数の取得|`dashboard`|指定の生徒の当日の解答件数を返す（ダッシュボード機能②「11. Repository設計」）|
 |学習開始済みの単元の取得|`task-management`|指定のタスクについて、解答履歴のある単元の識別子の集合を返す（タスク管理機能②「11. Repository設計」の`StartedUnitDirectory`）|
+|解答数・正答数の集計|`learning-analytics`|指定の生徒、または指定したユーザーの集合について、解答数と正答数の合計を返す（分析機能③基盤編「8. Infrastructure層設計」の`AnswerRateDirectory.CountAnswers` / `CountAnswersForUsers`）|
+|単元ごとの解答数・正答数の集計|`learning-analytics`|指定の生徒について、コースと単元の組ごとの解答数・正答数と、その組で最初に解答した日時を返す（同`UnitAnswerStatsDirectory.AggregateAnswersByUnit`）|
+|コースごとの解答数・正答数の集計|`learning-analytics`|指定の生徒について、指定期間のコースごとの解答数・正答数を返す（同`CourseAnswerStatsDirectory.AggregateAnswersByCourse`）|
+|ユーザーごとの解答数・正答数の集計|`learning-analytics`|指定のコース、または指定の単元について、解答履歴を持つユーザーごとの解答数・正答数を返す。在籍中かどうかで絞り込まない（同`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `AggregateAnswersByUserForUnit`）|
+
+**分析向けの集計は、論理削除済みの解答履歴と論理削除済みの問題に対する履歴をいずれも含む。** 提出の判定に用いる集計が両方を除外するのとは扱いが異なる（「11. Repository設計」`QuestionHistoryRepository`の論理削除の扱い）。Rails現行の分析が除外していないためであり、分析機能②がフロントエンドを変更しない方針で維持している（分析機能②「19. API仕様」）。**同じテーブルに対して論理削除の扱いが3通りになるため、分析向けであることが分かる形で公開する。**
+
+在籍中かどうかの絞り込みを本Contextで行わないのは、「在籍中とは何か」を決めているのが`user`であるためである（分析機能②「3. Bounded Context」）。順位の母集団の絞り込みは呼び出し側が`user`の参照手段と突き合わせる。
 
 学習開始済みの単元の判定を本Contextが答えるのは、判定の根拠が解答履歴であり、本Contextが所有しているためである。Rails現行は`Task#started_unit_ids`がタスク側から`question_histories`を直接読んでいるが（タスク管理機能①「6. データモデル」）、本設計では所有者側が答える形に改める。
 

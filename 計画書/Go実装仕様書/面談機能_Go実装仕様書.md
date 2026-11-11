@@ -290,6 +290,7 @@ type InterviewRequestRepository interface {
     FindAllForStudent(ctx context.Context, studentID uint, status *valueobject.InterviewRequestStatus, page PageRequest) ([]*entity.InterviewRequest, PageInfo, error)
     FindAllForTeacher(ctx context.Context, teacherID uint, status *valueobject.InterviewRequestStatus, page PageRequest) ([]*entity.InterviewRequest, PageInfo, error)
     FindAllForTeacherByPeriod(ctx context.Context, teacherID uint, status *valueobject.InterviewRequestStatus, period Period, page PageRequest) ([]*entity.InterviewRequest, PageInfo, error)
+    FindAllForParticipantByPeriod(ctx context.Context, userID uint, period Period) ([]*entity.InterviewRequest, error)
     ExistsActiveByStudentAndTeacher(ctx context.Context, studentID, teacherID uint) (bool, error)
     Create(ctx context.Context, ir *entity.InterviewRequest) error
     Update(ctx context.Context, ir *entity.InterviewRequest) error
@@ -305,6 +306,7 @@ type InterviewRequestRepository interface {
 |FindAllForStudent|`student_id`一致、`status`指定時のみ絞り込み、作成日時降順、ページネーション（面談機能②「11. Repository設計」保持する検索機能）|
 |FindAllForTeacher|当事者一致、`status`指定時のみ絞り込み、申請日時降順、ページネーション（教師面談機能②「11. Repository設計」保持する検索機能）|
 |FindAllForTeacherByPeriod|当事者一致、`status`指定時のみ絞り込み、面談日時が期間内、取り消し済みを除外、面談日時昇順（同時刻はID昇順）、ページネーション（教師面談機能②「11. Repository設計」保持する検索機能、同②「12. UseCase設計」ListInterviewRequestsUseCase）。面談日時が未設定の面談は期間の条件を満たさないため結果に含まれない|
+|FindAllForParticipantByPeriod|当事者一致、面談日時が期間内、取り消し済みを除外（②「11. Repository設計」保持する検索機能、同②「12. UseCase設計」`FindInterviewsInPeriod`）。ページネーションを行わず、並び順も指定しない。カレンダーは期間内の全件を必要とし、並べ替えは呼び出し側が結合後に行う|
 |ExistsActiveByStudentAndTeacher|`student_id` + `teacher_id` + 進行中状態（`requested`/`scheduling`/`confirmed`）による重複確認（両②「11. Repository設計」重複確認検索。`DuplicateActiveInterviewPolicy`から呼び出される）|
 |Create|新規InterviewRequestを永続化する|
 |Update|状態・日程・完了日時・取り消し情報・版数を楽観的排他制御付きで更新する（Gorm規約「12. 楽観ロック（Optimistic Locking）」の`RowsAffected == 0`判定により`domainerror.ErrOptimisticLockConflict`を返す）|
@@ -719,6 +721,34 @@ stateDiagram-v2
 
 ---
 
+## 他Contextから呼ばれる公開操作
+
+HTTPを経由しない公開操作は、`Context`structのメソッドとして`context.go`に置く（規約「14. 依存関係の組み立て（DI配線）」）。Handlerを経由しないため、`presentation/`には現れない。
+
+### FindInterviewsInPeriod
+
+|項目|内容|
+|-|-|
+|メソッド|`(c *Context) FindInterviewsInPeriod(ctx context.Context, userID uint, from, to time.Time) ([]InterviewSchedule, error)`|
+|呼び出し元|`calendar` Context（カレンダー表示。カレンダー機能③「8. Infrastructure層設計」の`InterviewScheduleDirectory`）|
+|呼び出す先|`InterviewRequestRepository.FindAllForParticipantByPeriod`|
+
+処理ステップ:
+
+1. 受け取った暦日（`from`・`to`）から`repository.Period`を組み立てる。**`from`の0時から`to`の24時までを範囲とする解釈は本Contextが行う**（②「12. UseCase設計」`FindInterviewsInPeriod`）
+2. `FindAllForParticipantByPeriod`で対象の面談を取得する
+3. 各面談を`InterviewSchedule`へ変換して返す
+
+`InterviewSchedule`（`context.go`で定義する）は`ID uint`・`Title string`（相談理由の詳細）・`Date time.Time`（面談日時の暦日）・`Status string`を持つ。Entityそのものを返さないのは、呼び出し側に本Contextの内部モデルを渡さないためである（規約「5. Context間連携ルール」）。
+
+`Date`に暦日を入れるのは、呼び出し側が日付としてのみ扱うためである（カレンダー機能③「3. Domain層設計」の`ScheduleItem`）。面談日時の時刻は返さない。
+
+認可は行わない。操作者の識別子を絞り込み条件として受け取るだけである（②「16. Authorization設計」）。トランザクションは使用しない。
+
+**②からの補足**: `InterviewSchedule`の名前とフィールドは②に明記がない。②「12. UseCase設計」`FindInterviewsInPeriod`の出力（識別子・相談理由の詳細・面談日時・状態）をGoの型に落としたものである。暦日への変換に用いるタイムゾーンは、`scheduled_at`がUTCで保存されていること（①「6. データモデル」）を踏まえ、実装時にアプリケーション全体のタイムゾーン設定とあわせて決める。
+
+---
+
 # 7. シーケンス図・処理フロー図
 
 ## シーケンス図（CreateInterviewRequestMessageUseCase）
@@ -789,6 +819,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 |FindAllForStudent|`student_id = ?`または`teacher_id = ?`（当事者）必須、`status`指定時のみ絞り込み、`created_at`降順、`page.Page`/`page.PerPage`によるOFFSET/LIMIT。件数取得はCOUNTクエリを別途発行する|
 |FindAllForTeacher|当事者必須、`status`指定時のみ絞り込み、`created_at`降順、OFFSET/LIMIT|
 |FindAllForTeacherByPeriod|当事者必須、`status`指定時のみ絞り込み、`scheduled_at`が`period.From`の0時以上`period.To`の24時未満、`status <> cancelled`、`scheduled_at`昇順・`id`昇順、OFFSET/LIMIT。件数取得は同じ条件でCOUNTクエリを別途発行する|
+|FindAllForParticipantByPeriod|当事者必須、`scheduled_at`が期間内、`status <> cancelled`。並び替えもページネーションも行わない|
 |ExistsActiveByStudentAndTeacher|`student_id = ?`かつ`teacher_id = ?`かつ`status IN (requested, scheduling, confirmed)`の存在確認（`EXISTS`または`COUNT`）|
 |Create|`interview_requests`へ1件INSERT|
 |Update|`status` / `reason_category` / `reason_detail` / `scheduled_at` / `completed_at` / `cancelled_at` / `cancelled_by_id` / `cancel_reason`をUPDATEし、`optimisticlock.Version`（カラム`lock_version`）による楽観ロック付き更新を行う（Gorm規約「12. 楽観ロック（Optimistic Locking）」）。`RowsAffected == 0`の場合は`domainerror.ErrOptimisticLockConflict`を返す|
@@ -1110,6 +1141,7 @@ GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf("...: %
 |InterviewRequestRepository|FindAllForStudent|interview_requests|当事者（student_idまたはteacher_id）必須、status任意。`created_at`降順|なし|
 |InterviewRequestRepository|FindAllForTeacher|interview_requests|当事者（student_idまたはteacher_id）必須、status任意。`created_at`降順|なし|
 |InterviewRequestRepository|FindAllForTeacherByPeriod|interview_requests|当事者必須、status任意、`scheduled_at`が期間内（`From`の0時以上`To`の24時未満）、`status <> cancelled`。`scheduled_at`昇順・`id`昇順|なし|
+|InterviewRequestRepository|FindAllForParticipantByPeriod|interview_requests|当事者必須、`scheduled_at`が期間内、`status <> cancelled`。`ORDER BY`・ページネーションなし|なし|
 |InterviewRequestRepository|ExistsActiveByStudentAndTeacher|interview_requests|student_id, teacher_id, status IN (requested, scheduling, confirmed)|なし|
 |InterviewRequestRepository|Create/Update|interview_requests|主キー（Update時はlock_versionも条件に含む）。`active_pair_key`の一意制約違反は`gorm.ErrDuplicatedKey`として判定し、重複申請のDomain Errorへ変換する（「14. Error実装方針」）|なし|
 |InterviewRequestMessageRepository|FindAllByInterviewRequestID|interview_request_messages|interview_request_id|なし|
@@ -1160,6 +1192,7 @@ SQL文そのものは記載しない。
 |対象|テストケース|
 |-|-|
 |`InterviewRequestRepository.FindAllForStudent`|status絞り込み・作成日時降順・ページネーションが正しく機能すること／当事者でない面談が含まれないこと|
+|`InterviewRequestRepository.FindAllForParticipantByPeriod`|生徒・教員いずれの当事者でも取得できること／期間の境界が含まれること／取り消し済みが除外されること／面談日時が未設定の面談が含まれないこと／当事者でない面談が含まれないこと|
 |`InterviewRequestRepository.FindAllForTeacherByPeriod`|`scheduled_at`が期間の境界（`From`の0時・`To`の23時59分）にある面談が含まれ、境界外が含まれないこと／取り消し済みが除外されること／面談日時が未設定の面談が含まれないこと／`scheduled_at`昇順・同時刻は`id`昇順に並ぶこと／ページネーションと総件数が正しいこと|
 |`InterviewRequestRepository.ExistsActiveByStudentAndTeacher`|進行中状態のみを対象とし、完了・取消済みを除外すること|
 |`InterviewRequestRepository.Update`|楽観的排他制御により、版数不一致時に`domainerror.ErrOptimisticLockConflict`を返すこと|

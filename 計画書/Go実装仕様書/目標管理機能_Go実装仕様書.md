@@ -300,7 +300,20 @@ stateDiagram-v2
 
 # 6. Application層設計
 
-対象外（Active Record採用のため、usecase層を設けない。②「12. UseCase設計」に記載されたListGoals / ShowGoal / CreateGoal / UpdateGoal / DeleteGoalの業務操作（および他Contextから呼ばれる`ReevaluateGoalStatus`）は、HandlerがGoalStore・TaskDirectoryを直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する）。
+対象外（Active Record採用のため、usecase層を設けない。②「12. UseCase設計」に記載されたListGoals / ShowGoal / CreateGoal / UpdateGoal / DeleteGoalの業務操作（および他Contextから呼ばれる`ReevaluateGoalStatus`・`FindGoalsInPeriod`）は、HandlerがGoalStore・TaskDirectoryを直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する）。
+
+## 他Contextから呼ばれる公開操作
+
+HTTPを経由しない公開操作は、`Context`structのメソッドとして`context.go`に置く（規約「14. 依存関係の組み立て（DI配線）」）。Handlerを経由しないため、`presentation/`には現れない。
+
+|操作|シグネチャ|呼び出す先|
+|-|-|-|
+|`ReevaluateGoalStatus`|`(c *Context) ReevaluateGoalStatus(ctx context.Context, goalID uint) (GoalStatus, error)`|`TaskDirectory`（紐づくタスクの状態）→`GoalStatusPolicy`→`GoalStore.FindByID`・`UpdateStatus`|
+|`FindGoalsInPeriod`|`(c *Context) FindGoalsInPeriod(ctx context.Context, userID uint, from, to time.Time) ([]GoalSchedule, error)`|`GoalStore.FindByUserIDAndDueDateRange`|
+
+`GoalSchedule`（`goal.go`で定義する）は公開操作の戻り値で、`ID uint`・`Title string`・`DueDate time.Time`・`Status string`を持つ。`Goal`structそのものを返さないのは、呼び出し側（`calendar`）に本Contextの内部モデルを渡さないためである（規約「5. Context間連携ルール」）。状態は`string`で返し、呼び出し側が自身の型へ変換する。
+
+**②からの補足**: `GoalSchedule`の名前とフィールドは②に明記がない。②「12. UseCase設計」`FindGoalsInPeriod`の出力（識別子・件名・期限日・状態）をGoの型に落としたものである。`DueDate`をポインタにしないのは、期限日の範囲で絞り込んだ結果であり未設定の目標が含まれないためである。
 
 ---
 
@@ -444,6 +457,7 @@ flowchart TD
 |`FindByUserID`|`ctx context.Context, userID uint, page, perPage int`|`([]GoalWithTasks, int64, error)`|user_idによる絞り込み、due_date昇順（同値はid昇順）ソート、ページネーション（LIMIT/OFFSET相当）、総件数取得。紐づくタスクを`Preload`で一括取得する（②「11. Repository設計」「21. DB操作仕様」）。`deleted_at IS NULL`は`gorm.DeletedAt`によりGORMが自動付与する|
 |`FindByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*GoalWithTasks, error)`|id・user_idの両方に一致する1件取得（`deleted_at IS NULL`はGORMが自動付与する）。紐づくタスクも一括取得する。一致しない場合はGoal不存在エラー（他ユーザーの目標を含む404相当。②「16. Authorization設計」の所有権チェックをクエリ条件として実現する）|
 |`FindByID`|`ctx context.Context, id uint`|`(*Goal, error)`|所有者を条件に含めず1件取得する。`ReevaluateGoalStatus`（他Contextから呼ばれる公開操作）が用いる。同操作は認可を行わないため所有者でスコープしない（②「16. Authorization設計」）|
+|`FindByUserIDAndDueDateRange`|`ctx context.Context, userID uint, from, to time.Time`|`([]Goal, error)`|user_idと`due_date`の範囲（両端を含む）による絞り込み。`FindGoalsInPeriod`（他Contextから呼ばれる公開操作）が用いる。紐づくタスクは取得しない。並び順は指定しない（②「12. UseCase設計」）。`deleted_at IS NULL`はGORMが自動付与する|
 |`Create`|`ctx context.Context, goal *Goal`|`error`|Goalレコードの新規作成。`status`は`GoalStatusNotStarted`（0）で作成する|
 |`Update`|`ctx context.Context, goal *Goal`|`error`|id（および所有権確認済みのuser_id）に一致するGoalレコードの`title`・`description`・`due_date`列を更新する|
 |`UpdateStatus`|`ctx context.Context, id uint, status GoalStatus`|`error`|対象レコードの`status`列のみを更新する（`ReevaluateGoalStatus`が用いる）|
@@ -836,6 +850,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
+- `GoalStore.FindByUserIDAndDueDateRange`: `user_id`と`due_date BETWEEN ? AND ?`で絞り込む（両端を含む）。`ORDER BY`を付けない。紐づくタスクの`Preload`も行わない（②「12. UseCase設計」`FindGoalsInPeriod`）
 - `GoalStore.FindByUserID`: `user_id`で絞り込み（`deleted_at IS NULL`はGORMが自動付与する）、`due_date`昇順（同値は`id`昇順）でソートし、`page`・`per_page`に基づくページネーションを行う。総件数は同じ絞り込み条件で`COUNT`を発行する。順序を決定的にするため第2ソートキーに`id`を置く（①「5. API / 処理詳細」`#index`の業務ルール、②「21. DB操作仕様」）
 - `GoalStore.FindByIDAndUserID`: `id`・`user_id`に一致する1件を取得する
 - 紐づくタスクは`Preload`で一括取得する。目標ごとにタスクを問い合わせるN+1を避けるためである（Railsは`GoalsQuery.includes_tasks`で同じことを行っている。①「5. API / 処理詳細」`#index`）
@@ -890,6 +905,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 |対象|テストケース|
 |-|-|
+|`GoalStore.FindByUserIDAndDueDateRange`|期限日が範囲の境界（開始日・終了日）にある目標が含まれ、範囲外が含まれないこと／他ユーザーの目標が含まれないこと／論理削除済みの目標が含まれないこと|
 |`GoalStore.FindByUserID`|指定`user_id`のGoalのみ取得できること|
 |`GoalStore.FindByUserID`|`due_date`昇順、同値は`id`昇順でソートされること|
 |`GoalStore.FindByUserID`|論理削除済みのGoalが含まれないこと|

@@ -66,6 +66,9 @@ internal/studylog/study_log_status.go             # StudyLogStatus型（整数�
 internal/studylog/duration.go                     # Duration型（所要時間の算出）
 internal/studylog/errors.go                        # struct/Storeが返すエラー定義
 internal/studylog/study_log_store.go               # StudyLogStore（永続化・検索・完了更新）
+internal/studylog/study_log_stats_store.go         # StudyLogStatsStore（分析向けの集計。論理削除済みを除外する）
+internal/studylog/find_studied_dates.go            # FindStudiedDates（他Contextから呼ばれる公開操作）
+internal/studylog/sum_study_minutes_by_date.go     # SumStudyMinutesByDate（他Contextから呼ばれる公開操作）
 internal/studylog/infrastructure/contextadapter/task_unit_directory.go  # TaskUnitDirectoryの実装
 internal/studylog/infrastructure/contextadapter/task_starter.go         # TaskStarterの実装
 internal/studylog/presentation/handler/study_log_handler.go
@@ -76,7 +79,7 @@ internal/studylog/presentation/routes.go
 
 ## 文書の分割
 
-本書は分割しない。実装ファイルは上記の13であり、テストが付くもの（StudyLog・StudyLogStatus・Duration・StudyLogStore・2つのアダプタ・StudyLogHandlerの7）を加えると20となるため、1文書あたり30〜35という範囲に収まる。
+本書は分割しない。実装ファイルは上記の16であり、テストが付くもの（StudyLog・StudyLogStatus・Duration・StudyLogStore・StudyLogStatsStore・FindStudiedDates・SumStudyMinutesByDate・2つのアダプタ・StudyLogHandlerの10）を加えると26となるため、1文書あたり30〜35という範囲に収まる。
 
 ---
 
@@ -394,6 +397,29 @@ flowchart TD
 
 **`deleted_at`による絞り込みを行わない。** `StudyLog`は`active`という絞り込みを持つが`default_scope`は持たず、`#update`も`active`を使っていないため、Rails現行は論理削除済みのレコードも検索の対象に含める（①「6. データモデル」、②「11. Repository設計」）。`Goal`・`Task`のStoreとは異なる点であり、実装時に他機能のStoreから条件をコピーしないよう注意する。
 
+### StudyLogStatsStore（`study_log_stats_store.go`）
+
+分析向けの集計を担うStoreである（②「11. Repository設計」の保持する検索機能）。
+
+|項目|内容|
+|-|-|
+|struct名|`StudyLogStatsStore`|
+|保持するフィールド|`db *gorm.DB`|
+|コンストラクタ|`NewStudyLogStatsStore(db *gorm.DB) *StudyLogStatsStore`|
+
+メソッド一覧:
+
+|メソッド|引数|戻り値|発行するクエリ内容|
+|-|-|-|-|
+|`FindStudiedDates`|`ctx context.Context, userID uint`|`([]time.Time, error)`|`user_id`で絞り込み、`started_at`を日本時間の暦日へ変換して重複なく取得する。**`deleted_at IS NULL`を条件に加える**|
+|`SumStudyMinutesByDate`|`ctx context.Context, userID uint, from, to time.Time`|`([]DailyStudyMinutes, error)`|`user_id`と日本時間の暦日が`from`〜`to`の範囲（両端を含む）であるもので絞り込み、暦日ごとに`duration_minutes`を合計する。**`deleted_at IS NULL`を条件に加える**。`duration_minutes`が`NULL`のログは0分として扱う|
+
+**`StudyLogStore`と別のstructに分ける。** 同じテーブルを対象とするが、論理削除済みの扱いが逆である（`StudyLogStore`は除外せず、本Storeは除外する）。1つのstructに混在させると、呼び出し箇所から扱いの違いが見えない（②「3. Bounded Context」の「本Contextが公開する操作」）。
+
+`DailyStudyMinutes`（`study_log.go`で定義する）は`Date time.Time`（暦日）・`Minutes int`を持つ。
+
+**②からの補足**: 暦日への変換を日本時間で行うことは②「11. Repository設計」が定めている。具体的な実装手段（SQLの`CONVERT_TZ`を使うか、アプリケーション側で変換するか）は、実装時にタイムゾーン設定の前提とあわせて決める。`started_at`・`ended_at`はUTCで保存されている（学習ログ機能①「6. データモデル」）。
+
 一覧取得・削除のメソッドは設けない。現行Railsに実装がなく、②「11. Repository設計」の範囲外であるためである。
 
 各メソッドは`gormtx.DBFromContext(ctx, s.db)`で接続を取得する。トランザクション中であればその接続を、そうでなければ通常の接続を使う（「11. Transaction実装方針」）。
@@ -418,6 +444,38 @@ flowchart TD
 **②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、`task-management`の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
 
 タスク管理機能③は`StartTask(ctx context.Context, taskID uint) (TaskStatus, error)`として変更後の状態を返す設計である（同③「8. Infrastructure層設計」）。本Contextは変更後の状態を使わないため、インターフェースでは`error`のみを受け取る形とし、アダプタの中で戻り値を捨てる。消費者が必要としない値をインターフェースに持ち込まないためである。
+
+## FindStudiedDates（`find_studied_dates.go`）
+
+他Contextから呼ばれる公開操作である（②「12. UseCase設計」）。
+
+|項目|内容|
+|-|-|
+|関数|`FindStudiedDates(ctx context.Context, userID uint) ([]time.Time, error)`|
+|受け取る依存|`*StudyLogStatsStore`|
+
+処理ステップ:
+
+1. `StudyLogStatsStore.FindStudiedDates`で学習した暦日を取得する
+2. そのまま返す
+
+期間を入力に取らない。継続日数は当日を起点に過去へさかのぼって数えるもので、さかのぼる範囲を事前に決められないためである（②「12. UseCase設計」）。
+
+## SumStudyMinutesByDate（`sum_study_minutes_by_date.go`）
+
+|項目|内容|
+|-|-|
+|関数|`SumStudyMinutesByDate(ctx context.Context, userID uint, from, to time.Time) ([]DailyStudyMinutes, error)`|
+|受け取る依存|`*StudyLogStatsStore`|
+
+処理ステップ:
+
+1. `StudyLogStatsStore.SumStudyMinutesByDate`で暦日ごとの合計を取得する
+2. そのまま返す
+
+学習ログのない日は結果に含めない。呼び出し側（`learning-analytics`）が欠けている日を0分として埋める（②「12. UseCase設計」）。
+
+いずれも認可を行わない。操作者の識別子を絞り込み条件として受け取るだけである（②「16. Authorization設計」）。トランザクションは使用しない。
 
 ## 外部連携実装
 
@@ -726,6 +784,11 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 ---
 
+- `StudyLogStatsStore.FindStudiedDates`: `user_id`と`deleted_at IS NULL`で絞り込み、`started_at`を日本時間の暦日へ変換して`DISTINCT`で取得する。並び順は指定しない（呼び出し側が継続日数の計算で扱う）
+- `StudyLogStatsStore.SumStudyMinutesByDate`: 同じ絞り込みに暦日の範囲を加え、暦日で`GROUP BY`して`duration_minutes`を`SUM`する。`NULL`は0として合計する（`COALESCE`相当）
+
+**この2つだけが`deleted_at IS NULL`を条件に加える。** 本Contextの他のクエリは論理削除済みを除外しない（「8. Infrastructure層設計」）。
+
 # 16. テストケース設計
 
 ②「22. テスト戦略」を、Active Record採用に合わせて読み替える（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の読み替えルールに従い、Domain Test→Model Test、UseCase Test→対象外、Repository Test→Store Test）。
@@ -751,6 +814,8 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 |対象|テストケース|
 |-|-|
+|`StudyLogStatsStore.FindStudiedDates`|同じ日に複数のログがある場合に暦日が重複しないこと／論理削除済みのログが含まれないこと／日本時間で日付が切り替わること（UTCの15時台のログが翌日になること）|
+|`StudyLogStatsStore.SumStudyMinutesByDate`|暦日ごとに合計されること／範囲の境界の日が含まれること／`duration_minutes`が未設定のログが0分として扱われること／ログのない日が結果に含まれないこと／論理削除済みのログが含まれないこと|
 |`StudyLogStore.FindScoped`|4つの識別子すべてに一致する学習ログが取得できること|
 |`StudyLogStore.FindScoped`|`user_id`が異なる場合に`ErrStudyLogNotFound`が返ること|
 |`StudyLogStore.FindScoped`|`task_id`・`unit_id`のいずれかが異なる場合に`ErrStudyLogNotFound`が返ること|
