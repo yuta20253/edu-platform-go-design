@@ -24,7 +24,7 @@ Transaction Script・Active Record（構造的一貫性が崩れるため不採�
 - ②「12. UseCase設計」のSearchStudentImportHistoriesUseCase（一覧検索）、ShowStudentImportHistoryUseCase（詳細取得）、ExportStudentCodeCsvUseCase（生徒コード配布用CSVエクスポート）
 - ②「19. API仕様」記載の3エンドポイント
 
-**重要（Entity/Repositoryの再利用方針）**: 本機能が扱うImportHistory・ImportError・ImportedStudent Entity、およびImportHistoryRepository・ImportErrorRepository・ImportedStudentRepository Interfaceの基本定義（struct名・フィールド・基本的なメソッド）は、生徒CSVインポート機能_Go実装仕様書「3. Domain層設計」で既に定義済みであり、同書が「正」である。本書ではこれらを**再定義せず、そのまま再利用する**。本書が追加するのは、(a) 既存の`ImportHistoryRepository` interfaceへの検索系メソッドの追加、(b) 既存の`ImportedStudentRepository` interfaceへの、生徒の表示情報付きの取得メソッドの追加、(c) 本機能固有のValue Object（`StudentImportHistorySearchCondition`, `StudentCodeCsvRow`）・Domain Service（`CsvInjectionGuard`）、(d) 本機能固有のUseCase・Handler・Request/Response DTOのみである。生徒CSVインポート機能_Go実装仕様書「2. ディレクトリ構成」で作成済みの`internal/student_import/domain/entity/import_history.go`・`import_error.go`・`imported_student.go`・`domain/repository/import_history_repository.go`・`import_error_repository.go`・`imported_student_repository.go`は本書でも同一ファイルとして扱い、重複するファイルを新規に作成しない。
+**重要（Entity/Repositoryの再利用方針）**: 本機能が扱うImportHistory・ImportError・ImportedStudent Entity、およびImportHistoryRepository・ImportErrorRepository・ImportedStudentRepository Interfaceの基本定義（struct名・フィールド・基本的なメソッド）は、生徒CSVインポート機能_Go実装仕様書「3. Domain層設計」で既に定義済みであり、同書が「正」である。本書ではこれらを**再定義せず、そのまま再利用する**。本書が追加するのは、(a) 既存の`ImportHistoryRepository` interfaceへの検索系メソッドの追加、(b) 既存の`ImportedStudentRepository` interfaceへの、生徒の表示情報付きの取得メソッドの追加、(c) 本機能固有のValue Object（`StudentImportHistorySearchCondition`, `StudentCodeCsvRow`）・Domain Service（`CsvInjectionGuard`）、(d) 本機能固有のUseCase・Handler・Request/Response DTOのみである。生徒CSVインポート機能_Go実装仕様書「2. ディレクトリ構成」で作成済みの`internal/studentimport/domain/entity/import_history.go`・`import_error.go`・`imported_student.go`・`domain/repository/import_history_repository.go`・`import_error_repository.go`・`imported_student_repository.go`は本書でも同一ファイルとして扱い、重複するファイルを新規に作成しない。
 
 - Railsの実装詳細（①）のうち、参照が必要な箇所は「Rails現行仕様書（教師インポート履歴管理機能）」として明示する
 
@@ -34,12 +34,12 @@ Transaction Script・Active Record（構造的一貫性が崩れるため不採�
 
 - 対象Bounded Context名: `student-import`（`internal/` 配下のディレクトリ名は、生徒CSVインポート機能_Go実装仕様書と同一の `student_import` を用いる）
 - ②で採用した設計パターン: Domain Model
-- アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Domain Model 構造（標準フルレイヤー構成）を、既存の`internal/student_import/`配下に追加する形で適用する（新規Context・新規ディレクトリツリーを作らない）
+- アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Domain Model 構造（標準フルレイヤー構成）を、既存の`internal/studentimport/`配下に追加する形で適用する（新規Context・新規ディレクトリツリーを作らない）
 
 ## 既存ディレクトリ（生徒CSVインポート機能_Go実装仕様書で作成済み、本書では変更しない）
 
 ```
-internal/student_import/
+internal/studentimport/
 ├── domain/
 │   ├── entity/            # import_history.go, import_error.go, imported_student.go は変更しない
 │   ├── valueobject/
@@ -51,8 +51,8 @@ internal/student_import/
 │   ├── dto/
 │   └── usecase/           # errors.go の ErrImportHistoryNotFound を再利用する
 ├── infrastructure/
-│   ├── persistence/gorm/
-│   ├── repository/        # import_history_repository.go, imported_student_repository.go は本書でメソッド実装追加
+│   ├── gormrepo/          # Repository実装・GORMモデル。import_history_repository.go, imported_student_repository.go は本書でメソッド実装追加
+│   ├── contextadapter/    # dependency.goのインターフェースの実装（氏名・学年・クラスの参照）
 │   ├── storage/
 │   └── queue/
 └── presentation/
@@ -65,21 +65,21 @@ internal/student_import/
 ## 本書が追加するファイル一覧
 
 ```
-internal/student_import/domain/valueobject/student_import_history_search_condition.go
-internal/student_import/domain/valueobject/student_code_csv_row.go
-internal/student_import/domain/service/csv_injection_guard.go
-internal/student_import/application/dto/search_student_import_histories.go
-internal/student_import/application/dto/show_student_import_history.go
-internal/student_import/application/dto/export_student_code_csv.go
-internal/student_import/application/usecase/search_student_import_histories_usecase.go
-internal/student_import/application/usecase/show_student_import_history_usecase.go
-internal/student_import/application/usecase/export_student_code_csv_usecase.go
-internal/student_import/presentation/handler/student_import_history_handler.go
-internal/student_import/presentation/request/search_student_import_histories_request.go
-internal/student_import/presentation/response/student_import_history_response.go
+internal/studentimport/domain/valueobject/student_import_history_search_condition.go
+internal/studentimport/domain/valueobject/student_code_csv_row.go
+internal/studentimport/domain/service/csv_injection_guard.go
+internal/studentimport/application/dto/search_student_import_histories.go
+internal/studentimport/application/dto/show_student_import_history.go
+internal/studentimport/application/dto/export_student_code_csv.go
+internal/studentimport/application/usecase/search_student_import_histories_usecase.go
+internal/studentimport/application/usecase/show_student_import_history_usecase.go
+internal/studentimport/application/usecase/export_student_code_csv_usecase.go
+internal/studentimport/presentation/handler/student_import_history_handler.go
+internal/studentimport/presentation/request/search_student_import_histories_request.go
+internal/studentimport/presentation/response/student_import_history_response.go
 ```
 
-`presentation/routes.go`は生徒CSVインポート機能_Go実装仕様書で作成済みのファイルであり、本書ではそこへ`StudentImportHistoryHandler`のルート登録を追加する（新規ファイルとしては作成しない。6章「Routing」参照）。`internal/student_import`の組み立て関数（`NewContext`。アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」）にも、本書の3 UseCaseと`StudentImportHistoryHandler`の生成を追加する。
+`presentation/routes.go`は生徒CSVインポート機能_Go実装仕様書で作成済みのファイルであり、本書ではそこへ`StudentImportHistoryHandler`のルート登録を追加する（新規ファイルとしては作成しない。6章「Routing」参照）。`internal/studentimport`の組み立て関数（`NewContext`。アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」）にも、本書の3 UseCaseと`StudentImportHistoryHandler`の生成を追加する。
 
 ## 本書が変更（メソッド追加）する既存ファイル
 
@@ -87,8 +87,8 @@ internal/student_import/presentation/response/student_import_history_response.go
 |-|-|
 |`domain/repository/import_history_repository.go`|`ImportHistoryRepository` interfaceへ`Search` / `FindOwnedByID`メソッドを追加する（本書「3. Domain層設計」参照）|
 |`domain/repository/imported_student_repository.go`|`ImportedStudentRepository` interfaceへ`FindViewsByImportHistoryID`メソッドと、その戻り値型`ImportedStudentView`を追加する（本書「3. Domain層設計」参照）|
-|`infrastructure/repository/import_history_repository.go`|上記追加メソッドの実装を追加する（本書「5. Infrastructure層設計」参照）|
-|`infrastructure/repository/imported_student_repository.go`|上記追加メソッドの実装を追加する（本書「5. Infrastructure層設計」参照）|
+|`infrastructure/gormrepo/import_history_repository.go`|上記追加メソッドの実装を追加する（本書「8. Infrastructure層設計」参照）|
+|`infrastructure/gormrepo/imported_student_repository.go`|上記追加メソッドの実装を追加する（本書「8. Infrastructure層設計」参照）|
 
 `domain/repository/import_error_repository.go`（`ImportErrorRepository`）は、生徒CSVインポート機能_Go実装仕様書が既に定義した`FindByImportHistoryID`メソッドをそのまま利用し、変更を加えない（②「11. Repository設計」の「ImportErrorRepository（拡張部分）: 生徒CSVインポート機能で定義済みの取得をそのまま利用し、本書での追加はない」に対応）。
 
@@ -106,7 +106,7 @@ internal/student_import/presentation/response/student_import_history_response.go
 
 ### ImportedStudentView
 
-- struct名: `ImportedStudentView`（配置: `domain/repository/imported_student_repository.go`。②「6. Entity設計」は本データを「参照用の構成データ」であり、Entityではないと位置づけ、application層の出力として分離するとしている。ただし、`ImportedStudentRepository`（Domain層のinterface）の戻り値型はDomain層で定義する必要がある（アーキテクチャ規約「2. レイヤー責務と依存方向」：DomainはApplicationに依存しない）ため、Entityの`entity`パッケージには置かず、Repository interfaceと同じファイルに参照専用の戻り値型として定義する。Entity本体に他Contextの表示情報を持たせないという②の判断は、この配置でも保たれる。**②からの補足**）
+- struct名: `ImportedStudentView`（配置: `domain/repository/imported_student_repository.go`。②「6. Entity設計」は本データを「参照用の構成データ」であり、Entityではないと位置づけ、application層の出力として分離するとしている。ただし、`ImportedStudentRepository`（Domain層のinterface）の戻り値型はDomain層で定義する必要がある（アーキテクチャ規約「2. レイヤー責務と依存方向（Domain Model / Event Sourcing）」：DomainはApplicationに依存しない）ため、Entityの`entity`パッケージには置かず、Repository interfaceと同じファイルに参照専用の戻り値型として定義する。Entity本体に他Contextの表示情報を持たせないという②の判断は、この配置でも保たれる。**②からの補足**）
 - 保持するフィールドと型:
 
 |フィールド|型|意味|
@@ -143,7 +143,7 @@ internal/student_import/presentation/response/student_import_history_response.go
   - `status`は許可値以外が指定された場合、絞り込み条件として適用しない（`Status`を`nil`のまま保持する）
   - `sort`は許可値（`created_at`/`total_count`/`success_count`/`error_count`/`status`）以外の場合`created_at`にフォールバックし、同一条件時は`id`の降順を副次キーとする
   - `order`は`asc`/`desc`以外の場合`desc`にフォールバックする
-  - `from`/`to`は`YYYY-MM-DD`形式の日付として解釈し、開始日は当日0時、終了日は当日23時59分59秒までを含む期間へ展開する。日境界はRails現行のアプリケーションタイムゾーン（Asia/Tokyo。Rails現行の`config/application.rb`）で展開し、検索時はUTCへ変換して用いる（コーディング規約「17. `time.Time`とタイムゾーン」）。日付として解釈できない値は指定されなかったものとして扱い、エラーにしない（Rails現行どおり。Railsの`Date.parse`は`YYYY-MM-DD`以外の書式も解釈するが、フロントエンドが送る形式は`YYYY-MM-DD`と推測し、本書では`YYYY-MM-DD`のみを解釈する。推測）
+  - `from`/`to`は`YYYY-MM-DD`形式の日付として解釈し、開始日は当日0時、終了日は当日23時59分59秒までを含む期間へ展開する。日境界はRails現行のアプリケーションタイムゾーン（Asia/Tokyo。Rails現行の`config/application.rb`）で展開し、検索時はUTCへ変換して用いる（コーディング規約「17. `time.Time` とタイムゾーン」）。日付として解釈できない値は指定されなかったものとして扱い、エラーにしない（Rails現行どおり。Railsの`Date.parse`は`YYYY-MM-DD`以外の書式も解釈するが、フロントエンドが送る形式は`YYYY-MM-DD`と推測し、本書では`YYYY-MM-DD`のみを解釈する。推測）
 - 公開するmethod一覧: `NewStudentImportHistorySearchCondition(teacherID uint, params StudentImportHistorySearchParams) (StudentImportHistorySearchCondition, error)`（正規化を行うファクトリ）、`(c StudentImportHistorySearchCondition) HasStatus() bool`
 
 ### StudentCodeCsvRow（`domain/valueobject/student_code_csv_row.go`）
@@ -197,7 +197,69 @@ internal/student_import/presentation/response/student_import_history_response.go
 
 ---
 
-# 4. Application層設計
+# 4. クラス図
+
+Entity・Repository Interfaceの基本定義は生徒CSVインポート機能③「3. Domain層設計」が正であり、本書では再定義しない（「1. 機能概要」）。本書が追加する要素と既存要素の関係を示す。
+
+```mermaid
+classDiagram
+    class ImportHistory {
+        <<Entity / AggregateRoot（生徒CSVインポート機能③で定義）>>
+    }
+    class ImportError {
+        <<Entity（同）>>
+    }
+    class ImportedStudent {
+        <<Entity（同。取り込みに成功した生徒の記録）>>
+    }
+    class ImportHistoryRepository {
+        <<RepositoryInterface（同。本書が検索系メソッドを追加）>>
+        +Search(condition, page, perPage)
+        +FindByIDForTeacher(id, teacherID)
+    }
+    class ImportedStudentRepository {
+        <<RepositoryInterface（同。本書が表示情報付きの取得を追加）>>
+        +FindByImportHistoryIDWithStudent(importHistoryID)
+    }
+    class StudentImportHistorySearchCondition {
+        <<ValueObject（本書で定義）>>
+        +Status
+        +From
+        +To
+        +Sort
+        +Order
+    }
+    class StudentCodeCsvRow {
+        <<ValueObject（本書で定義）>>
+    }
+    class CsvInjectionGuard {
+        <<DomainService（本書で定義）>>
+    }
+
+    ImportHistory "1" *-- "many" ImportError : 従属（Aggregate内）
+    ImportHistory "1" *-- "many" ImportedStudent : 従属（同）
+    ImportHistoryRepository ..> ImportHistory : 検索・取得
+    ImportHistoryRepository ..> StudentImportHistorySearchCondition : 絞り込み条件として受け取る
+    ImportedStudentRepository ..> ImportedStudent : 取得
+    StudentCodeCsvRow ..> ImportedStudent : 生徒コード配布用の1行に写す
+    CsvInjectionGuard ..> StudentCodeCsvRow : 先頭文字の無害化を判定
+```
+
+生徒の氏名・学年・クラスは`user`・`master-data`・`school-class`が所有するため、本Contextの図には含めない。表示に必要な項目は所有Contextの公開操作を通じて取得する（「8. Infrastructure層設計」）。
+
+本機能は参照とエクスポートのみを行い、`ImportHistory`の状態を変更しない（②「12. UseCase設計」）。
+
+---
+
+# 5. 状態遷移図
+
+省略する。
+
+理由: 本機能は`ImportHistory`の状態を参照・絞り込みに使うだけで、遷移を起こさない（②「10. 状態遷移図」）。状態と遷移条件は、同じContextで取り込みを担う生徒CSVインポート機能③が定める。
+
+---
+
+# 6. Application層設計
 
 ## DTO（Command / Query）
 
@@ -225,7 +287,7 @@ internal/student_import/presentation/response/student_import_history_response.go
 - コンストラクタが受け取る依存: `ImportHistoryRepository`（生徒CSVインポート機能_Go実装仕様書で定義済みのInterfaceを、本書が追加した`Search`メソッドとあわせて利用する）
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, query dto.SearchStudentImportHistoriesQuery) (dto.SearchStudentImportHistoriesResult, error)`
 - 処理ステップ（呼び出し順序）:
-  1. `valueobject.NewStudentImportHistorySearchCondition(query.CurrentTeacherID, valueobject.StudentImportHistorySearchParams{...})`で検索条件を正規化する（実行者の設定・許可値判定・フォールバック・期間展開。②「13. シーケンス図」の「StudentImportHistorySearchConditionへ正規化」）。生成に失敗した場合（`CurrentTeacherID`が0）は、想定外のエラーとして返す
+  1. `valueobject.NewStudentImportHistorySearchCondition(query.CurrentTeacherID, valueobject.StudentImportHistorySearchParams{...})`で検索条件を正規化する（実行者の設定・許可値判定・フォールバック・期間展開。②「13. シーケンス図・処理フロー図」の「StudentImportHistorySearchConditionへ正規化」）。生成に失敗した場合（`CurrentTeacherID`が0）は、想定外のエラーとして返す
   2. `ImportHistoryRepository.Search(ctx, condition, query.Page, query.PerPage)`を呼び出し、対象履歴一覧と総件数を取得する
   3. `dto.SearchStudentImportHistoriesResult`として返す
 - トランザクション境界: なし（②「14. Transaction設計」により読み取りのみ）
@@ -250,7 +312,7 @@ internal/student_import/presentation/response/student_import_history_response.go
 - struct名: `ExportStudentCodeCsvUseCase`
 - コンストラクタが受け取る依存: `ImportHistoryRepository`, `ImportedStudentRepository`, `service.CsvInjectionGuard`
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, query dto.ExportStudentCodeCsvQuery) (dto.ExportStudentCodeCsvResult, error)`
-- 処理ステップ（②「13. シーケンス図（生徒コード配布用CSVエクスポート）」の記載どおり）:
+- 処理ステップ（②「13. シーケンス図・処理フロー図」の記載どおり）:
   1. `ImportHistoryRepository.FindOwnedByID`で対象履歴を取得する（実行者本人の生徒インポートであることの確認を兼ねる）
   2. 取得できない場合、`ErrImportHistoryNotFound`を返す
   3. `ImportedStudentRepository.FindViewsByImportHistoryID`で成功行一覧（生徒の表示情報付き、記録順）を取得する
@@ -262,11 +324,57 @@ internal/student_import/presentation/response/student_import_history_response.go
 
 ---
 
-# 5. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
+
+## シーケンス図
+
+一覧の取得と、生徒コード配布用CSVのダウンロードを示す。
+
+```mermaid
+sequenceDiagram
+    participant T as 教師（ブラウザ）
+    participant H as Handler
+    participant L as SearchStudentImportHistoriesUseCase
+    participant X as ExportStudentCodeCsvUseCase
+    participant R as ImportHistoryRepository
+    participant IS as ImportedStudentRepository
+    participant U as user / master-data / school-class
+    participant G as CsvInjectionGuard
+
+    T->>H: GET /api/v1/teacher/import_histories?status&from&to&sort&order
+    H->>H: 絞り込み条件・並び順の正規化（既定値の補完）
+    H->>L: StudentImportHistorySearchCondition とページ指定
+    L->>R: Search（操作者が実行した生徒インポートで論理削除されていない履歴）
+    R-->>L: 履歴とページ情報
+    L-->>H: 一覧
+    H-->>T: 200 import_histories / meta
+
+    T->>H: GET /api/v1/teacher/import_histories/:id/export
+    H->>X: 履歴の識別子と操作者
+    X->>R: FindByIDForTeacher（他の教師の履歴は取得できない）
+    X->>IS: 取り込みに成功した生徒の取得
+    IS-->>X: 生徒の識別子
+    X->>U: 氏名・学年・クラスの取得
+    U-->>X: 表示用の項目
+    X->>G: 各セルの先頭文字を無害化
+    G-->>X: StudentCodeCsvRow
+    X-->>H: CSV
+    H-->>T: 200 text/csv（添付）
+```
+
+## 処理フロー図
+
+省略する。
+
+理由: ②「13. シーケンス図・処理フロー図」が省略しており、業務ルールによる条件分岐を持たない。絞り込み条件の有無で条件を足すかどうかが変わるだけである（「6. Application層設計」）。
+
+---
+
+# 8. Infrastructure層設計
 
 ## Repository実装（既存実装へのメソッド追加）
 
-### ImportHistoryRepository実装（`infrastructure/repository/import_history_repository.go`、既存実装へのメソッド追加）
+### ImportHistoryRepository実装（`infrastructure/gormrepo/import_history_repository.go`、既存実装へのメソッド追加）
 
 生徒CSVインポート機能_Go実装仕様書が定義した実装struct（`gormrepo`パッケージ内）に、以下のメソッド実装を追加する。
 
@@ -275,13 +383,13 @@ internal/student_import/presentation/response/student_import_history_response.go
 |`Search`|`user_id`が`condition.TeacherID`に一致し、`import_type`が生徒インポートで、`deleted_at IS NULL`の条件を常に付加し、`StudentImportHistorySearchCondition`の`Status`（`nil`でなければ一致条件。DBの値表現への変換は`ImportHistoryModel`の変換方針に従う）/`From`〜`To`（`created_at`の範囲）で絞り込む。`Sort`/`Order`（許可値をカラム名へ対応づけたマップで解決し、文字列連結でカラム名を組み立てない。同条件時は`id`降順を副次キー）でソートし、`page`/`perPage`でOFFSET/LIMITページングする。総件数は同条件でのCOUNTを別途取得する（②「21. DB操作仕様」）。`users`等との結合は行わない|
 |`FindOwnedByID`|`id`一致かつ`user_id`が`teacherID`に一致かつ`import_type`が生徒インポートかつ`deleted_at IS NULL`の条件で1件取得する。見つからない場合は`nil, nil`を返す|
 
-### ImportedStudentRepository実装（`infrastructure/repository/imported_student_repository.go`、既存実装へのメソッド追加）
+### ImportedStudentRepository実装（`infrastructure/gormrepo/imported_student_repository.go`、既存実装へのメソッド追加）
 
 生徒CSVインポート機能_Go実装仕様書が定義した実装struct（`gormrepo`パッケージ内）に、以下のメソッド実装を追加する。
 
 |メソッド|発行するクエリ内容|
 |-|-|
-|`FindViewsByImportHistoryID`|`imported_students`から`import_history_id`一致で取得し、`users`（`imported_students.user_id`）と内部結合して氏名・氏名カナ・メールアドレス・生徒コードを、`grades`（`users.grade_id`）と`school_classes`（`users.school_class_id`）と外部結合して学年・学級名を取得する（学級・学年が未設定の生徒を除外しない）。`imported_students.id`昇順で全件取得し、生徒ごとの個別問い合わせは行わない。結合結果は、実装内に非公開の取得用struct（`users`・`grades`・`school_classes`の必要な列のみ）へ受け、`ImportedStudentView`へ変換する。学年の表示名は、共通マスタ参照機能が定める`year`から表示名への導出規則で変換する（**②からの補足**: 導出の呼び出し方式は共通マスタ参照機能③の公開手段に従う。未確定の場合の扱いは「14. ②からの補足事項」参照）|
+|`FindViewsByImportHistoryID`|`imported_students`から`import_history_id`一致で取得し、`users`（`imported_students.user_id`）と内部結合して氏名・氏名カナ・メールアドレス・生徒コードを、`grades`（`users.grade_id`）と`school_classes`（`users.school_class_id`）と外部結合して学年・学級名を取得する（学級・学年が未設定の生徒を除外しない）。`imported_students.id`昇順で全件取得し、生徒ごとの個別問い合わせは行わない。結合結果は、実装内に非公開の取得用struct（`users`・`grades`・`school_classes`の必要な列のみ）へ受け、`ImportedStudentView`へ変換する。学年の表示名は、共通マスタ参照機能が定める`year`から表示名への導出規則で変換する（**②からの補足**: 導出の呼び出し方式は共通マスタ参照機能③の公開手段に従う。未確定の場合の扱いは「17. ②からの補足事項」参照）|
 
 これらの結合対象（`users`・`grades`・`school_classes`）は、他Contextが所有するテーブルであり、本Contextでは新たな所有モデルとして定義しない参照専用の取得である（生徒CSVインポート機能_Go実装仕様書「15. GORM / DBクエリ設計」の`GradeClassResolutionRepository`・`StudentAccountRepository`と同じ扱い。②「3. Bounded Context」の「自前の参照モデル」）。
 
@@ -295,7 +403,7 @@ internal/student_import/presentation/response/student_import_history_response.go
 
 ---
 
-# 6. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
@@ -311,7 +419,7 @@ internal/student_import/presentation/response/student_import_history_response.go
   - `Search`: クエリパラメータ（`status`, `from`, `to`, `sort`, `order`, `page`, `per_page`）を`request.SearchStudentImportHistoriesRequest`にバインド → `page`/`per_page`に既定値・上限を適用（下記） → Middlewareが確定したcurrent teacherのIDをcontextから取得 → `dto.SearchStudentImportHistoriesQuery`へ変換して`SearchStudentImportHistoriesUseCase.Execute`を呼び出す → `response.StudentImportHistoryListResponse`へ変換し200で返す
   - `Show`: パスパラメータ`id`を整数として解釈（整数でない・0以下の場合は、Rails現行の挙動に合わせて存在しない履歴として扱い、`ErrImportHistoryNotFound`として404へ。**②からの補足**） → current teacherのIDをcontextから取得 → `ShowStudentImportHistoryUseCase.Execute`を呼び出す → `ErrImportHistoryNotFound`の場合は404に変換（集中エラーハンドリングミドルウェアへ`c.Error(err)`で登録） → 成功時は`response.StudentImportHistoryDetailResponse`へ変換し200で返す
   - `Export`: パスパラメータ`id`を`Show`と同様に解釈 → current teacherのIDをcontextから取得 → `ExportStudentCodeCsvUseCase.Execute`を呼び出す → `ErrImportHistoryNotFound`の場合は404に変換 → 成功時は`Content-Type: text/csv; charset=UTF-8`、`Content-Disposition: attachment; filename="import_history_<id>.csv"`のレスポンスとして200で返す（Response DTO structは設けず、`c.Data`相当の直接書き込みとする）
-- `page`/`per_page`の既定値と上限: `page`は未指定・数値でない値・0以下の場合は1とする。`per_page`は未指定・数値でない値・0以下の場合は20、100を超える場合は100に丸める。いずれもエラーにしない（Rails現行の`sanitized_page` / `sanitized_per_page`と同一。②「15. Validation設計」。アーキテクチャ規約「15. API規約」の「ページネーション」）
+- `page`/`per_page`の既定値と上限: `page`は未指定・数値でない値・0以下の場合は1とする。`per_page`は未指定・数値でない値・0以下の場合は20、100を超える場合は100に丸める。いずれもエラーにしない（Rails現行の`sanitized_page` / `sanitized_per_page`と同一。②「15. Validation設計」。アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「ページネーション」）
 
 ## Request / Response DTO
 
@@ -345,7 +453,7 @@ CSVエクスポートのResponse DTOは設けない（ファイルストリー�
 
 ---
 
-# 7. API仕様
+# 10. API仕様
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
@@ -360,23 +468,23 @@ CSVエクスポートのResponse DTOは設けない（ファイルストリー�
 |未認証|401|認証エラー（Middleware。Rails現行仕様書に記載のとおり）|
 |teacherロールでない|403|認可エラー（Middleware。Rails現行仕様書に記載のとおり）|
 |対象インポート履歴が存在しない、他の教師が実行した履歴である、問題インポートの履歴である、または論理削除済みである（詳細・エクスポート）|404|`ErrImportHistoryNotFound`（②「17. Error設計」）|
-|`id`が整数でない（詳細・エクスポート）|404|存在しない履歴として扱う（Rails現行の挙動。「6. Presentation層設計」参照）|
+|`id`が整数でない（詳細・エクスポート）|404|存在しない履歴として扱う（Rails現行の挙動。「9. Presentation層設計」参照）|
 |`status`/`sort`/`order`が許可値でない、`from`/`to`が日付として解釈できない、`page`/`per_page`が不正|200|エラーにしない（無視または既定値で処理する）|
 |DB接続失敗・CSV生成失敗|500|Infrastructure Error|
 
 ---
 
-# 8. Transaction実装方針
+# 11. Transaction実装方針
 
 ②「14. Transaction設計」のとおり、本機能はすべて読み取り専用処理であり、明示的なトランザクションを使用しない。
 
 - Transaction開始箇所: なし
 - Transaction終了箇所: 該当なし
-- 複数Repositoryにまたがる場合の扱い: `ShowStudentImportHistoryUseCase`は`ImportHistoryRepository`・`ImportedStudentRepository`・`ImportErrorRepository`を、`ExportStudentCodeCsvUseCase`は`ImportHistoryRepository`・`ImportedStudentRepository`を呼び出すが、いずれも読み取りのみであり、`TransactionManager`（アーキテクチャ規約「11. Transaction実装パターン」）を介したトランザクション制御は行わない（②「14. Transaction設計」）
+- 複数Repositoryにまたがる場合の扱い: `ShowStudentImportHistoryUseCase`は`ImportHistoryRepository`・`ImportedStudentRepository`・`ImportErrorRepository`を、`ExportStudentCodeCsvUseCase`は`ImportHistoryRepository`・`ImportedStudentRepository`を呼び出すが、いずれも読み取りのみであり、`TransactionManager`（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」）を介したトランザクション制御は行わない（②「14. Transaction設計」）
 
 ---
 
-# 9. Validation実装方針
+# 12. Validation実装方針
 
 ## Presentation
 
@@ -396,7 +504,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 
 ---
 
-# 10. Authorization実装方針
+# 13. Authorization実装方針
 
 ## Middlewareで行う処理
 
@@ -405,7 +513,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 ## Handlerで行う処理
 
 - 認証失敗時のレスポンス整形。業務権限の判定は持たせない。他の教師の操作を許可する権限（他職員操作権限）や担当学年による範囲制限は要求しない（②「16. Authorization設計」）
-- Middlewareが確定したcurrent teacherのIDをcontextから取得し、UseCaseへ渡す（コーディング規約「20. context.Context」に従う）
+- Middlewareが確定したcurrent teacherのIDをcontextから取得し、UseCaseへ渡す（コーディング規約「20. `context.Context`」に従う）
 
 ## UseCaseで行う処理
 
@@ -418,7 +526,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 
 ---
 
-# 11. Error実装方針
+# 14. Error実装方針
 
 ## Domain Error → Application Errorへの変換方針
 
@@ -442,7 +550,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 
 ---
 
-# 12. GORM / DBクエリ設計
+# 15. GORM / DBクエリ設計
 
 ②「20. DB設計方針」のとおり、`import_histories` / `import_errors` / `imported_students`テーブルは生徒CSVインポート機能と共有し、本機能単独でのスキーマ変更は行わない。
 
@@ -451,7 +559,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 - `gormmodel.ImportHistoryModel` ⇔ `import_histories`テーブル（生徒CSVインポート機能_Go実装仕様書で定義済みのモデルをそのまま利用する。新規モデル定義は行わない）
 - `gormmodel.ImportErrorModel` ⇔ `import_errors`テーブル（同上）
 - `gormmodel.ImportedStudentModel` ⇔ `imported_students`テーブル（同上）
-- `users`・`grades`・`school_classes`は参照専用として、`FindViewsByImportHistoryID`の実装内に非公開の取得用structを定義し、必要な列のみを受ける（他Contextのモデル定義には依存しない。「5. Infrastructure層設計」参照）
+- `users`・`grades`・`school_classes`は参照専用として、`FindViewsByImportHistoryID`の実装内に非公開の取得用structを定義し、必要な列のみを受ける（他Contextのモデル定義には依存しない。「8. Infrastructure層設計」参照）
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -470,7 +578,7 @@ SQL文そのものは記載しない。
 
 ---
 
-# 13. テストケース設計
+# 16. テストケース設計
 
 ②「22. テスト戦略」で採用パターンがDomain Modelであるため、区分はそのまま使用する。
 
@@ -522,7 +630,7 @@ SQL文そのものは記載しない。
 
 ---
 
-# 14. ②からの補足事項
+# 17. ②からの補足事項
 
 ②に明記がなく、実装のために追加で判断した内容を以下に整理する。
 

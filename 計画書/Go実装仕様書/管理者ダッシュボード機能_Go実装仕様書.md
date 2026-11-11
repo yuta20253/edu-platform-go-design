@@ -36,7 +36,7 @@
 ## 作成するディレクトリ一覧
 
 ```
-internal/admin_dashboard/
+internal/admindashboard/
 ├── application/
 ├── infrastructure/
 └── presentation/
@@ -48,17 +48,17 @@ internal/admin_dashboard/
 ## 作成するファイル一覧
 
 ```
-internal/admin_dashboard/application/get_dashboard_summary.go
-internal/admin_dashboard/application/import_history_reader.go
-internal/admin_dashboard/infrastructure/user_query.go
-internal/admin_dashboard/infrastructure/question_query.go
-internal/admin_dashboard/infrastructure/import_history_reader.go
-internal/admin_dashboard/presentation/handler/admin_dashboard_handler.go
-internal/admin_dashboard/presentation/response/admin_dashboard_response.go
-internal/admin_dashboard/presentation/routes.go
+internal/admindashboard/application/get_dashboard_summary.go
+internal/admindashboard/application/import_history_reader.go
+internal/admindashboard/infrastructure/user_query.go
+internal/admindashboard/infrastructure/question_query.go
+internal/admindashboard/infrastructure/import_history_reader.go
+internal/admindashboard/presentation/handler/admin_dashboard_handler.go
+internal/admindashboard/presentation/response/admin_dashboard_response.go
+internal/admindashboard/presentation/routes.go
 ```
 
-**②からの補足**: `internal/`配下のディレクトリ名は、②のContext名`admin-dashboard`をアーキテクチャ規約「9. 命名規約」（kebab-caseのContext名を短いスネークケースへ変換する）に従い`internal/admin_dashboard`とした。対応関係は②に明記がないため規約適用による判断である。`domain/`・`presentation/request/`は本機能では作成しない。リクエストパラメータが存在しない（②「15. Validation設計」）ため、Request DTOも設けない。infrastructure層のファイル構成は、②「11. Repository設計」（UserRepository / QuestionRepository / ImportHistoryRepository）および②「12. UseCase設計」（「呼び出す関数: ユーザー種別件数集計関数, 総問題数集計関数, 直近インポート履歴取得関数」）に直接対応しており、②に根拠がある構成である。このうちImportHistoryRepository相当分は、本タスクで並行して確定した管理者問題インポート機能_Go実装仕様書・管理者インポート履歴管理機能_Go実装仕様書が公開するquestion-import Context側の実装を呼び出す構成とするため、`user_query.go` / `question_query.go`（本Context内でSQLを直接発行するクエリ関数）とは性質が異なり、`import_history_reader.go`（question-import Context呼び出しのアダプタ）として区別する。`application/import_history_reader.go`は、コーディング規約「7. インターフェース」の「インターフェースは利用するパッケージ側で定義する」に従い、本Context側で定義する参照用Interfaceを置く。
+**②からの補足**: `internal/`配下のディレクトリ名は、②のContext名`admin-dashboard`をアーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」（kebab-caseのContext名を短いスネークケースへ変換する）に従い`internal/admindashboard`とした。対応関係は②に明記がないため規約適用による判断である。`domain/`・`presentation/request/`は本機能では作成しない。リクエストパラメータが存在しない（②「15. Validation設計」）ため、Request DTOも設けない。infrastructure層のファイル構成は、②「11. Repository設計」（UserRepository / QuestionRepository / ImportHistoryRepository）および②「12. UseCase設計」（「呼び出す関数: ユーザー種別件数集計関数, 総問題数集計関数, 直近インポート履歴取得関数」）に直接対応しており、②に根拠がある構成である。このうちImportHistoryRepository相当分は、本タスクで並行して確定した管理者問題インポート機能_Go実装仕様書・管理者インポート履歴管理機能_Go実装仕様書が公開するquestion-import Context側の実装を呼び出す構成とするため、`user_query.go` / `question_query.go`（本Context内でSQLを直接発行するクエリ関数）とは性質が異なり、`import_history_reader.go`（question-import Context呼び出しのアダプタ）として区別する。`application/import_history_reader.go`は、コーディング規約「7. インターフェース」の「インターフェースは利用するパッケージ側で定義する」に従い、本Context側で定義する参照用Interfaceを置く。
 
 ---
 
@@ -66,15 +66,31 @@ internal/admin_dashboard/presentation/routes.go
 
 **対象外（Transaction Script採用のため、Domain層を設けない）**。
 
-理由: ②「6. Entity設計」「7. Value Object設計」「8. Domain Service」「9. Repository設計」のいずれも、本機能では独自のEntity・Value Object・Domain Service・Repository Interfaceを持たないと判断されている（②「6. Entity設計」の`DashboardSummary`は「業務的な意味を持つEntityというよりも出力データ構造に近い性質」と明記されている）。業務ルールの検証・処理ステップは「4. Application層設計」に記載する。
+理由: ②「6. Entity設計」「7. Value Object設計」「8. Domain Service」「9. Repository設計」のいずれも、本機能では独自のEntity・Value Object・Domain Service・Repository Interfaceを持たないと判断されている（②「6. Entity設計」の`DashboardSummary`は「業務的な意味を持つEntityというよりも出力データ構造に近い性質」と明記されている）。業務ルールの検証・処理ステップは「6. Application層設計」に記載する。
 
 ---
 
-# 4. Application層設計
+# 4. クラス図
+
+省略する。
+
+理由: ②「9. クラス図」が省略しており、本Contextが管理するEntityを持たないため、可視化すべきEntity関係が存在しない（「3. Domain層設計」）。参照する利用者・問題・インポート履歴・お知らせの構造は各所有Contextの②に属する。
+
+---
+
+# 5. 状態遷移図
+
+省略する。
+
+理由: ②「10. 状態遷移図」のとおり、本Contextは状態を持たず、状態を変更しない。返すインポート履歴の進行状況・お知らせの公開状況は、いずれも所有Contextが管理する状態をそのまま載せたものである（①「7. 状態管理」）。
+
+---
+
+# 6. Application層設計
 
 **実装単位の読み替え**: 本機能はTransaction Script採用のため、UseCase（struct）は設けない。②「12. UseCase設計」の`GetDashboardSummary`（業務操作としての設計意図）は、`application/`直下に置く関数`GetDashboardSummary`として実装する。
 
-**②からの補足**: 関数名は②本文に記載された業務操作名`GetDashboardSummary`をそのまま採用した。アーキテクチャ規約「9. 命名規約」の「Transaction Scriptの関数は`動詞+対象`の形式にする」にも合致するため、名称変更は行っていない。
+**②からの補足**: 関数名は②本文に記載された業務操作名`GetDashboardSummary`をそのまま採用した。アーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」の「Transaction Scriptの関数は`動詞+対象`の形式にする」にも合致するため、名称変更は行っていない。
 
 ## DTO（Command / Query）
 
@@ -91,7 +107,7 @@ internal/admin_dashboard/presentation/routes.go
 - interface名: `ImportHistoryReader`（`application/import_history_reader.go`。コーディング規約「7. インターフェース」の「インターフェースは利用するパッケージ側で定義する」に従い、本Context（admin_dashboard）側で定義する）
 - メソッドシグネチャ: `FindRecent(ctx context.Context, limit int) ([]ImportHistorySummary, error)`
 - 責務: 直近`limit`件のインポート履歴（ユーザー・単元による絞り込みを行わないシステム全体の直近履歴）を取得する
-- 実装: `infrastructure/import_history_reader.go`（詳細は「5. Infrastructure層設計」参照）。`GetDashboardSummary`はこのInterface経由でquestion-import Contextのデータを取得し、`import_histories`テーブルへ直接クエリしない（アーキテクチャ規約「5. Context間連携ルール」）
+- 実装: `infrastructure/import_history_reader.go`（詳細は「8. Infrastructure層設計」参照）。`GetDashboardSummary`はこのInterface経由でquestion-import Contextのデータを取得し、`import_histories`テーブルへ直接クエリしない（アーキテクチャ規約「5. Context間連携ルール」）
 
 **②からの補足**: 上記2つのDTOのフィールド構成は、②「19. API仕様」のResponse定義（`stats`のstudent_count/teacher_count/admin_count/total_questions、`recent_imports`のid/file_name/status/success_count/error_count/total_count/created_at）から導出した。②本文にDTOのフィールド型までの明記はないため、実装のために補った。
 
@@ -105,16 +121,55 @@ internal/admin_dashboard/presentation/routes.go
   2. `infrastructure`層の`CountTotalQuestions`を呼び出し、総問題数を取得する
   3. `importReader.FindRecent(ctx, MaxRecentImports)`を呼び出し、question-import Contextから直近インポート履歴を取得する（`infrastructure`層の関数ではなく、本Context自身が定義する`ImportHistoryReader` Interface経由の呼び出しである点が他の2つと異なる）
   4. 上記3つの結果を`DashboardSummary`へ組み立てる
-  5. いずれかの呼び出しでエラーが発生した場合、Application Errorとしてラップして返す（詳細は「11. Error実装方針」）
+  5. いずれかの呼び出しでエラーが発生した場合、Application Errorとしてラップして返す（詳細は「14. Error実装方針」）
 - 呼び出す関数: `infrastructure.CountUsersByRole`, `infrastructure.CountTotalQuestions`（本Context内のinfrastructure関数）, `ImportHistoryReader.FindRecent`（question-import Context呼び出しのInterface、DI配線で注入される）
-- トランザクション境界: 不要（読み取りのみ。②「14. Transaction設計」に基づく。詳細は「8. Transaction実装方針」）
+- トランザクション境界: 不要（読み取りのみ。②「14. Transaction設計」に基づく。詳細は「11. Transaction実装方針」）
 - 発生しうるApplication Error: `ErrCountUsersByRoleFailed`, `ErrCountTotalQuestionsFailed`, `ErrFetchRecentImportHistoriesFailed`（各呼び出しの失敗を個別に表すエラー）
 
 **②からの補足**: 直近インポート履歴の上限件数「5」は②「11. Repository設計」（ImportHistoryRepositoryの「直近5件のインポート履歴取得」）に明記された業務ルールであり、実装時は`application`パッケージ内の定数（例：`MaxRecentImports = 5`）として定義することを推測として補った。定数名・配置場所は②に記載がないための実装判断である。3つのApplication Errorをinfrastructure呼び出し単位で分割した設計は、②「11. Repository設計」が3つの責務（UserRepository / QuestionRepository / ImportHistoryRepository）に分けて記載していることに合わせた判断であり、②「17. Error設計」自体は個別のエラー名までは定めていないため推測を含む。
 
 ---
 
-# 5. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
+
+## シーケンス図
+
+```mermaid
+sequenceDiagram
+    participant C as 管理者（ブラウザ）
+    participant H as Handler
+    participant A as application（ダッシュボードの取得）
+    participant U as user
+    participant Q as question-import
+    participant AN as announcement
+    participant CU as curriculum
+
+    C->>H: GET /api/v1/admin/dashboard
+    H->>A: 呼び出し（入力なし）
+    A->>U: 利用者数の集計（種別別・受諾済みと招待中）
+    U-->>A: 種別ごとの人数
+    A->>U: アクティブな生徒数の集計（直近30日）
+    U-->>A: 人数
+    A->>CU: 問題の総数
+    CU-->>A: 件数
+    A->>Q: 最近の問題インポート履歴（最大5件）
+    Q-->>A: 履歴
+    A->>AN: 最近のお知らせ（最大3件）
+    AN-->>A: お知らせ
+    A->>A: 集計結果とmetaを組み立てる
+    A-->>H: ダッシュボードのデータ
+    H-->>C: 200 stats / recent_imports / recent_announcements / meta
+```
+
+## 処理フロー図
+
+省略する。
+
+理由: ②「13. シーケンス図・処理フロー図」が省略しており、業務ルールによる条件分岐を持たない。各参照手段を順に呼び、結果を組み立てるだけである。
+
+---
+
+# 8. Infrastructure層設計
 
 ## Infrastructure関数（Transaction Script採用時）
 
@@ -137,11 +192,11 @@ internal/admin_dashboard/presentation/routes.go
   - 集計内容: 全件数のカウント（絞り込み条件なし。②「16. Authorization設計」の「管理者はシステム全体を集計対象とする」に対応し、校・学年等によるスコープ限定は行わない）
   - SQL文そのものは記載しない
 
-**②からの補足**: 総問題数の集計対象テーブルを`questions`と推測した。②「20. DB設計方針」は`users` / `user_roles` / `import_histories`のみを列挙しており、Question Context側のテーブル名（②「3. Bounded Context」で総問題数の集計依存先として言及されている）が明記されていない。アーキテクチャ規約「5. Bounded Context構成」の上位ドメイン`Learning`（問題・復習テスト等）を参照し、一般的な命名から`questions`と判断したが、これは推測であり、Learning Context側の②/③文書で正式なテーブル名を確認する必要がある。
+**②からの補足**: 総問題数の集計対象テーブルを`questions`と推測した。②「20. DB設計方針」は`users` / `user_roles` / `import_histories`のみを列挙しており、Question Context側のテーブル名（②「3. Bounded Context」で総問題数の集計依存先として言及されている）が明記されていない。アーキテクチャ規約「4. Bounded Context構成」の上位ドメイン`Learning`（問題・復習テスト等）を参照し、一般的な命名から`questions`と判断したが、これは推測であり、Learning Context側の②/③文書で正式なテーブル名を確認する必要がある。
 
 ### `ImportHistoryReader`実装（question-import Context連携、`infrastructure/import_history_reader.go`）
 
-`import_histories`テーブルはquestion-import Context（管理者問題インポート機能・管理者インポート履歴管理機能）が所有するため、本Contextでは対応するGORMモデル・クエリ関数を定義しない。「4. Application層設計」で定義した`ImportHistoryReader` Interfaceの実装は、question-import Contextが公開する`SearchImportHistoriesUseCase`（管理者インポート履歴管理機能_Go実装仕様書「4. Application層設計」。管理者問題インポート機能_Go実装仕様書が定義した`ImportHistoryRepository`を内部で利用するUseCase）を呼び出すアダプタとする。
+`import_histories`テーブルはquestion-import Context（管理者問題インポート機能・管理者インポート履歴管理機能）が所有するため、本Contextでは対応するGORMモデル・クエリ関数を定義しない。「6. Application層設計」で定義した`ImportHistoryReader` Interfaceの実装は、question-import Contextが公開する`SearchImportHistoriesUseCase`（管理者インポート履歴管理機能_Go実装仕様書「6. Application層設計」。管理者問題インポート機能_Go実装仕様書が定義した`ImportHistoryRepository`を内部で利用するUseCase）を呼び出すアダプタとする。
 
 - 実装struct名: 非公開struct（例: `importHistoryReader`）+ コンストラクタ`NewImportHistoryReader(searchUseCase *questionimport.SearchImportHistoriesUseCase) application.ImportHistoryReader`
 - `FindRecent(ctx, limit)`: `searchUseCase.Execute(ctx, dto.RawSearchImportHistoriesParams{Sort: "created_at", Order: "desc", Page: 1, PerPage: limit})`を呼び出し（`UnitID`等の絞り込みは指定せずシステム全体を対象とする）、戻り値`dto.SearchImportHistoriesResult.Items`（`[]ImportHistoryListItem`、`ID`/`FileName`/`Status`/`TotalCount`/`SuccessCount`/`ErrorCount`/`CreatedAt`を保持）を本Contextの`ImportHistorySummary`へ変換する
@@ -164,7 +219,7 @@ internal/admin_dashboard/presentation/routes.go
 
 ---
 
-# 6. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
@@ -184,7 +239,7 @@ internal/admin_dashboard/presentation/routes.go
 2. リクエストパラメータの入力バインド・Validationは行わない（②「15. Validation設計」の通りパラメータが存在しないため）
 3. `application.GetDashboardSummary(ctx, db, h.importReader)`を呼び出す
 4. 取得した`application.DashboardSummary`を`DashboardResponse`へ変換する
-5. エラー発生時は「11. Error実装方針」の対応表に従いHTTPレスポンスへ変換する
+5. エラー発生時は「14. Error実装方針」の対応表に従いHTTPレスポンスへ変換する
 6. 正常時は200 OKで`DashboardResponse`をJSONとして返す
 
 **②からの補足**: Transaction Script採用のためUseCase層を経由しない。②「16. Authorization設計」の「UseCase」節（「特別なスコープ限定は行わない」）に相当する手順は、Handlerが`application.GetDashboardSummary`を追加の絞り込み条件なしで呼び出す、という処理順序の中で表現した。
@@ -213,7 +268,7 @@ internal/admin_dashboard/presentation/routes.go
 
 ---
 
-# 7. API仕様
+# 10. API仕様
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
@@ -231,7 +286,7 @@ internal/admin_dashboard/presentation/routes.go
 
 ---
 
-# 8. Transaction実装方針
+# 11. Transaction実装方針
 
 ②「14. Transaction設計」の通り、Transaction開始位置・終了位置ともに「使用しない」「該当なし」である。
 
@@ -241,7 +296,7 @@ internal/admin_dashboard/presentation/routes.go
 
 ---
 
-# 9. Validation実装方針
+# 12. Validation実装方針
 
 ## Presentation
 
@@ -256,7 +311,7 @@ Transaction Script採用時のため、`application/get_dashboard_summary.go`内
 
 ---
 
-# 10. Authorization実装方針
+# 13. Authorization実装方針
 
 ## Middleware
 
@@ -280,13 +335,13 @@ Transaction Script採用時のため、`application/get_dashboard_summary.go`内
 
 ---
 
-# 11. Error実装方針
+# 14. Error実装方針
 
 ## Domain Error → Application Errorへの変換方針
 
 ②「17. Error設計」の通り、本機能は読み取り専用であるためDomain Errorは実質的に発生しない。Application Errorのみを中心としたシンプルな構成とする。
 
-- `application`パッケージ内に、infrastructure呼び出し単位で以下のsentinel errorを定義し、infrastructure層のエラーを`fmt.Errorf("...: %w", err)`でラップする方針とする（コーディング規約「6. エラーハンドリング」の`%w`ラップ方針に準拠）
+- `application`パッケージ内に、infrastructure呼び出し単位で以下のsentinel errorを定義し、infrastructure層のエラーを`fmt.Errorf("...: %w", err)`でラップする方針とする（コーディング規約「18. エラーハンドリング」の`%w`ラップ方針に準拠）
   - `ErrCountUsersByRoleFailed`
   - `ErrCountTotalQuestionsFailed`
   - `ErrFetchRecentImportHistoriesFailed`
@@ -304,11 +359,11 @@ Transaction Script採用時のため、`application/get_dashboard_summary.go`内
 |Application Error（`ErrCountUsersByRoleFailed`等）|Application（`GetDashboardSummary`）|500|
 |Infrastructure Error（DB接続失敗等）|Infrastructure（各クエリ関数）|500（Application Errorにラップされた上で変換）|
 
-**②からの補足**: sentinel errorの具体的な変数名・エラーメッセージ文言、および3つに分割する粒度は②に記載がないため実装のために補った。Domain Errorに相当する層はTransaction Script構造のため設けない（アーキテクチャ規約「8. 横断的関心事の置き場所」のError変換方針に基づく）。
+**②からの補足**: sentinel errorの具体的な変数名・エラーメッセージ文言、および3つに分割する粒度は②に記載がないため実装のために補った。Domain Errorに相当する層はTransaction Script構造のため設けない（アーキテクチャ規約「7. 横断的関心事の置き場所」のError変換方針に基づく）。
 
 ---
 
-# 12. GORM / DBクエリ設計
+# 15. GORM / DBクエリ設計
 
 ②「20. DB設計方針」の通り、既存Rails DBを継続利用し、Schema変更は行わない。
 
@@ -317,9 +372,9 @@ Transaction Script採用時のため、`application/get_dashboard_summary.go`内
 |GORMモデル/構造体|テーブル|備考|
 |-|-|-|
 |`UserRoleCounts`|`users` / `user_roles`|ロール別件数の集計結果を保持する非永続構造体|
-|（総問題数集計）|`questions`（②に明記なく推測。詳細は「5. Infrastructure層設計」の補足参照）|専用モデルは設けず、件数のみを返す|
+|（総問題数集計）|`questions`（②に明記なく推測。詳細は「8. Infrastructure層設計」の補足参照）|専用モデルは設けず、件数のみを返す|
 
-`import_histories`に対応するGORMモデルは本Contextでは定義しない。直近インポート履歴は`ImportHistoryReader`経由でquestion-import Contextの`SearchImportHistoriesUseCase`から取得する（「5. Infrastructure層設計」参照）。
+`import_histories`に対応するGORMモデルは本Contextでは定義しない。直近インポート履歴は`ImportHistoryReader`経由でquestion-import Contextの`SearchImportHistoriesUseCase`から取得する（「8. Infrastructure層設計」参照）。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -335,7 +390,7 @@ SQL文そのものはここに記載しない。GORMのメソッドチェーン�
 
 ---
 
-# 13. テストケース設計
+# 16. テストケース設計
 
 ②「22. テスト戦略」を、Transaction Script読み替えルール（「Domain Test」「Repository Test」は対象外、「UseCase Test」→「Application関数 Test」）に従って具体化する。
 
@@ -380,20 +435,20 @@ SQL文そのものはここに記載しない。GORMのメソッドチェーン�
 
 ---
 
-# 14. ②からの補足事項
+# 17. ②からの補足事項
 
 ②に明記がなく、実装のために追加で判断した内容を以下に記載する。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|`internal/`配下のディレクトリ名を`internal/admin_dashboard`とした|②のContext名`admin-dashboard`とディレクトリ名の対応関係が②に明記がないため、アーキテクチャ規約「9. 命名規約」の変換ルール（kebab-case→スネークケース）に基づき判断した|規約適用による決定（推測ではない）|
+|`internal/`配下のディレクトリ名を`internal/admindashboard`とした|②のContext名`admin-dashboard`とディレクトリ名の対応関係が②に明記がないため、アーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」の変換ルール（kebab-case→スネークケース）に基づき判断した|規約適用による決定（推測ではない）|
 |infrastructure層を`user_query.go` / `question_query.go`（本Context内でSQLを発行）と`import_history_reader.go`（question-import Context呼び出しのアダプタ）に分割した|②「11. Repository設計」（UserRepository / QuestionRepository / ImportHistoryRepository）および②「12. UseCase設計」の「呼び出す関数」の記載に直接対応する構成である。ImportHistoryRepository相当分は、質問インポート機能側③文書の確定に伴いquestion-import Context呼び出しへ置き換えたため、他の2つとファイルの性質（本Context所有のクエリか、他Context呼び出しのアダプタか）が異なる|②記載事項からの導出（推測ではない）|
 |`DashboardSummary` / `ImportHistorySummary`（application DTO）、`UserRoleCounts`（infrastructure構造体）のフィールド構成|②「19. API仕様」のResponse項目（stats/recent_importsの各フィールド）から導出した。`ImportHistorySummary.ID`はquestion-import Context側のImportHistory Entity識別子型（`string`）に合わせた|規約・②記載事項からの導出（推測ではない）|
-|総問題数の集計対象テーブルを`questions`と推測した|②「20. DB設計方針」は`users` / `user_roles` / `import_histories`のみを列挙しており、②「3. Bounded Context」で言及されているQuestion Context側のテーブル名が明記されていないため、アーキテクチャ規約「5. Bounded Context構成」の上位ドメイン`Learning`を参照し一般的な命名として補った|推測。Learning Context側の②/③文書で正式なテーブル名の確認が必要|
+|総問題数の集計対象テーブルを`questions`と推測した|②「20. DB設計方針」は`users` / `user_roles` / `import_histories`のみを列挙しており、②「3. Bounded Context」で言及されているQuestion Context側のテーブル名が明記されていないため、アーキテクチャ規約「4. Bounded Context構成」の上位ドメイン`Learning`を参照し一般的な命名として補った|推測。Learning Context側の②/③文書で正式なテーブル名の確認が必要|
 |`users` / `user_roles`の具体的な結合方法（ロールが別テーブルか1カラムか、1ユーザーが複数ロールを持てるか）|②「20. DB設計方針」はテーブル名のみを列挙しており、集計を実現する具体的な結合・グルーピング方法までは明記がないため、実装時にスキーマを確認する前提の暫定方針として補った|推測|
 |User Context（ユーザー種別ごとの人数）・Question Context（総問題数）の公開参照関数を経由せず、admin_dashboard機能のinfrastructure層で対象テーブルへ直接クエリする構成とした|両Context自体の③実装仕様書は本タスクでは作成されておらず（User Contextは②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が公開参照操作を定めているが、その③は未作成）、公開インターフェースの詳細が確認できないため、アーキテクチャ規約「5. Context間連携ルール」を踏まえた暫定的な実装方針として`CountUsersByRole` / `CountTotalQuestions`を維持した。一方、Import Context（question-import）については、本タスクで並行して確定した管理者問題インポート機能_Go実装仕様書・管理者インポート履歴管理機能_Go実装仕様書が`SearchImportHistoriesUseCase`を公開しているため、`ImportHistoryReader` Interface（本Contextで定義）+ DI配線によるアダプタ経由の呼び出しに置き換え、対象テーブルへの直接クエリを解消した|User/Question部分は推測。各Context側の実装仕様確認後に見直しの余地あり。Import部分は②が既に想定している依存を具体的な関数呼び出しへ落とし込んだものであり、推測ではない|
 |直近インポート履歴の上限件数5件を`application`パッケージ内の定数（例：`MaxRecentImports`）として定義する方針|②「11. Repository設計」に明記された上限件数「5」を、実装上は定数化することで業務ルール変更時の影響範囲を限定する（②「2. 設計方針」の保守性方針）ために補った|推測（定数化そのものは②の数値に基づく実装判断）|
 |`ImportHistoryReader` Interfaceを本Context（admin_dashboard）側で定義し、question-import Context側の`SearchImportHistoriesUseCase`実装をDI配線で注入する構成とした|コーディング規約「7. インターフェース」の「インターフェースは利用するパッケージ側で定義する」、およびアーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する参照手段を呼び出す」方針に従った|②からの補足（③間の整合を取るための具体化であり、新しい業務ルールの追加ではない）|
-|Application Errorのsentinel error名（`ErrCountUsersByRoleFailed`等3種）・エラーメッセージ文言|②「17. Error設計」はApplication Errorの責務のみを定義しており、具体的な変数名・文言、3分割の粒度は記載がないため、コーディング規約「6. エラーハンドリング」に沿って補った|推測|
+|Application Errorのsentinel error名（`ErrCountUsersByRoleFailed`等3種）・エラーメッセージ文言|②「17. Error設計」はApplication Errorの責務のみを定義しており、具体的な変数名・文言、3分割の粒度は記載がないため、コーディング規約「18. エラーハンドリング」に沿って補った|推測|
 |Handler構成（`AdminDashboardHandler`が`*gorm.DB`を保持し、application関数へ渡す）・ルート登録関数の形|②にPresentation層の実装レベルの構成記載がないため、Ginを前提とした一般的な構成として補った|推測|
 |401/403のHTTP Status Code対応|②「16. Authorization設計」のMiddleware節（認証確認・adminロール確認）に対応する具体的なStatus Codeの明記がないため、一般的なHTTP認可エラーの慣例として補った|推測|

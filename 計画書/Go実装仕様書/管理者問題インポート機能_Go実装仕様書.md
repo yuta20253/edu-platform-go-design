@@ -34,19 +34,23 @@ Transaction Script（ルールが散在し保守性が低下する）、Active R
 
 # 2. ディレクトリ構成
 
-- 対象 Bounded Context名: `question-import`（`internal/` 配下のディレクトリ名は `question_import` とする。アーキテクチャ規約「8. 命名規約」に基づき、Context名の kebab-case とディレクトリ名のスネークケースの対応をここに明記する）
+- 対象 Bounded Context名: `question-import`
+- ディレクトリ名・package名: アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名から`-`を取り除いて連結した全小文字の名前とし、短縮・省略はしない。したがって`internal/questionimport/`、package名は同じ`questionimport`となる。同規約は`internal/questionimport/`のようにアンダースコアで区切ることを禁じている（package名にアンダースコアを使わないため、ディレクトリ名とpackage名が一致しなくなる）
 - ②で採用した設計パターン: Domain Model
 - アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Domain Model 構造（標準フルレイヤー構成）をそのまま適用する
-- 本機能で `specification/`・`mail/`・`cache/` は対象外とする（②に該当する業務ルールの記載がないため。理由は本書「5. Infrastructure層設計」に後述）
+- 本機能で `specification/`・`mail/`・`cache/` は対象外とする（②に該当する業務ルールの記載がないため。理由は本書「8. Infrastructure層設計」に後述）
+- Contextディレクトリ直下には`context.go`と`dependency.go`のみを置き、他は`domain/`等のサブディレクトリに配置する（同規約「4. Bounded Context構成」の「ディレクトリ構成」）。Repository実装とGORMモデルは`infrastructure/gormrepo/`、`dependency.go`のインターフェースの実装は`infrastructure/contextadapter/`に置く（同章。`gormrepo/`に混在させない）
 
 ## 作成するディレクトリ一覧
 
 ```
-internal/question_import/
+internal/questionimport/
+├── context.go                     # NewContext（依存関係の組み立て）
+├── dependency.go                  # 他Contextへの依存を宣言するインターフェース
 ├── domain/
 │   ├── entity/
 │   ├── valueobject/
-│   ├── repository/
+│   ├── repository/                # 本Contextが所有するデータのRepository Interface
 │   ├── service/
 │   ├── event/
 │   └── errors/
@@ -54,9 +58,8 @@ internal/question_import/
 │   ├── dto/
 │   └── usecase/
 ├── infrastructure/
-│   ├── persistence/
-│   │   └── gorm/
-│   ├── repository/
+│   ├── gormrepo/                  # Repository実装・GORMモデル
+│   ├── contextadapter/            # dependency.goのインターフェースの実装
 │   └── queue/
 └── presentation/
     ├── handler/
@@ -68,45 +71,44 @@ internal/question_import/
 ## 作成するファイル一覧
 
 ```
-internal/question_import/domain/entity/import_history.go
-internal/question_import/domain/entity/import_error.go
-internal/question_import/domain/valueobject/import_mode.go
-internal/question_import/domain/valueobject/import_status.go
-internal/question_import/domain/valueobject/import_row_result.go
-internal/question_import/domain/repository/import_history_repository.go
-internal/question_import/domain/repository/import_error_repository.go
-internal/question_import/domain/repository/course_repository.go
-internal/question_import/domain/repository/unit_repository.go
-internal/question_import/domain/repository/question_repository.go
-internal/question_import/domain/service/question_csv_row_validator.go
-internal/question_import/domain/service/question_import_policy.go
-internal/question_import/domain/service/import_result_aggregation_policy.go
-internal/question_import/domain/event/question_import_requested.go
-internal/question_import/domain/errors/errors.go
-internal/question_import/application/dto/start_question_import.go
-internal/question_import/application/dto/execute_question_import.go
-internal/question_import/application/dto/validate_question_import.go
-internal/question_import/application/dto/download_question_csv_template.go
-internal/question_import/application/usecase/start_question_import_usecase.go
-internal/question_import/application/usecase/execute_question_import_usecase.go
-internal/question_import/application/usecase/validate_question_import_usecase.go
-internal/question_import/application/usecase/download_question_csv_template_usecase.go
-internal/question_import/infrastructure/persistence/gorm/import_history_model.go
-internal/question_import/infrastructure/persistence/gorm/import_error_model.go
-internal/question_import/infrastructure/repository/import_history_repository.go
-internal/question_import/infrastructure/repository/import_error_repository.go
-internal/question_import/infrastructure/repository/course_repository.go
-internal/question_import/infrastructure/repository/unit_repository.go
-internal/question_import/infrastructure/queue/question_import_job_handler.go
-internal/question_import/presentation/handler/question_import_handler.go
-internal/question_import/presentation/request/start_question_import_request.go
-internal/question_import/presentation/request/validate_question_import_request.go
-internal/question_import/presentation/response/start_question_import_response.go
-internal/question_import/presentation/response/validate_question_import_response.go
-internal/question_import/presentation/routes.go
+internal/questionimport/context.go
+internal/questionimport/dependency.go
+
+internal/questionimport/domain/entity/import_history.go
+internal/questionimport/domain/entity/import_error.go
+internal/questionimport/domain/valueobject/import_mode.go
+internal/questionimport/domain/valueobject/import_status.go
+internal/questionimport/domain/valueobject/import_row_result.go
+internal/questionimport/domain/repository/import_history_repository.go
+internal/questionimport/domain/repository/import_error_repository.go
+internal/questionimport/domain/service/question_csv_row_validator.go
+internal/questionimport/domain/service/question_import_policy.go
+internal/questionimport/domain/service/import_result_aggregation_policy.go
+internal/questionimport/domain/event/question_import_requested.go
+internal/questionimport/domain/errors/errors.go
+internal/questionimport/application/dto/start_question_import.go
+internal/questionimport/application/dto/execute_question_import.go
+internal/questionimport/application/dto/validate_question_import.go
+internal/questionimport/application/dto/download_question_csv_template.go
+internal/questionimport/application/usecase/start_question_import_usecase.go
+internal/questionimport/application/usecase/execute_question_import_usecase.go
+internal/questionimport/application/usecase/validate_question_import_usecase.go
+internal/questionimport/application/usecase/download_question_csv_template_usecase.go
+internal/questionimport/infrastructure/gormrepo/import_history_model.go
+internal/questionimport/infrastructure/gormrepo/import_error_model.go
+internal/questionimport/infrastructure/gormrepo/import_history_repository.go
+internal/questionimport/infrastructure/gormrepo/import_error_repository.go
+internal/questionimport/infrastructure/contextadapter/curriculum_directory.go
+internal/questionimport/infrastructure/queue/question_import_job_handler.go
+internal/questionimport/presentation/handler/question_import_handler.go
+internal/questionimport/presentation/request/start_question_import_request.go
+internal/questionimport/presentation/request/validate_question_import_request.go
+internal/questionimport/presentation/response/start_question_import_response.go
+internal/questionimport/presentation/response/validate_question_import_response.go
+internal/questionimport/presentation/routes.go
 ```
 
-**②からの補足**: QuestionRepository の実装（Question Context が提供するもの）は question-import Context の外側にあるため、本書では Interface 定義のみを `domain/repository/question_repository.go` に置き、実装ファイルは一覧に含めない。実装は Question Context 側の③文書のスコープとする。CSVテンプレートのダウンロード（`DownloadQuestionCsvTemplateUseCase`）はDBアクセスを伴わない静的処理のため、対応するInfrastructure層のファイルは作成しない（②「12. UseCase設計」の「呼び出すRepository: なし」に対応）。非同期実行の基盤ファイルは、旧版の `question_import_event_publisher.go` / `question_import_worker.go` という独自実装から、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」の標準実装（`JobPublisher` Interfaceと`jobs`テーブルポーリングワーカー）へ置き換え、本Context固有で保持するのは`infrastructure/queue/question_import_job_handler.go`（`jobs`テーブルのポーリングワーカーへ登録するジョブハンドラ本体）のみとする。`JobPublisher` Interface・`jobs`テーブルGORMモデル・ポーリングワーカー本体は同規約が定める共通基盤であり、本Context固有のファイルとしては作成しない。
+**②からの補足**: コース・単元・問題は`curriculum`が所有するため、本Contextからクエリを発行しない（規約「5. Context間連携ルール」）。これらを参照・更新するためのインターフェースは`dependency.go`に`CurriculumDirectory`として宣言し、実装は`infrastructure/contextadapter/`に置く。`domain/repository/`には本Contextが所有する`import_histories`・`import_errors`のRepository Interfaceのみを置く（規約「4. Bounded Context構成」）。相手Contextが公開する操作のシグネチャはコース参照機能③で確定する。CSVテンプレートのダウンロード（`DownloadQuestionCsvTemplateUseCase`）はDBアクセスを伴わない静的処理のため、対応するInfrastructure層のファイルは作成しない（②「12. UseCase設計」の「呼び出すRepository: なし」に対応）。非同期実行の基盤ファイルは、旧版の `question_import_event_publisher.go` / `question_import_worker.go` という独自実装から、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」の標準実装（`JobPublisher` Interfaceと`jobs`テーブルポーリングワーカー）へ置き換え、本Context固有で保持するのは`infrastructure/queue/question_import_job_handler.go`（`jobs`テーブルのポーリングワーカーへ登録するジョブハンドラ本体）のみとする。`JobPublisher` Interface・`jobs`テーブルGORMモデル・ポーリングワーカー本体は同規約が定める共通基盤であり、本Context固有のファイルとしては作成しない。
 
 ---
 
@@ -125,7 +127,7 @@ internal/question_import/presentation/routes.go
   - `mode`: `valueobject.ImportMode`
   - `status`: `valueobject.ImportStatus`
   - `fileName`: `string`
-  - `fileReference`: `string`（ファイル保存先を表す情報。②「20. DB設計方針」で追加が提案されているカラムに対応。詳細は本書「12. GORM/DBクエリ設計」参照）
+  - `fileReference`: `string`（ファイル保存先を表す情報。②「20. DB設計方針」で追加が提案されているカラムに対応。詳細は本書「15. GORM / DBクエリ設計」参照）
   - `totalCount`: `int`
   - `successCount`: `int`
   - `errorCount`: `int`
@@ -158,7 +160,7 @@ internal/question_import/presentation/routes.go
 
 ### Question / QuestionChoice / QuestionHint / QuestionExplanation（外部参照）
 
-- ②「6. Entity設計」のとおり、question-import Context の Aggregate には含めない。QuestionRepository Interface（本書「3. Repository Interface」参照）を通じて「作成・更新を依頼する対象」として扱う
+- ②「6. Entity設計」のとおり、question-import Context の Aggregate には含めない。QuestionRepository Interface（本書「3. Domain層設計」の「Repository Interface」参照）を通じて「作成・更新を依頼する対象」として扱う
 - 具体的な struct定義・フィールドは Question Context の②文書がまだ存在しないため（②「11. Repository設計」の QuestionRepository の記載を参照）、本書では定義しない。**②からの補足**: これは①未提供のためではなく、Question Context 自体の②文書が存在しないことに起因する
 
 ## Value Object
@@ -176,7 +178,7 @@ internal/question_import/presentation/routes.go
 - 保持するフィールドと型: `value string`
 - 生成時に検証するルール:
   - `NewProcessingStatus() ImportStatus`: 常に processing 状態を返す
-  - 終了状態（成功／一部失敗／失敗）は `ImportResultAggregationPolicy`（本書「3. Domain Service」参照）の出力からのみ生成される
+  - 終了状態（成功／一部失敗／失敗）は `ImportResultAggregationPolicy`（本書「3. Domain層設計」の「Domain Service」参照）の出力からのみ生成される
 - 公開する method 一覧: `IsTerminal() bool` / `IsProcessing() bool` / `String() string`
 
 **②からの補足**: ②「6. Entity設計」では終了状態を「成功／一部失敗／失敗」と業務要件から推測した区分として記載しており、正式な英語表現・内部値までは定義していない。本書では実装のため `StatusProcessing` / `StatusSuccess` / `StatusPartialFailure` / `StatusFailure` という値を仮に置く。これは②に根拠のない値の具体化であり「推測」である。
@@ -267,7 +269,7 @@ internal/question_import/presentation/routes.go
 - イベントstruct名: `QuestionImportRequested`
 - 保持するフィールド: `ImportHistoryID string` / `CourseID string` / `UnitID string` / `UserID string` / `OccurredAt time.Time`
 - 発火元: `StartQuestionImportUseCase`（ImportHistoryがprocessing状態で作成された直後。②「18. Domain Event」の記載どおり）
-- 実行基盤: 本イベントの実際の非同期ディスパッチは、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」が定める`JobPublisher`（Application層）+ `jobs`テーブル（Infrastructure層）+ ポーリングワーカーの標準実装を用いる。`QuestionImportRequested`のフィールドは、`JobPublisher.Publish`に渡すjobペイロード（JSON化される）の内容として使用する。詳細は本書「5. Infrastructure層設計」「8. Transaction実装方針」参照
+- 実行基盤: 本イベントの実際の非同期ディスパッチは、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」が定める`JobPublisher`（Application層）+ `jobs`テーブル（Infrastructure層）+ ポーリングワーカーの標準実装を用いる。`QuestionImportRequested`のフィールドは、`JobPublisher.Publish`に渡すjobペイロード（JSON化される）の内容として使用する。詳細は本書「8. Infrastructure層設計」「11. Transaction実装方針」参照
 
 ## Domain Error
 
@@ -281,7 +283,94 @@ internal/question_import/presentation/routes.go
 
 ---
 
-# 4. Application層設計
+# 4. クラス図
+
+②「9. クラス図」で整理したEntity・Value Object・Repository Interfaceの関係を、本書「3. Domain層設計」で定義した単位で示す。
+
+```mermaid
+classDiagram
+    class ImportHistory {
+        <<Entity / AggregateRoot>>
+        +ID
+        +CourseID
+        +UnitID
+        +UserID
+        +ImportMode Mode
+        +ImportStatus Status
+        +FileName
+        +FileReference
+        +TotalCount
+        +SuccessCount
+        +ErrorCount
+        +StartedAt
+        +CompletedAt
+        +Start()
+        +Complete()
+        +Fail()
+    }
+    class ImportError {
+        <<Entity>>
+        +ID
+        +RowNumber
+        +Message
+    }
+    class ImportStatus {
+        <<ValueObject>>
+    }
+    class ImportMode {
+        <<ValueObject>>
+    }
+    class ImportHistoryRepository {
+        <<RepositoryInterface>>
+    }
+    class ImportErrorRepository {
+        <<RepositoryInterface>>
+    }
+    class QuestionImportRowPolicy {
+        <<DomainService>>
+    }
+
+    ImportHistory "1" *-- "many" ImportError : 従属（Aggregate内）
+    ImportHistory --> ImportStatus : 保持
+    ImportHistory --> ImportMode : 保持
+    ImportHistoryRepository ..> ImportHistory : 永続化・取得
+    ImportErrorRepository ..> ImportError : 永続化
+    QuestionImportRowPolicy ..> ImportHistory : 行の取り込み可否を判定
+```
+
+Aggregate境界は`ImportHistory`を根とし、`ImportError`を含む（②「5. Aggregate設計」）。問題・選択肢・解説・ヒントは`curriculum`が所有するため、本Contextの図には含めない。これらへの書き込みは同Contextが公開する操作を通じて行う（「8. Infrastructure層設計」）。
+
+Goのstruct定義（フィールドの可視性・タグ）は「3. Domain層設計」に記載する。
+
+---
+
+# 5. 状態遷移図
+
+②「10. 状態遷移図」および①「7. 状態管理」の状態と遷移条件を示す。
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending : レコードの既定値
+    pending --> processing : 取り込みの開始
+    processing --> completed : 全行の取り込みが成功
+    processing --> failed : 1行でもエラー、または例外
+    completed --> [*]
+    failed --> [*]
+```
+
+|遷移|条件|記録される項目|
+|-|-|-|
+|`pending` → `processing`|取り込みの開始|開始日時|
+|`processing` → `completed`|全行の取り込みが成功|終了日時・総件数・成功件数|
+|`processing` → `failed`|1行でもエラーがある、または処理中に例外が発生|終了日時・エラー件数、`import_errors`の各行|
+
+`completed`・`failed`から先の遷移はない。再実行は新しい履歴として扱う。
+
+**インポートの受付は`processing`でレコードを作成するため、`pending`は既定値として存在するのみで通常の経路では経由しない**（①「7. 状態管理」）。状態の判定と遷移は`ImportStatus`（Value Object）と`ImportHistory`のメソッドに閉じ込め、UseCaseが文字列で分岐しない（「3. Domain層設計」）。
+
+---
+
+# 6. Application層設計
 
 ## DTO（Command / Query）
 
@@ -315,15 +404,15 @@ internal/question_import/presentation/routes.go
 ### StartQuestionImportUseCase
 
 - struct名: `StartQuestionImportUseCase`
-- コンストラクタが受け取る依存: `CourseRepository` / `UnitRepository` / `ImportHistoryRepository` / `TransactionManager`（アーキテクチャ規約「11. Transaction実装パターン」） / `JobPublisher`（アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」）
+- コンストラクタが受け取る依存: `CourseRepository` / `UnitRepository` / `ImportHistoryRepository` / `TransactionManager`（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」） / `JobPublisher`（アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」）
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, cmd dto.StartQuestionImportCommand) (dto.StartQuestionImportResult, error)`
 - 処理ステップ（呼び出し順序）:
   1. `CourseRepository.Exists` で course_id の存在を確認する
   2. `UnitRepository.FindActiveUnitInCourse` で course_id 配下に unit_id が存在し active であることを確認する（②「16. Authorization設計」の IDOR対策に対応）
   3. `valueobject.NewImportMode(cmd.RawMode)` でモードを正規化する
-  4. ファイルの保存（ファイル参照情報の生成。保存先の実装詳細は本書「5. Infrastructure層設計」参照）
+  4. ファイルの保存（ファイル参照情報の生成。保存先の実装詳細は本書「8. Infrastructure層設計」参照）
   5. `entity.NewImportHistory(...)` で processing 状態のEntityを生成する
-  6. `TransactionManager.WithinTransaction`のクロージャ内で、`ImportHistoryRepository.Create`による永続化と、`JobPublisher.Publish(ctx, "question_import", payload, time.Now())`によるジョブ登録を同一トランザクションで実行する（アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」のTransactional Outboxパターン。詳細は本書「8. Transaction実装方針」）
+  6. `TransactionManager.WithinTransaction`のクロージャ内で、`ImportHistoryRepository.Create`による永続化と、`JobPublisher.Publish(ctx, "question_import", payload, time.Now())`によるジョブ登録を同一トランザクションで実行する（アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」のTransactional Outboxパターン。詳細は本書「11. Transaction実装方針」）
   7. `dto.StartQuestionImportResult` に変換して返す
 - トランザクション境界: ②「14. Transaction設計」の「ImportHistoryの作成（processing状態）とファイル情報の保存を1トランザクションで実施する」を実装単位に落とし込み、ステップ1〜3を事前確認としてトランザクション外で実行し、ステップ6（ImportHistory作成 + ジョブ登録）を1トランザクションとする
 - 発生しうる Application Error: `ErrCourseNotFound` / `ErrUnitNotFound` / `ErrUnitNotActive` / `ErrInvalidFileFormat`
@@ -340,7 +429,7 @@ internal/question_import/presentation/routes.go
   2. 対象ファイルを読み込み、CSV行に分解する（パース処理の詳細は①未提供のため参照不可）
   3. 各行について `QuestionCsvRowValidator.Validate` で形式検証を行う
   4. 検証に合格した行のみ、`QuestionImportPolicy.Decide` でアクション（新規作成/更新）を判定する
-  5. 判定結果に応じて `QuestionRepository.Create` または `QuestionRepository.Update` を呼び出す（行またはバッチ単位でトランザクション化。詳細は本書「8. Transaction実装方針」）
+  5. 判定結果に応じて `QuestionRepository.Create` または `QuestionRepository.Update` を呼び出す（行またはバッチ単位でトランザクション化。詳細は本書「11. Transaction実装方針」）
   6. 各行の結果を `valueobject.ImportRowResult` として収集する（検証不合格の行は`ErrInvalidCSVRow`起因の失敗結果として収集する）
   7. 全行処理後、`ImportResultAggregationPolicy.Aggregate` で最終状態とカウントを決定する
   8. `ImportHistory.Complete(...)` で Entity を終了状態へ遷移させる
@@ -366,7 +455,7 @@ internal/question_import/presentation/routes.go
   6. 検証不合格の行を`InvalidRowResult`（row_number・message）に変換する。上限件数を超えた分は`Rows`に含めず、`TotalCount`/`ValidCount`の集計のみへ反映する（②「12. UseCase設計」の記載どおり）
   7. `dto.ValidateQuestionImportResult`として返す。ImportHistory・Question等いかなるデータも作成・更新しない
 - トランザクション境界: 使用しない（②「14. Transaction設計」の「事前検証（ValidateQuestionImportUseCase）はデータ変更を一切行わないため、そもそもトランザクションの対象にならない」に対応）
-- 発生しうる Application Error: `ErrCourseNotFound` / `ErrUnitNotFound` / `ErrUnitNotActive` / `ErrInvalidFileFormat`（CSVヘッダー不正等、行単位ではなくファイル全体の構造不正はDomain Errorとして扱い、Application Errorへ変換する。詳細は本書「11. Error実装方針」）
+- 発生しうる Application Error: `ErrCourseNotFound` / `ErrUnitNotFound` / `ErrUnitNotActive` / `ErrInvalidFileFormat`（CSVヘッダー不正等、行単位ではなくファイル全体の構造不正はDomain Errorとして扱い、Application Errorへ変換する。詳細は本書「14. Error実装方針」）
 
 ### DownloadQuestionCsvTemplateUseCase（CSVテンプレート配布）
 
@@ -381,16 +470,76 @@ internal/question_import/presentation/routes.go
 
 ---
 
-# 5. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
+
+## シーケンス図
+
+インポートの受付と、非同期での取り込みを示す。
+
+```mermaid
+sequenceDiagram
+    participant C as 管理者（ブラウザ）
+    participant H as Handler
+    participant S as StartQuestionImportUseCase
+    participant R as ImportHistoryRepository
+    participant J as JobPublisher
+    participant W as ワーカー
+    participant E as ExecuteQuestionImportUseCase
+    participant CU as curriculum
+
+    C->>H: POST /api/v1/admin/courses/:course_id/units/:unit_id/import_questions
+    H->>H: ファイルの検証・mode の正規化
+    H->>S: 受付（単元・ファイル・mode）
+    S->>R: ImportHistory を processing で作成
+    S->>J: 取り込みジョブを登録（同一トランザクション）
+    S-->>H: 受付完了
+    H-->>C: 202 Accepted
+
+    W->>E: ジョブの実行（履歴の識別子）
+    E->>R: 履歴の取得
+    E->>E: ヘッダーの検証・行ごとの検証
+    E->>CU: 上書きモードなら既存の問題と子を論理削除
+    E->>CU: 行ごとに問題・解説・選択肢・ヒントを取り込む
+    E->>R: 成功なら completed、失敗なら failed と import_errors
+```
+
+## 処理フロー図
+
+取り込みの判断の流れを示す。
+
+```mermaid
+flowchart TD
+    A[ジョブの実行] --> B[履歴を processing にし開始日時を記録]
+    B --> C[トランザクション開始]
+    C --> D{ヘッダーが要求項目と一致するか}
+    D -- いいえ --> X[ヘッダー行のエラーとして記録]
+    D -- はい --> E{上書きモードか}
+    E -- はい --> F[対象単元の既存の問題と子を論理削除（解答履歴は残す）]
+    E -- いいえ --> G[行の処理へ]
+    F --> G
+    G --> H[行ごとに検証し、問題・解説・選択肢・ヒントを取り込む]
+    H --> I{エラーが1件でもあるか}
+    I -- はい --> X
+    I -- いいえ --> J[コミットして completed]
+    X --> K[巻き戻して failed にし、エラー行を保存]
+```
+
+**全件成功か全件失敗のいずれかである。** 部分的に取り込まれた状態は残らない。エラー情報は巻き戻しのあとに保存する（①「9. 非同期処理」）。
+
+子レコードの取り込みは、一意索引のキーで論理削除済みを含めて引き当て、内容を更新して論理削除を解除する形である（①「6. データモデル」の一意索引、「8. Infrastructure層設計」）。
+
+---
+
+# 8. Infrastructure層設計
 
 ## Repository実装
 
 ### ImportHistoryRepository実装
 
-- 実装struct名: `ImportHistoryRepository`（package `gormrepo`。アーキテクチャ規約「8. 命名規約」に従い `〇〇RepositoryImpl` のような接尾辞は付けない）
+- 実装struct名: `ImportHistoryRepository`（package `gormrepo`。アーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」に従い `〇〇RepositoryImpl` のような接尾辞は付けない）
 - 対応するGORMモデル: `gormmodel.ImportHistoryModel`（テーブル `import_histories`）
 - 各メソッドで発行するクエリ内容:
-  - `Create`: `import_histories` への1件INSERT。`TransactionManager`経由でトランザクション用の`*gorm.DB`を取得して実行する（アーキテクチャ規約「11. Transaction実装パターン」の`dbFromContext`）
+  - `Create`: `import_histories` への1件INSERT。`TransactionManager`経由でトランザクション用の`*gorm.DB`を取得して実行する（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の`dbFromContext`）
   - `Update`: id指定でstatus・success_count・error_count・total_count・completed_atを更新するUPDATE
   - `FindByID`: idの一致条件によるSELECT（1件）
   - `FindRecentByUserID`: user_idの一致条件、created_at降順ソート、limit指定によるSELECT
@@ -435,7 +584,7 @@ internal/question_import/presentation/routes.go
 
 ---
 
-# 6. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
@@ -447,13 +596,13 @@ internal/question_import/presentation/routes.go
   - `DownloadTemplate(c *gin.Context)`: `GET /api/v1/admin/csv_template/questions` に対応
 - 処理順序:
   - `StartImport`:
-    1. Middlewareで認証・adminロール確認済みであることを前提とする（本書「10. Authorization実装方針」参照）
+    1. Middlewareで認証・adminロール確認済みであることを前提とする（本書「13. Authorization実装方針」参照）
     2. route paramから `course_id` / `unit_id` を取得する
     3. multipart formから `file` / `mode` を取得し `request.StartQuestionImportRequest` にバインドする
     4. Request DTOのバリデーション（型・必須・フォーマット）を行う
     5. `StartQuestionImportUseCase.Execute` を呼び出す
     6. 成功時は `response.StartQuestionImportResponse` に変換し、202を返す
-    7. 失敗時はApplication Errorの種別に応じてHTTPステータスに変換する（本書「11. Error実装方針」参照）
+    7. 失敗時はApplication Errorの種別に応じてHTTPステータスに変換する（本書「14. Error実装方針」参照）
   - `ValidateImport`:
     1. Middlewareで認証・adminロール確認済みであることを前提とする
     2. route paramから `course_id` / `unit_id` を取得する
@@ -487,7 +636,7 @@ internal/question_import/presentation/routes.go
 - struct名: `InvalidRowResponse`
   - フィールド: `RowNumber int`（json: `row_number`）/ `Severity string`（json: `severity`）/ `Message string`（json: `message`）/ `Data map[string]string`（json: `data`。②「19. API仕様」の「rows（検証エラー行の row_number・severity・message・data）」に対応）
   - バリデーションタグ: 対象外
-  - **②からの補足**: `Severity`・`Data`フィールドは②「19. API仕様」のResponse定義に記載があるが、②「12. UseCase設計」のUseCase出力定義（本書「4. Application層設計」の`InvalidRowResult`）には含まれていない。UseCase出力（`InvalidRowResult`）とResponse DTO（`InvalidRowResponse`）の間で構成が異なる点は②内の記述の粒度差によるものであり、本書ではResponse DTO側にのみ`Severity`（固定値`"error"`を推測で補う）・`Data`（元CSV行データ。UseCase出力への追加が必要になる可能性がある）を持たせる。この差異の解消（UseCase出力側にフィールドを追加するか、Handler側で補うか）は実装時の判断に委ねる「推測」である
+  - **②からの補足**: `Severity`・`Data`フィールドは②「19. API仕様」のResponse定義に記載があるが、②「12. UseCase設計」のUseCase出力定義（本書「6. Application層設計」の`InvalidRowResult`）には含まれていない。UseCase出力（`InvalidRowResult`）とResponse DTO（`InvalidRowResponse`）の間で構成が異なる点は②内の記述の粒度差によるものであり、本書ではResponse DTO側にのみ`Severity`（固定値`"error"`を推測で補う）・`Data`（元CSV行データ。UseCase出力への追加が必要になる可能性がある）を持たせる。この差異の解消（UseCase出力側にフィールドを追加するか、Handler側で補うか）は実装時の判断に委ねる「推測」である
 
 CSVテンプレートダウンロードのResponse DTOは設けない（ファイルストリームを直接返すため。②「12. UseCase設計」参照）。
 
@@ -501,7 +650,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 
 ---
 
-# 7. API仕様
+# 10. API仕様
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
@@ -523,7 +672,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 
 ---
 
-# 8. Transaction実装方針
+# 11. Transaction実装方針
 
 ## Transaction開始箇所
 
@@ -545,7 +694,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 
 ---
 
-# 9. Validation実装方針
+# 12. Validation実装方針
 
 ## Presentation
 
@@ -576,7 +725,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 
 ---
 
-# 10. Authorization実装方針
+# 13. Authorization実装方針
 
 ## Middlewareで行う処理
 
@@ -597,7 +746,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 
 ---
 
-# 11. Error実装方針
+# 14. Error実装方針
 
 ## Domain Error → Application Errorへの変換方針
 
@@ -624,7 +773,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
 
 ---
 
-# 12. GORM / DBクエリ設計
+# 15. GORM / DBクエリ設計
 
 ## 利用するGORMモデルとテーブルの対応
 
@@ -656,7 +805,7 @@ SQL文そのものは記載しない。
 
 ---
 
-# 13. テストケース設計
+# 16. テストケース設計
 
 ②「22. テスト戦略」で採用パターンがDomain Modelであるため、区分はそのまま使用する。
 
@@ -736,13 +885,13 @@ SQL文そのものは記載しない。
 
 ---
 
-# 14. ②からの補足事項
+# 17. ②からの補足事項
 
 ②に明記がなく、実装のために追加で判断した内容は以下のとおりである。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|Context名 `question-import` に対応する `internal/` ディレクトリ名を `question_import` とした|アーキテクチャ規約「8. 命名規約」に従うための実装上の対応|推測ではない（規約に基づく機械的な変換）|
+|Context名 `question-import` に対応する `internal/` ディレクトリ名を `questionimport` とした|アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」（Context名から`-`を取り除いた連結形、短縮しない）に従う|推測ではない（規約に基づく機械的な変換）|
 |ImportStatusの終了状態の内部値を `StatusSuccess` / `StatusPartialFailure` / `StatusFailure` と具体的に命名した|②は「成功／一部失敗／失敗」という区分を業務要件からの推測として記載するに留まり、コード上の識別子までは定義していない|推測|
 |非同期実行の基盤として、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」が定める`JobPublisher` + `jobs`テーブル + ポーリングワーカーの標準実装を採用した|同規約が2026-08に制定され、旧版の本書が独自定義していた`event.Publisher`・専用ワーカーに代わる標準実装として明示的に定められたため。旧版の「具体的なメッセージング基盤の選定は本書のスコープ外とする」という記述はこの標準実装で置き換える|規約制定に伴う反映（推測ではない）|
 |`StartQuestionImportUseCase`のジョブ登録（`JobPublisher.Publish`）をImportHistory作成と同一トランザクション内で行う構成とした|アーキテクチャ規約13章のTransactional Outboxパターンに従うための実装上の対応。旧版が「推測」としていたコミット後発行の構成から変更した|規約準拠のための修正（推測ではない）|

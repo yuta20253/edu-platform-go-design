@@ -24,7 +24,7 @@ Transaction Script・Active Record（同一AggregateをDomain Modelとして扱�
 - ②「12. UseCase設計」のSearchImportHistoriesUseCase（一覧検索）、ShowImportHistoryUseCase（詳細取得）、ExportImportHistoryErrorsUseCase（CSVエクスポート）
 - ②「19. API仕様」記載の3エンドポイント
 
-**重要（Entity/Repositoryの再利用方針）**: 本機能が扱うImportHistory・ImportError Entity、およびImportHistoryRepository・ImportErrorRepository Interfaceの基本定義（struct名・フィールド・基本CRUD相当のメソッド）は、管理者問題インポート機能_Go実装仕様書「3. Domain層設計」で既に定義済みである。本書ではこれらを**再定義せず、そのまま再利用する**。本書が追加するのは、(a) 既存の`ImportHistoryRepository` interfaceへの検索系メソッドの追加、(b) 本機能固有のValue Object（`ImportHistorySearchCondition`, `CsvExportRow`）・Domain Service（`CsvInjectionGuard`）、(c) 本機能固有のUseCase・Handlerのみである。管理者問題インポート機能_Go実装仕様書「2. ディレクトリ構成」で作成済みの`internal/question_import/domain/entity/import_history.go`・`import_error.go`・`domain/repository/import_history_repository.go`・`domain/repository/import_error_repository.go`は本書でも同一ファイルとして扱い、重複するファイルを新規に作成しない。
+**重要（Entity/Repositoryの再利用方針）**: 本機能が扱うImportHistory・ImportError Entity、およびImportHistoryRepository・ImportErrorRepository Interfaceの基本定義（struct名・フィールド・基本CRUD相当のメソッド）は、管理者問題インポート機能_Go実装仕様書「3. Domain層設計」で既に定義済みである。本書ではこれらを**再定義せず、そのまま再利用する**。本書が追加するのは、(a) 既存の`ImportHistoryRepository` interfaceへの検索系メソッドの追加、(b) 本機能固有のValue Object（`ImportHistorySearchCondition`, `CsvExportRow`）・Domain Service（`CsvInjectionGuard`）、(c) 本機能固有のUseCase・Handlerのみである。管理者問題インポート機能_Go実装仕様書「2. ディレクトリ構成」で作成済みの`internal/questionimport/domain/entity/import_history.go`・`import_error.go`・`domain/repository/import_history_repository.go`・`domain/repository/import_error_repository.go`は本書でも同一ファイルとして扱い、重複するファイルを新規に作成しない。
 
 - Railsの実装詳細（①）は本タスクで提供されておらず、参照が必要な箇所は「①未提供のため参照不可」として扱う
 
@@ -34,12 +34,12 @@ Transaction Script・Active Record（同一AggregateをDomain Modelとして扱�
 
 - 対象Bounded Context名: `question-import`（`internal/` 配下のディレクトリ名は、管理者問題インポート機能_Go実装仕様書と同一の `question_import` を用いる）
 - ②で採用した設計パターン: Domain Model
-- アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Domain Model 構造（標準フルレイヤー構成）を、既存の`internal/question_import/`配下に追加する形で適用する（新規Context・新規ディレクトリツリーを作らない）
+- アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の Domain Model 構造（標準フルレイヤー構成）を、既存の`internal/questionimport/`配下に追加する形で適用する（新規Context・新規ディレクトリツリーを作らない）
 
 ## 既存ディレクトリ（管理者問題インポート機能_Go実装仕様書で作成済み、本書では変更しない）
 
 ```
-internal/question_import/
+internal/questionimport/
 ├── domain/
 │   ├── entity/            # import_history.go, import_error.go は変更しない
 │   ├── valueobject/
@@ -51,8 +51,8 @@ internal/question_import/
 │   ├── dto/
 │   └── usecase/
 ├── infrastructure/
-│   ├── persistence/gorm/
-│   ├── repository/        # import_history_repository.go は本書でメソッド実装追加
+│   ├── gormrepo/          # Repository実装・GORMモデル。import_history_repository.go は本書でメソッド実装追加
+│   ├── contextadapter/    # dependency.goのインターフェースの実装
 │   └── queue/
 └── presentation/
     ├── handler/
@@ -64,19 +64,19 @@ internal/question_import/
 ## 本書が追加するファイル一覧
 
 ```
-internal/question_import/domain/valueobject/import_history_search_condition.go
-internal/question_import/domain/valueobject/csv_export_row.go
-internal/question_import/domain/service/csv_injection_guard.go
-internal/question_import/application/dto/search_import_histories.go
-internal/question_import/application/dto/show_import_history.go
-internal/question_import/application/dto/export_import_history_errors.go
-internal/question_import/application/usecase/search_import_histories_usecase.go
-internal/question_import/application/usecase/show_import_history_usecase.go
-internal/question_import/application/usecase/export_import_history_errors_usecase.go
-internal/question_import/presentation/handler/import_history_handler.go
-internal/question_import/presentation/request/search_import_histories_request.go
-internal/question_import/presentation/response/import_history_response.go
-internal/question_import/presentation/routes.go
+internal/questionimport/domain/valueobject/import_history_search_condition.go
+internal/questionimport/domain/valueobject/csv_export_row.go
+internal/questionimport/domain/service/csv_injection_guard.go
+internal/questionimport/application/dto/search_import_histories.go
+internal/questionimport/application/dto/show_import_history.go
+internal/questionimport/application/dto/export_import_history_errors.go
+internal/questionimport/application/usecase/search_import_histories_usecase.go
+internal/questionimport/application/usecase/show_import_history_usecase.go
+internal/questionimport/application/usecase/export_import_history_errors_usecase.go
+internal/questionimport/presentation/handler/import_history_handler.go
+internal/questionimport/presentation/request/search_import_histories_request.go
+internal/questionimport/presentation/response/import_history_response.go
+internal/questionimport/presentation/routes.go
 ```
 
 `presentation/routes.go`は管理者問題インポート機能_Go実装仕様書で作成済みのファイルであり、本書ではそこへ`ImportHistoryHandler`のルート登録を追加する（新規ファイルとしては作成しない。10章参照）。
@@ -86,7 +86,7 @@ internal/question_import/presentation/routes.go
 |ファイル|追加内容|
 |-|-|
 |`domain/repository/import_history_repository.go`|`ImportHistoryRepository` interfaceへ`Search` / `FindDetailByID`メソッドを追加する（本書「3. Domain層設計」参照）|
-|`infrastructure/repository/import_history_repository.go`|上記追加メソッドの実装を追加する（本書「5. Infrastructure層設計」参照）|
+|`infrastructure/gormrepo/import_history_repository.go`|上記追加メソッドの実装を追加する（本書「8. Infrastructure層設計」参照）|
 
 `domain/repository/import_error_repository.go`（`ImportErrorRepository`）は、管理者問題インポート機能_Go実装仕様書が既に定義した`FindByImportHistoryID`メソッドをそのまま利用し、変更を加えない（②「11. Repository設計」の「ImportErrorRepository（拡張部分）: ImportHistory IDによるエラー一覧取得（行番号順）。詳細取得・CSVエクスポートの両方で利用する」に対応。既存メソッドの用途を拡張するのみで、シグネチャの変更は不要と判断する）。
 
@@ -172,7 +172,61 @@ internal/question_import/presentation/routes.go
 
 ---
 
-# 4. Application層設計
+# 4. クラス図
+
+Entity・Repository Interfaceの基本定義は管理者問題インポート機能③「3. Domain層設計」が正であり、本書では再定義しない（「1. 機能概要」）。本書が追加する要素と既存要素の関係を示す。
+
+```mermaid
+classDiagram
+    class ImportHistory {
+        <<Entity / AggregateRoot（管理者問題インポート機能③で定義）>>
+    }
+    class ImportError {
+        <<Entity（同）>>
+    }
+    class ImportHistoryRepository {
+        <<RepositoryInterface（同。本書が検索系メソッドを追加）>>
+        +Search(condition, page, perPage)
+        +FindByIDWithRelations(id)
+    }
+    class ImportHistorySearchCondition {
+        <<ValueObject（本書で定義）>>
+        +Status
+        +UnitID
+        +CourseID
+        +UserID
+        +From
+        +To
+        +Sort
+        +Order
+    }
+    class CsvExportRow {
+        <<ValueObject（本書で定義）>>
+    }
+    class CsvInjectionGuard {
+        <<DomainService（本書で定義）>>
+    }
+
+    ImportHistory "1" *-- "many" ImportError : 従属（Aggregate内）
+    ImportHistoryRepository ..> ImportHistory : 検索・取得
+    ImportHistoryRepository ..> ImportHistorySearchCondition : 絞り込み条件として受け取る
+    CsvExportRow ..> ImportError : エラー明細を1行に写す
+    CsvInjectionGuard ..> CsvExportRow : 先頭文字の無害化を判定
+```
+
+本機能は参照とエクスポートのみを行い、`ImportHistory`の状態を変更しない（②「12. UseCase設計」）。
+
+---
+
+# 5. 状態遷移図
+
+省略する。
+
+理由: 本機能は`ImportHistory`の状態を参照・絞り込みに使うだけで、遷移を起こさない（②「10. 状態遷移図」）。状態と遷移条件は、同じContextで取り込みを担う管理者問題インポート機能③「5. 状態遷移図」が定める。
+
+---
+
+# 6. Application層設計
 
 ## DTO（Command / Query）
 
@@ -200,7 +254,7 @@ internal/question_import/presentation/routes.go
 - コンストラクタが受け取る依存: `ImportHistoryRepository`（管理者問題インポート機能_Go実装仕様書で定義済みのInterfaceを、本書が追加した`Search`メソッドとあわせて利用する）
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, params dto.RawSearchImportHistoriesParams) (dto.SearchImportHistoriesResult, error)`
 - 処理ステップ（呼び出し順序）:
-  1. `valueobject.NewImportHistorySearchCondition(params)`で検索条件を正規化する（許可値判定・フォールバック・期間展開。②「13. シーケンス図」の「ImportHistorySearchConditionへ正規化（許可値判定・期間展開）」）
+  1. `valueobject.NewImportHistorySearchCondition(params)`で検索条件を正規化する（許可値判定・フォールバック・期間展開。②「13. シーケンス図・処理フロー図」の「ImportHistorySearchConditionへ正規化（許可値判定・期間展開）」）
   2. `ImportHistoryRepository.Search(ctx, condition, params.Page, params.PerPage)`を呼び出し、対象履歴一覧とコース名・単元名・実行者名、総件数を取得する
   3. 各履歴を`ImportHistoryListItem`へ変換する
   4. `dto.SearchImportHistoriesResult`として返す
@@ -225,7 +279,7 @@ internal/question_import/presentation/routes.go
 - struct名: `ExportImportHistoryErrorsUseCase`
 - コンストラクタが受け取る依存: `ImportHistoryRepository`, `ImportErrorRepository`, `service.CsvInjectionGuard`
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, query dto.ExportImportHistoryErrorsQuery) (dto.ExportImportHistoryErrorsResult, error)`
-- 処理ステップ（②「13. シーケンス図（CSVエクスポート）」の記載どおり）:
+- 処理ステップ（②「13. シーケンス図・処理フロー図」の記載どおり）:
   1. `ImportHistoryRepository.FindDetailByID`で対象履歴を取得する（問題インポートであることの確認を兼ねる）
   2. 取得できない場合、`ErrImportHistoryNotFound`を返す
   3. `ImportErrorRepository.FindByImportHistoryID`でエラー明細一覧（行番号順）を取得する
@@ -237,11 +291,52 @@ internal/question_import/presentation/routes.go
 
 ---
 
-# 5. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
+
+## シーケンス図
+
+一覧の取得と、エラー明細のCSVエクスポートを示す。
+
+```mermaid
+sequenceDiagram
+    participant C as 管理者（ブラウザ）
+    participant H as Handler
+    participant L as ListImportHistoriesUseCase
+    participant X as ExportImportHistoryUseCase
+    participant R as ImportHistoryRepository
+    participant G as CsvInjectionGuard
+
+    C->>H: GET /api/v1/admin/import_histories?status&unit_id&course_id&user_id&from&to&sort&order
+    H->>H: 絞り込み条件・並び順の正規化（既定値の補完）
+    H->>L: ImportHistorySearchCondition とページ指定
+    L->>R: Search（問題インポートかつ論理削除されていない履歴）
+    R-->>L: 履歴とページ情報
+    L-->>H: 一覧
+    H-->>C: 200 import_histories / meta
+
+    C->>H: GET /api/v1/admin/import_histories/:id/export
+    H->>X: 履歴の識別子
+    X->>R: FindByIDWithRelations（エラー明細を含む）
+    R-->>X: 履歴とエラー明細
+    X->>G: 各セルの先頭文字を無害化
+    G-->>X: CsvExportRow
+    X-->>H: CSV
+    H-->>C: 200 text/csv（添付）
+```
+
+## 処理フロー図
+
+省略する。
+
+理由: ②「13. シーケンス図・処理フロー図」が省略しており、業務ルールによる条件分岐を持たない。絞り込み条件の有無で条件を足すかどうかが変わるだけである（「6. Application層設計」）。
+
+---
+
+# 8. Infrastructure層設計
 
 ## Repository実装（既存実装へのメソッド追加）
 
-### ImportHistoryRepository実装（`infrastructure/repository/import_history_repository.go`、既存実装への追記）
+### ImportHistoryRepository実装（`infrastructure/gormrepo/import_history_repository.go`、既存実装への追記）
 
 管理者問題インポート機能_Go実装仕様書が定義した実装struct（`gormrepo`パッケージ内）に、以下のメソッド実装を追加する。
 
@@ -252,7 +347,7 @@ internal/question_import/presentation/routes.go
 
 ### ImportErrorRepository実装（既存実装を再利用、変更なし）
 
-管理者問題インポート機能_Go実装仕様書が定義した`FindByImportHistoryID`をそのまま利用する。行番号（`row_number`）昇順でのソートは既存実装の方針（管理者問題インポート機能_Go実装仕様書「5. Infrastructure層設計」で「推測」として補われたソート順）をそのまま踏襲する。
+管理者問題インポート機能_Go実装仕様書が定義した`FindByImportHistoryID`をそのまま利用する。行番号（`row_number`）昇順でのソートは既存実装の方針（管理者問題インポート機能_Go実装仕様書「8. Infrastructure層設計」で「推測」として補われたソート順）をそのまま踏襲する。
 
 ## 外部連携実装
 
@@ -260,7 +355,7 @@ internal/question_import/presentation/routes.go
 
 ---
 
-# 6. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
@@ -305,7 +400,7 @@ CSVエクスポートのResponse DTOは設けない（ファイルストリー�
 
 ---
 
-# 7. API仕様
+# 10. API仕様
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
@@ -325,17 +420,17 @@ CSVエクスポートのResponse DTOは設けない（ファイルストリー�
 
 ---
 
-# 8. Transaction実装方針
+# 11. Transaction実装方針
 
 ②「14. Transaction設計」のとおり、本機能はすべて読み取り専用処理であり、明示的なトランザクションを使用しない。
 
 - Transaction開始箇所: なし
 - Transaction終了箇所: 該当なし
-- 複数Repositoryにまたがる場合の扱い: `ShowImportHistoryUseCase`・`ExportImportHistoryErrorsUseCase`は`ImportHistoryRepository`と`ImportErrorRepository`の両方を呼び出すが、いずれも読み取りのみであり、`TransactionManager`（アーキテクチャ規約「11. Transaction実装パターン」）を介したトランザクション制御は行わない（②「一覧検索・詳細取得・CSVエクスポートのいずれもImportHistory Aggregateへの書き込みを伴わないため、トランザクションによる整合性保証が不要」）
+- 複数Repositoryにまたがる場合の扱い: `ShowImportHistoryUseCase`・`ExportImportHistoryErrorsUseCase`は`ImportHistoryRepository`と`ImportErrorRepository`の両方を呼び出すが、いずれも読み取りのみであり、`TransactionManager`（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」）を介したトランザクション制御は行わない（②「一覧検索・詳細取得・CSVエクスポートのいずれもImportHistory Aggregateへの書き込みを伴わないため、トランザクションによる整合性保証が不要」）
 
 ---
 
-# 9. Validation実装方針
+# 12. Validation実装方針
 
 ## Presentation
 
@@ -355,7 +450,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 
 ---
 
-# 10. Authorization実装方針
+# 13. Authorization実装方針
 
 ## Middlewareで行う処理
 
@@ -376,7 +471,7 @@ Domain Model採用のため、②の記載どおりEntity／Value Object生成�
 
 ---
 
-# 11. Error実装方針
+# 14. Error実装方針
 
 ## Domain Error → Application Errorへの変換方針
 
@@ -398,7 +493,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 
 ---
 
-# 12. GORM / DBクエリ設計
+# 15. GORM / DBクエリ設計
 
 ②「20. DB設計方針」のとおり、`import_histories`/`import_errors`テーブルは管理者問題インポート機能と共有し、本機能単独でのスキーマ変更は行わない。
 
@@ -420,7 +515,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 
 ---
 
-# 13. テストケース設計
+# 16. テストケース設計
 
 ②「22. テスト戦略」で採用パターンがDomain Modelであるため、区分はそのまま使用する。
 
@@ -468,7 +563,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 
 ---
 
-# 14. ②からの補足事項
+# 17. ②からの補足事項
 
 ②に明記がなく、実装のために追加で判断した内容を以下に整理する。
 
