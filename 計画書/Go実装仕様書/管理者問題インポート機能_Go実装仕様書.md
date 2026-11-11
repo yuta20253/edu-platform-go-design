@@ -28,7 +28,7 @@ Transaction Script（ルールが散在し保守性が低下する）、Active R
 - ②「19. API仕様」記載の3エンドポイント（テンプレートダウンロード、事前検証、インポート開始）
 - 非同期実行の基盤は、アーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」が定める `jobs` テーブル + ポーリングワーカーの標準実装に従う。旧版の本書が「具体的なメッセージング基盤の選定は本書のスコープ外とする」としていた記述は、同規約の制定（2026-08）に伴い標準実装へ置き換える
 - Question Context（Question / QuestionChoice / QuestionHint / QuestionExplanation の作成・更新）は②の設計判断どおり本 Context のスコープ外であり、QuestionRepository を外部依存として参照するに留める。Question Context 自体の詳細設計（Entity構造・メソッドシグネチャ等）は、対応する②文書が存在しないため本書では定義しない
-- Railsの実装詳細（①）は本タスクで提供されておらず、参照が必要な箇所は「①未提供のため参照不可」として扱う
+- Railsの実体は①`管理者問題インポート機能_Rails現行仕様書.md`を根拠とする
 
 ---
 
@@ -161,7 +161,7 @@ internal/questionimport/presentation/routes.go
 ### Question / QuestionChoice / QuestionHint / QuestionExplanation（外部参照）
 
 - ②「6. Entity設計」のとおり、question-import Context の Aggregate には含めない。QuestionRepository Interface（本書「3. Domain層設計」の「Repository Interface」参照）を通じて「作成・更新を依頼する対象」として扱う
-- 具体的な struct定義・フィールドは Question Context の②文書がまだ存在しないため（②「11. Repository設計」の QuestionRepository の記載を参照）、本書では定義しない。**②からの補足**: これは①未提供のためではなく、Question Context 自体の②文書が存在しないことに起因する
+- 具体的な struct定義・フィールドは`curriculum`が公開する操作の戻り値であり、コース参照機能③で確定するため、本書では定義しない。**②からの補足**: 戻り値の型は所有Context側の③で確定する事項である
 
 ## Value Object
 
@@ -238,7 +238,7 @@ internal/questionimport/presentation/routes.go
   - `Create(ctx context.Context, row QuestionCSVRow) (questionID string, err error)`: 新規作成
   - `Update(ctx context.Context, questionID string, row QuestionCSVRow) error`: 既存問題の更新（overwrite時）
 - 各メソッドの責務: 問題データの永続化。CSV解析・モード判定は持たない（②の記載どおり）。事前検証（`ValidateQuestionImportUseCase`）はこの Repository を呼び出さない（②「12. UseCase設計」の「ImportHistoryRepository・QuestionRepositoryは呼び出さない」に対応）
-- **②からの補足**: `QuestionCSVRow`（CSV1行分のデータを表す型）の具体的なフィールド構成（問題文・選択肢・ヒント・解説等）は、①（Rails実装）未提供のため参照不可であり、かつ Question Context自体の②文書も存在しないため、本書では詳細フィールドを定義しない。question-import Context 側では「CSV1行分のデータを保持する型」として抽象的に扱い、フィールド定義は Question Context 側の設計時に確定させる前提とする
+- `QuestionCSVRow`（CSV1行分のデータを表す型）のフィールドは、①「5. API / 処理詳細」`#questions`のCSVの列定義に対応する。`QuestionText string`・`CorrectAnswer int`・`ExplanationText string`・`Choices [4]string`・`Hints []string`（最大2）とする。残る論点は Question Context自体の②文書も存在しないため、本書では詳細フィールドを定義しない。question-import Context 側では「CSV1行分のデータを保持する型」として抽象的に扱い、フィールド定義は Question Context 側の設計時に確定させる前提とする
 
 ## Domain Service
 
@@ -247,7 +247,7 @@ internal/questionimport/presentation/routes.go
 - struct/interface名: `QuestionCsvRowValidator`（struct、ステートレス）
 - メソッドシグネチャ: `Validate(row QuestionCSVRow) valueobject.ImportRowResult`
 - 責務: CSV1行分のデータについて、必須列の充足・データ形式（正解番号の範囲、選択肢の必須数等）の構造的妥当性を検証する（②「8. Domain Service」の記載どおり）
-- 判断根拠: 事前検証（`ValidateQuestionImportUseCase`）と本番実行（`ExecuteQuestionImportUseCase`）の両方から呼び出し、判定結果の一貫性を保証する共通コンポーネントとする。具体的な検証項目（必須列の名称・正解番号の許容範囲等）は①未提供かつQuestion Context自体の②文書が存在しないため、本書では定義しない
+- 判断根拠: 事前検証（`ValidateQuestionImportUseCase`）と本番実行（`ExecuteQuestionImportUseCase`）の両方から呼び出し、判定結果の一貫性を保証する共通コンポーネントとする。検証項目は①「5. API / 処理詳細」`#questions`のCSVの列定義と行の検証規則に基づく（問題文・解説は必須、正解番号は1〜4、選択肢はちょうど4つ、ヒントは最大2つ）
 
 ### QuestionImportPolicy
 
@@ -281,7 +281,7 @@ internal/questionimport/presentation/routes.go
   - `ErrInvalidStatusTransition`: 不正な状態遷移（processing以外からの再遷移等）
   - `ErrCountMismatch`: ImportHistoryの状態不整合（success+error != total 等）
 
-**②からの補足**: CSV行データの具体的な「必須列」の定義は①未提供のため参照不可であり、本書では列名までは列挙しない。列定義はQuestion Context側の設計、またはCSVフォーマット仕様の確定を待って別途整理する必要がある。
+必須列は`問題文`・`正解番号`・`解説`・`選択肢1`〜`選択肢4`の7列である（①「5. API / 処理詳細」`#questions`）。`ヒント1`・`ヒント2`は任意であり、ヘッダーの検証対象に含めない。行ごとの検証規則（問題文・解説は必須、正解番号は1〜4、選択肢はちょうど4つ、ヒントは最大2つ）も同節に基づく。残る論点は別途整理する必要がある。
 
 ---
 
@@ -428,7 +428,7 @@ stateDiagram-v2
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context, cmd dto.ExecuteQuestionImportCommand) (dto.ExecuteQuestionImportResult, error)`
 - 処理ステップ（呼び出し順序）:
   1. `ImportHistoryRepository.FindByID` で対象の ImportHistory を取得する
-  2. 対象ファイルを読み込み、CSV行に分解する（パース処理の詳細は①未提供のため参照不可）
+  2. 対象ファイルを読み込み、ヘッダー付きCSVとして行に分解する（BOM付きUTF-8。①「5. API / 処理詳細」`#questions`）
   3. `ImportHistory.Start()` で状態を `processing` にし、`ImportHistoryRepository.Update` で開始日時を記録する
   4. `TransactionManager.WithinTransaction` のクロージャ内で、以下の 5〜8 を行う
   5. CSVのヘッダーが要求項目と一致するかを検証する。不一致の場合は行の処理に入らず、ヘッダー行（行番号1）に対するエラーとして収集してクロージャからエラーを返す
@@ -468,7 +468,7 @@ stateDiagram-v2
 - コンストラクタが受け取る依存: なし（②「12. UseCase設計」の「呼び出すRepository: なし」に対応）
 - 公開メソッドのシグネチャ: `Execute(ctx context.Context) (dto.DownloadQuestionCsvTemplateResult, error)`
 - 処理ステップ（呼び出し順序）:
-  1. 固定のヘッダー行＋サンプル行から構成されるCSVコンテンツ（BOM付き）を生成する（②「12. UseCase設計」の「テンプレートの列構成はQuestionCsvRowValidatorが要求する入力項目に対応する固定的な内容」に対応。具体的な列名は①未提供かつQuestion Context側の②文書が存在しないため、本書では列挙しない）
+  1. 固定のヘッダー行＋サンプル行から構成されるCSVコンテンツ（BOM付き）を生成する（②「12. UseCase設計」の「テンプレートの列構成はQuestionCsvRowValidatorが要求する入力項目に対応する固定的な内容」に対応。列名は①「5. API / 処理詳細」`#questions`のとおり`問題文`・`正解番号`・`解説`・`選択肢1`〜`選択肢4`・`ヒント1`・`ヒント2`の9列）
   2. `dto.DownloadQuestionCsvTemplateResult`として返す
 - トランザクション境界: 使用しない（DBアクセスを伴わない静的なファイル生成処理。②の記載どおり）
 - 発生しうる Application Error: なし（②「12. UseCase設計」の記載どおり、DB参照を必要としない単純な生成処理であり、業務エラーが発生する余地がない）
@@ -720,7 +720,7 @@ CSVテンプレートダウンロードのResponse DTOは設けない（ファ�
   - `ImportError`: rowNumber・messageの必須チェック
   - `ImportRowResult`: 成功/失敗に応じたquestionID/errorMessageの必須チェック
 - UseCase内で判定する業務ルール:
-  - `StartQuestionImportUseCase` / `ValidateQuestionImportUseCase`: CSVファイルの構造的妥当性（必須列の存在等。詳細は①未提供のため参照不可）。不正な場合は422として扱う
+  - `StartQuestionImportUseCase` / `ValidateQuestionImportUseCase`: CSVファイルの構造的妥当性（必須7列の存在。①「5. API / 処理詳細」`#questions`）。不正な場合は422として扱う
   - `ExecuteQuestionImportUseCase`: append/overwriteモードに応じた処理可否の判定（`QuestionImportPolicy`経由）、行データ内容の整合性確認（`QuestionCsvRowValidator`経由）
   - `ValidateQuestionImportUseCase`: 行データ内容の整合性確認（`QuestionCsvRowValidator`経由。`ExecuteQuestionImportUseCase`と同一のDomain Serviceを用いる）
 
@@ -903,7 +903,7 @@ SQL文そのものは記載しない。
 |バッチ処理の粒度（行単位かバッチ単位か）・具体的なバッチサイズを確定させなかった|②「14. Transaction設計」が「行（またはバッチ）単位」という選択の余地を残した表現のままであり、③で数値を確定させる根拠がない|未確定事項の引き継ぎ（推測ではない）|
 |`import_histories` への追加カラムを `file_reference` / `file_name` と具体的に命名した|②「20. DB設計方針」が「具体的なカラム名・型はGo実装仕様書で検討する」と明記しているため、③で初めて具体化した|推測|
 |401/403/404/500のHTTP Statusを②に明記のない箇所で補った（202/422/200(dry_run)は②に明記あり）|②「19. API仕様」には202・422・200のみ明記されており、他のエラーケースは一般的なREST API設計から補う必要があった|推測|
-|QuestionCSVRowの具体的なフィールド構成を定義しなかった|①（Rails実装詳細）未提供のため参照不可であり、かつQuestion Context自体の②文書が存在しないため、詳細フィールドを創作しない方針とした|判断（未提供情報を補わない方針）|
+|`QuestionCSVRow`のフィールドを①のCSV列定義に対応させた|①「5. API / 処理詳細」`#questions`がCSVの9列（必須7・任意2）と行ごとの検証規則を定めている。`curriculum`へ渡す形は同Contextの③で確定する方針とした|判断（未提供情報を補わない方針）|
 |UnitRepository.FindActiveUnitInCourseの戻り値型（UnitRef）の具体的な内容を確定させなかった|②に戻り値の型の詳細記載がなく、実装時に必要最小限の情報を返す設計とした|推測|
 |Course/UnitのGORMモデルは新規定義せず、School Context側の既存モデルを参照する前提とした|②「11. Repository設計」で「Course, Unit（参照用）」と明記されており、Course/Unitのモデル自体はSchool領域（curriculum Context）の責務であるため|②の記載に基づく判断（推測ではない）|
 |`InvalidRowResponse`に`Severity`・`Data`フィールドを追加し、UseCase出力（`InvalidRowResult`）との間に構成差を許容した|②「19. API仕様」のResponse定義には`severity`・`data`が含まれるが、②「12. UseCase設計」のUseCase出力定義には含まれておらず、②内の記述粒度差をそのまま実装に反映した|推測|

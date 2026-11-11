@@ -26,7 +26,7 @@ Transaction Script・Active Record（同一AggregateをDomain Modelとして扱�
 
 **重要（Entity/Repositoryの再利用方針）**: 本機能が扱うImportHistory・ImportError Entity、およびImportHistoryRepository・ImportErrorRepository Interfaceの基本定義（struct名・フィールド・基本CRUD相当のメソッド）は、管理者問題インポート機能_Go実装仕様書「3. Domain層設計」で既に定義済みである。本書ではこれらを**再定義せず、そのまま再利用する**。本書が追加するのは、(a) 既存の`ImportHistoryRepository` interfaceへの検索系メソッドの追加、(b) 本機能固有のValue Object（`ImportHistorySearchCondition`, `CsvExportRow`）・Domain Service（`CsvInjectionGuard`）、(c) 本機能固有のUseCase・Handlerのみである。管理者問題インポート機能_Go実装仕様書「2. ディレクトリ構成」で作成済みの`internal/questionimport/domain/entity/import_history.go`・`import_error.go`・`domain/repository/import_history_repository.go`・`domain/repository/import_error_repository.go`は本書でも同一ファイルとして扱い、重複するファイルを新規に作成しない。
 
-- Railsの実装詳細（①）は本タスクで提供されておらず、参照が必要な箇所は「①未提供のため参照不可」として扱う
+- Railsの実体は①`管理者インポート履歴管理機能_Rails現行仕様書.md`を根拠とする
 
 ---
 
