@@ -86,9 +86,11 @@ internal/taskmanagement/presentation/routes.go
 
 ## 文書の分割
 
-実装ファイルは上記の23であり、テストが付くもの（Task・TaskStatus・Priority・DueDate・TaskUnitRelationPolicy・TaskStore・TaskUnitLinkStore・StartTask・UpdateTaskStatus・FindTasksInPeriod・CountTaskStats・4つのアダプタ・TaskHandlerの16）を加えると39となる。**1文書あたり30〜35という範囲を超えている。**
+本書は分割しない。実装ファイルは上記の23であり、テストが付くもの（Task・TaskStatus・Priority・DueDate・TaskUnitRelationPolicy・TaskStore・TaskUnitLinkStore・StartTask・UpdateTaskStatus・FindTasksInPeriod・CountTaskStats・4つのアダプタ・TaskHandlerの16）を加えると39となり、③自動生成プロンプト「文書の分割（1文書あたり30〜35ファイル）」の目安を超える。それでも1文書に保つ理由は次のとおりである。
 
-分割の単位は、公開操作が増えた経緯から Domain・Infrastructure・Presentation の3文書が候補になる（③自動生成プロンプト「文書の分割（1文書あたり30〜35ファイル）」。本Contextに属するHandlerは`TaskHandler`の1つのみであり、スライス分割ができない）。分割は本書の構成を作り直す作業であるため、着手の判断を別に行う。
+- 本Contextに属するHandlerは`TaskHandler`の1つのみであり、原則であるHandlerスライス分割ができない
+- レイヤーで割ると、Model・Store・公開操作が同一packageに属するActive Recordの構造（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）が3文書に分かれ、どの文書を読めば1つの操作が追えるのかが分かりにくくなる
+- 目安を超えている分は、他Contextから呼ばれる公開操作の4ファイルとそのテストである。これらはいずれも`TaskStore`へ条件を組み立てて渡す薄い関数であり、`TaskHandler`を経由するエンドポイント群とは独立している。実装を分けて進める場合は、エンドポイント群と公開操作群で区切れる
 
 ---
 
