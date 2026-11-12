@@ -43,9 +43,18 @@
 
 ## 他Contextとの依存関係
 
-- user Context: 同校の生徒数を学年別に集計する人数集計（`user`②の`CountUsers`。所属校・役割（生徒）を絞り込み条件とし、集計の単位は学年別）に依存する。集計には、無効化済み（`deleted_at`あり）の生徒も含める（`CountUsers`の無効化の扱いに「無効化済みを含む」を指定する。12章）
-- master-data Context: 学年別の集計結果を「1〜3年」へ対応づけるための学年マスタ（学年IDと`year`）に依存する（推測: `user`②は、学年別集計の結果を学年の年次へ変換するのは呼び出し側としているが、集計結果のキーが学年IDか年次かは明記していない。学年IDを想定し、`year`への変換に、master-dataの高校指定の学年参照を用いる）
-- Announcement Context: 公開中かつ教師が閲覧可能なお知らせの取得に依存する（本機能はAnnouncement Contextが提供する検索機能を呼び出すのみで、お知らせの作成・状態管理は行わない）
+- `user` Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 操作者の所属校の識別（`user`②の`GetUserAttributes`）と、同校の生徒数を学年別に集計する人数集計（`user`②の`CountUsers`。所属校・役割（生徒）を絞り込み条件とし、集計の単位は学年別）に依存する。集計には、無効化済み（`deleted_at`あり）の生徒も含める（`CountUsers`の無効化の扱いに「無効化済みを含む」を指定する。12章）
+- `master-data` Context（②は`共通マスタ参照機能_Go移行・設計仕様書.md`）: 学年別の集計結果を「1〜3年」へ対応づけるための学年の属性（学年IDと年次）に依存する。同②「11. Repository設計」の「学年の属性の取得」で満たせる（推測: `user`②は、学年別集計の結果を学年の年次へ変換するのは呼び出し側としているが、集計結果のキーが学年IDか年次かは明記していない。学年IDを想定し、`year`への変換に、master-dataの高校指定の学年参照を用いる）
+- `announcement` Context（②は`お知らせ機能_Go移行・設計仕様書.md`）: 操作者を配信対象に含む公開中のお知らせの取得に依存する（本機能は同Contextが公開する操作を呼び出すのみで、お知らせの作成・状態管理は行わない）
+
+## 本Contextが利用する公開操作
+
+|利用する操作|所有Context|状態|
+|-|-|-|
+|操作者の属性の取得（所属校を含む）|`user`|既存の`GetUserAttributes`で満たせる（ユーザー基盤②「12. UseCase設計」）|
+|役割・所属校・学年別の人数集計|`user`|既存の`CountUsers`で満たせる（ユーザー基盤②「12. UseCase設計」）|
+|学年の属性の取得（年次を含む）|`master-data`|既存の公開操作で満たせる（共通マスタ参照②「11. Repository設計」）|
+|教師向けの公開中のお知らせの参照|`announcement`|**同②に公開操作が必要**（教師お知らせ②「11. Repository設計」）|
 
 ## 依存する理由
 
@@ -99,7 +108,7 @@ Transaction Script
 
 本機能は独自のEntityを持たない。
 
-理由: 生徒数集計は`user` Contextの人数集計を、お知らせ取得はAnnouncement Contextのお知らせ情報を参照するのみであり、本機能が状態を保持・変更する対象が存在しない。本機能の応答内容（学年別生徒数、お知らせ一覧）は、他Contextの情報を組み合わせた表示専用の合成結果（Read Model）として扱う。
+理由: 生徒数集計は`user` Contextの人数集計を、お知らせ取得は`announcement` Contextのお知らせ情報を参照するのみであり、本機能が状態を保持・変更する対象が存在しない。本機能の応答内容（学年別生徒数、お知らせ一覧）は、他Contextの情報を組み合わせた表示専用の合成結果（Read Model）として扱う。
 
 ---
 
@@ -114,7 +123,7 @@ Transaction Script
 
 ## Value Objectを採用しないもの
 
-- お知らせ一覧: Announcement Contextが定義するお知らせ情報をそのまま参照表示するのみであり、本機能側で独自のルールを持つValue Objectとして再定義する必要はない
+- お知らせ一覧: `announcement` Contextが定義するお知らせ情報をそのまま参照表示するのみであり、本機能側で独自のルールを持つValue Objectとして再定義する必要はない
 
 ---
 
@@ -122,11 +131,27 @@ Transaction Script
 
 本機能ではDomain Serviceを設けない。
 
-理由: 生徒数集計は単純な条件付き件数カウントであり、お知らせ取得はAnnouncement Context側の閲覧可能条件をそのまま利用するだけである。複数Entityにまたがる判断や、Entityに持たせるべきではない複雑な業務ルールが存在しないため、UseCase内で完結させることが最も単純で保守しやすい。
+理由: 生徒数集計は単純な条件付き件数カウントであり、お知らせ取得は`announcement` Context側の閲覧可能条件をそのまま利用するだけである。複数Entityにまたがる判断や、Entityに持たせるべきではない複雑な業務ルールが存在しないため、UseCase内で完結させることが最も単純で保守しやすい。
 
 ---
 
-# 9. Repository設計
+# 9. クラス図
+
+省略する。
+
+理由: Transaction Scriptを採用し、本Contextが管理するEntityを持たないため（「6. Entity設計」）、可視化すべきEntity関係が存在しない。参照する生徒・お知らせの構造は各所有Contextの②に属する。
+
+---
+
+# 10. 状態遷移図
+
+省略する。
+
+理由: 本Contextは状態を持たず、状態を変更しない（①「7. 状態管理」）。返すお知らせの公開状況は`announcement`が管理する状態であり、本Contextは公開中のものを絞り込んで表示するだけである。
+
+---
+
+# 11. Repository設計
 
 **実装上の位置づけ**: 本機能はTransaction Script採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はinfrastructure層の関数として直接実装する(規約: アーキテクチャ規約.md「3. 設計パターンごとの構造適用方針」)。
 
@@ -143,7 +168,7 @@ Transaction Script
   - ユーザーアカウントの作成・更新・論理削除、および人数集計の実行方法（`user` Contextの責務）
 - 判断根拠: ユーザーの参照・人数集計は`user` Contextが1箇所で提供するため、本機能は集計のための参照のみを行う。無効化の扱いは`user`②が呼び出し側に必須で指定させるため、本機能はRails現行の挙動（無効化済みを含む）を、明示的に「含める」と指定して維持する
 
-## AnnouncementRepository（Announcement Contextの提供機能を利用）
+## AnnouncementRepository（`announcement` Contextの提供機能を利用）
 
 - 管理対象: Announcement（参照専用）
 - 責務:
@@ -152,12 +177,12 @@ Transaction Script
   - 閲覧可能条件（対象条件）による絞り込み
   - 公開日時降順・件数制限（上位5件）
 - 保持しない責務:
-  - お知らせの作成・状態更新（Announcement Contextの責務）
-- 判断根拠: お知らせの管理責務をAnnouncement Contextに残し、本機能は表示用の取得のみを行うため
+  - お知らせの作成・状態更新（`announcement` Contextの責務）
+- 判断根拠: お知らせの管理責務を`announcement` Contextに残し、本機能は表示用の取得のみを行うため
 
 ---
 
-# 10. UseCase設計
+# 12. UseCase設計
 
 **実装上の位置づけ**: 本機能はTransaction Script採用のため、UseCase層(struct)を設けない。以下は業務操作の設計意図であり、実装時はapplication層の関数として直接実装する。
 
@@ -174,7 +199,38 @@ Transaction Script
 
 ---
 
-# 11. Transaction設計
+# 13. シーケンス図・処理フロー図
+
+## シーケンス図
+
+```mermaid
+sequenceDiagram
+    participant T as 教師（ブラウザ）
+    participant H as Handler
+    participant A as application（ダッシュボードの取得）
+    participant U as user
+    participant AN as announcement
+
+    T->>H: GET /api/v1/teacher/dashboard
+    H->>A: 操作者を渡して呼び出し（パラメータなし）
+    A->>U: 所属高校の生徒数の集計（年次1〜3、学年別）
+    U-->>A: 年次ごとの人数
+    A->>AN: 操作者が対象の公開中のお知らせ（最大5件）
+    AN-->>A: お知らせ
+    A->>A: 年次1〜3の3項目へ組み立て、該当のない年次は0とする
+    A-->>H: ダッシュボードのデータ
+    H-->>T: 200 stats / announcements
+```
+
+## 処理フロー図
+
+省略する。
+
+理由: 業務ルールによる条件分岐がない。2つの参照を順に呼び、結果を組み立てるだけである。
+
+---
+
+# 14. Transaction設計
 
 ## Transaction開始位置
 
@@ -190,7 +246,7 @@ Transaction Script
 
 ---
 
-# 12. Validation設計
+# 15. Validation設計
 
 ## Presentation
 
@@ -203,7 +259,7 @@ Transaction Script
 - 業務ルール:
   - 学年別生徒数の集計対象は、同校（current userの所属校）の生徒のうち、学年の`year`が1〜3年のもののみとする（Rails現行の`high_school_current`）
   - 学年別生徒数には、無効化済み（`deleted_at`あり）の生徒も含める。Rails現行は`students.high_school_current`のみで絞り込み、`active`（無効化済みの除外）を使っていない。同じ「生徒数」でも、管理者高校学年参照機能の生徒数は無効化済みを除外しており、機能ごとに扱いが異なる。`user`②の`CountUsers`は無効化の扱いを呼び出し側に必須で指定させるため、本機能は「無効化済みを含む」を指定して呼び出す
-  - お知らせの閲覧条件は、本機能固有の業務ルールを持たず、Announcement Contextの条件をそのまま利用する
+  - お知らせの閲覧条件は、本機能固有の業務ルールを持たず、`announcement` Contextの条件をそのまま利用する
 - 状態チェック: 該当なし
 - 整合性チェック: 該当なし
 
@@ -213,7 +269,7 @@ Transaction Script
 
 ---
 
-# 13. Authorization設計
+# 16. Authorization設計
 
 ## Middleware
 
@@ -233,11 +289,11 @@ Transaction Script
 
 ## 判断理由
 
-本機能は他Contextの情報を参照するだけであるため、認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（`user` Context、Announcement Context）の検索条件に委ね、本機能のapplication関数はcurrent userの所属校情報を検索条件として引き渡す役割にとどめる。
+本機能は他Contextの情報を参照するだけであるため、認可の実体的な判定（誰の生徒を数えるか、どのお知らせを見せるか）は参照先Context（`user` Context、`announcement` Context）の検索条件に委ね、本機能のapplication関数はcurrent userの所属校情報を検索条件として引き渡す役割にとどめる。
 
 ---
 
-# 14. Error設計
+# 17. Error設計
 
 ## Domain Error
 
@@ -259,7 +315,7 @@ Transaction Script
 
 ---
 
-# 15. Domain Event
+# 18. Domain Event
 
 本機能ではDomain Eventを採用しない。
 
@@ -267,7 +323,7 @@ Transaction Script
 
 ---
 
-# 16. API互換方針
+# 19. API仕様
 
 ## URL
 
@@ -296,7 +352,7 @@ Transaction Script
 
 ---
 
-# 17. DB設計方針
+# 20. DB設計方針
 
 ## 現行DBを利用するか
 
@@ -312,7 +368,22 @@ Transaction Script
 
 ---
 
-# 18. テスト戦略
+# 21. DB操作仕様
+
+**本Contextはテーブルへ直接アクセスしない。**
+
+|参照手段|対象テーブル|操作種別|主な絞り込み条件|結合|ページネーション・ソート|
+|-|-|-|-|-|-|
+|操作者の属性の参照|`users`（`user`が所有）|参照|操作者の識別子|不要|なし|
+|学年別の生徒数の集計|`users` / `grades`（`user`が所有）|参照|所属高校、役割=生徒、学年の年次が1〜3|不要|なし。集計の単位は学年|
+|高校配下の学年の参照|`grades`（`master-data`が所有）|参照|所属高校|不要|なし。年次への対応づけに使う|
+|公開中のお知らせの参照|`announcements`（`announcement`が所有）|参照|操作者が配信対象、状態が公開中|不要|配信日時の降順、最大5件|
+
+いずれのクエリも所有Context側で発行される。表は本Contextが渡す条件を整理したものである。
+
+---
+
+# 22. テスト戦略
 
 ## Domain Test
 
@@ -336,18 +407,18 @@ Transaction Script
 
 ---
 
-# 19. Railsとの責務対応
+# 23. Railsとの責務対応
 
 | Rails | Go | 設計方針 |
 |---|---|---|
 | Controller（集計処理を直接記述） | Handler + application関数 | 集計処理をapplication関数へ切り出し、HandlerはHTTP変換のみを担当する(Transaction Script採用のためusecase層は設けない) |
 | ActiveRecordのgroupクエリ | StudentStatisticsRepository | 集計クエリの責務をRepositoryに集約する |
-| Announcementスコープ呼び出し | AnnouncementRepository（Announcement Context提供） | お知らせ取得はAnnouncement Contextの責務として維持する |
+| Announcementスコープ呼び出し | AnnouncementRepository（`announcement` Context提供） | お知らせ取得は`announcement` Contextの責務として維持する |
 | Serializer | Presenter / Response DTO | レスポンス整形をPresentation層に分離する |
 
 ---
 
-# 20. 採用しなかった設計
+# 24. 採用しなかった設計
 
 ## Domain Model
 
@@ -361,7 +432,7 @@ Transaction Script
 
 ---
 
-# 21. 設計判断サマリー
+# 25. 設計判断サマリー
 
 | 項目 | 採用 | 判断理由 |
 |---|---|---|

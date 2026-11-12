@@ -45,18 +45,19 @@
 
 ## 他Contextとの依存関係
 
-- curriculum Context: コース・単元のマスタデータ（level_name, description, unit_name等）の実体に依存する。course-catalog自身はコース・単元を所有せず、curriculum Contextが管理するデータを管理者向けの切り口で参照する
-- Question Context: 単元ごとの問題数集計、単元詳細における問題・選択肢・ヒント・解説の内容に依存する（推測: 現状のRails実装にはBounded Context分割が存在しないため、Questionを中心とする問題管理領域を独立したContextとして仮定する。管理者問題インポート機能_Go移行・設計仕様書と同様の前提に立つ）
-- question-import Context: 単元詳細画面に表示する直近の問題インポート履歴（ImportHistory）の参照に依存する
+- `curriculum` Context（②は`コース参照機能_Go移行・設計仕様書.md`）: コース・単元・問題（選択肢・ヒント・解説を含む）のマスタデータに依存する。course-catalog自身はこれらを所有せず、`curriculum`が管理するデータを管理者向けの切り口で参照する。問題・選択肢・ヒント・解説も同Contextが所有する（管理者問題インポート機能②「3. Bounded Context」で確定済み。本機能の初版が想定した独立の「Question Context」は存在しない）
+- `question-import` Context: 単元詳細画面に表示する直近の問題インポート履歴（ImportHistory）の参照に依存する
 
 ## 依存する理由
 
 course-catalogは「コース・単元・問題データを、管理者の内容確認・運用把握という業務目的のために横断的に集約して見せる」という参照専用の切り口であり、いずれのデータも自らは所有しない。
 
+**本Contextは`curriculum`が所有するテーブル（`courses`・`units`・`questions`・`question_choices`・`question_hints`・`question_explanations`）へ直接クエリを発行しない。** アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部Entity・Infrastructure実装に直接依存しない」に従い、`curriculum`が公開する参照手段を呼び出す（「11. Repository設計」）。
+
 curriculum Contextは、コース参照機能・単元参照機能_Go移行・設計仕様書で定義済みのとおり、生徒向けにコース・単元というマスタデータを提供する責務を持つ。course-catalogはこれと同じ実体（courses/unitsテーブル）を参照するが、以下の理由から同一Contextに統合せず、別Contextとして切り出す。
 
 - 利用者が異なる: curriculumは生徒（student ロール）が学習対象を把握するための参照であるのに対し、course-catalogは管理者（admin ロール）がコンテンツ運用状況を把握するための参照である
-- 業務目的・データの組み合わせが異なる: curriculumは科目絞り込みのみを行う単純なマスタ参照であるのに対し、course-catalogは単元数・問題数の集計、問題本体（選択肢・ヒント・解説を含む）、直近のインポート履歴という複数Context（curriculum・Question・question-import）にまたがるデータを1つのレスポンスに集約する。これは「同一データに対する参照専用の切り口は、データを所有するContextとは別の参照・集約専用Contextとして切り出してよい」というアーキテクチャ規約.md「4. Bounded Context構成」の分割基準に該当する
+- 業務目的・データの組み合わせが異なる: curriculumは生徒向けに単元・問題の存在確認や解答判定材料を提供する単純な参照であるのに対し、course-catalogは単元数・問題数の集計、問題本体（選択肢・ヒント・解説を含む全件）、直近のインポート履歴という複数Context（curriculum・question-import）にまたがるデータを1つのレスポンスに集約する。これは「同一データに対する参照専用の切り口は、データを所有するContextとは別の参照・集約専用Contextとして切り出してよい」というアーキテクチャ規約.md「4. Bounded Context構成」の分割基準に該当する
 - 業務ルールが異なる: course-catalogは論理削除済みデータの除外、検索・並び替えの許可値判定、単元のroute配下スコープ検証（IDOR対策）という、curriculumには存在しない管理者固有の業務ルールを持つ
 
 なお、course-catalogはコース・単元のデータそのものを作成・更新・削除する責務を持たない。将来的に管理者によるコース・単元の作成・更新・削除機能が実装される場合、その責務をcourse-catalogに持たせるか、curriculum Context側に統合するかは、その時点の業務要件（データの所有権をどちらに置くべきか）に応じて改めて判断する（推測）。
@@ -99,13 +100,13 @@ Transaction Script
 
 不要と判断する。
 
-理由: 本機能は参照専用であり、整合性を保証すべき書き込み単位（Aggregate）が存在しない。Course・Unit・Question・ImportHistoryはそれぞれ他Context（curriculum・Question・question-import）が所有するデータであり、course-catalogはそれらを読み取り時にその場で組み合わせて返すのみである。
+理由: 本機能は参照専用であり、整合性を保証すべき書き込み単位（Aggregate）が存在しない。Course・Unit・Question・ImportHistoryはそれぞれ他Context（`curriculum`・`question-import`）が所有するデータであり、course-catalogはそれらを読み取り時にその場で組み合わせて返すのみである。
 
 ---
 
 # 6. Entity設計
 
-本機能では新たに管理すべきEntityを設計しない。コース・単元・問題は他Context（curriculum・Question）が所有するデータを参照するのみであり、本機能固有の状態やライフサイクルを持たない。
+本機能では新たに管理すべきEntityを設計しない。コース・単元・問題は`curriculum`が所有するデータを参照するのみであり、本機能固有の状態やライフサイクルを持たない。
 
 ## CourseSummary（参照用の構成データ）
 
@@ -123,10 +124,10 @@ Transaction Script
 - 保持する責務: 表示に必要な情報を保持するのみ
 - 判断根拠: CourseSummaryと同様、値の集合として扱う方が実態に即しているため
 
-## Question（参照専用、Question Context提供）
+## Question（参照専用、`curriculum` Context提供）
 
 - 役割: 単元に登録された問題本体を表す。選択肢・ヒント・解説を含む
-- 判断根拠: 問題データの所有・整合性管理はQuestion Contextの責務であり、本機能では表示のための参照のみを行う
+- 判断根拠: 問題データの所有・整合性管理は`curriculum`の責務であり、本機能では表示のための参照のみを行う
 
 ## ImportHistory（参照専用、question-import Context提供）
 
@@ -174,7 +175,7 @@ classDiagram
         RecentImportHistories ImportHistory[]
     }
     class Question {
-        <<外部参照:QuestionContext>>
+        <<外部参照:curriculum Context>>
         ID int
         QuestionText string
         CorrectAnswer int
@@ -210,44 +211,33 @@ classDiagram
 
 # 11. Repository設計
 
-**実装上の位置づけ**: 本機能はTransaction Script採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はinfrastructure層の関数として直接実装する(規約: アーキテクチャ規約.md「3. 設計パターンごとの構造適用方針」)。
+**実装上の位置づけ**: 本機能はTransaction Script採用のため、Repository Interfaceをdomain層に定義しない。CourseRepository・UnitRepositoryは、いずれも`curriculum`が所有するデータの参照であり、本Contextの関数としては実装せず、`curriculum`が公開する参照手段を呼び出す外部依存として扱う（アーキテクチャ規約「5. Context間連携ルール」）。本書では設計意図のみを示し、具体的な関数名・シグネチャは`curriculum`側の③（コース参照機能_Go実装仕様書）で確定する（管理者問題インポート機能②「11. Repository設計」と同じ扱い）。
 
-## CourseRepository
+## CourseRepository（`curriculum` Context提供、外部依存として利用）
 
-- 管理対象: Course（curriculum Context所有データの参照）
+- 管理対象: Course（`curriculum`が所有するデータの参照）
 - 責務:
-  - 論理削除されていないコースを対象とした、科目絞り込み・キーワード検索・並び替え・ページング付きの一覧取得
-  - 指定IDのコース詳細取得（所属科目・単元とともに）
+  - 論理削除されていないコースを対象とした、科目絞り込み・キーワード検索・並び替え・ページング付きの一覧取得。コースごとの単元数・問題数の集計を含む
+  - 指定IDのコース詳細取得（所属科目・単元（単元ごとの問題数を含む）とともに）
 - 保持する検索機能:
   - `subject_id`による絞り込み
   - `q`による`level_name`/`description`への部分一致検索
   - `sort`（`level_name`/`created_at`/`id`、許可値以外は`created_at`）・`order`（`asc`/`desc`、既定は`desc`）による並び替え
   - ページング（`per_page`上限100件）
-- 保持しない責務: コースの作成・更新・削除、単元数・問題数の集計
-- 判断根拠: コースデータそのものの取得に特化させ、集計処理とは責務を分けるため
+- 保持しない責務: コースの作成・更新・削除
+- 判断根拠: コース一覧・詳細は`curriculum`が所有するデータであり、本Contextは管理者向けの検索・集計の条件を渡すだけに留める。生徒向けの既存公開操作（`FindCourseSubjects`等。コース参照機能③「6. Application層設計」）は検索・ページング・集計を持たないため、本機能専用の新しい参照操作が`curriculum`側に必要になる（**要確認**。コース参照機能の追随時に、本機能が必要とする検索・集計付きの参照操作を追加する必要がある）
 
-## UnitRepository
+## UnitRepository（`curriculum` Context提供、外部依存として利用）
 
-- 管理対象: Unit（curriculum Context所有データの参照）
+- 管理対象: Unit（`curriculum`が所有するデータの参照）
 - 責務:
-  - 指定コースに属する、論理削除されていない単元一覧の取得（id昇順）
-  - 指定コースID配下の指定単元IDの詳細取得（IDORスコープ検証を兼ねる）
+  - 指定コースID配下の指定単元IDの詳細取得（存在確認とIDORスコープ検証を兼ねる）。単元に属する問題一覧（選択肢・ヒント・解説を含む全件）とともに取得する
 - 保持する検索機能:
-  - `course_id`による絞り込み
   - `course_id` + `id`の組み合わせによるスコープ確認検索（異なるコースの単元IDを指定した場合は取得できない）
-- 保持しない責務: 単元の作成・更新・削除、問題数の集計
-- 判断根拠: 単元データそのものの取得と、IDOR対策としてのスコープ確認に責務を限定するため
+- 保持しない責務: 単元・問題の作成・更新・削除
+- 判断根拠: 単元詳細表示に必要な全データ（問題・選択肢・ヒント・解説の全件）を1回の呼び出しで取得する。既存の生徒向け公開操作（`FindUnitQuestions`。コース参照機能③「6. Application層設計」）は選択肢・ヒントの部分的な情報しか返さず、かつ`in_active_units`等の絞り込みを前提としているため、管理者が全件を確認する用途には使えない（**要確認**。コース参照機能の追随時に、管理者向けの全件参照操作を追加する必要がある）
 
-## QuestionSummaryRepository
-
-- 管理対象: Question（Question Context提供、集計・参照用）
-- 責務:
-  - 対象コース・単元に属する、論理削除されていない問題数の集計（コース単位・単元単位）
-  - 指定単元に属する問題一覧の取得（id順）と、各問題に紐づく選択肢（choice_number順）・ヒント（step_number順）・解説（登録順）の取得
-- 保持しない責務: 問題データ自体の作成・更新
-- 判断根拠: 集計目的の参照と、単元詳細表示のための問題本体取得を、Question Context所有データへの参照責務として分離するため
-
-## ImportHistoryRepository（question-import Context提供、外部依存として利用）
+## ImportHistoryRepository（`question-import` Context提供、外部依存として利用）
 
 - 管理対象: ImportHistory（question-import Context所有）
 - 責務: 指定単元に対する直近のインポート履歴取得（作成日時降順、最大5件）
@@ -306,33 +296,25 @@ sequenceDiagram
     participant Admin
     participant Handler
     participant App as application関数(ShowUnit)
-    participant UnitRepo as UnitRepository
-    participant QRepo as QuestionSummaryRepository
+    participant UnitRepo as UnitRepository(curriculum Context)
     participant ImportRepo as ImportHistoryRepository(question-import Context)
-    participant DB as MySQL
 
     Admin->>Handler: GET /admin/courses/:course_id/units/:id
     Handler->>App: ShowUnit(ctx, courseID, unitID)
-    App->>UnitRepo: course_id配下のunit_idスコープ確認
-    UnitRepo->>DB: SELECT ... WHERE course_id = ? AND id = ?
-    DB-->>UnitRepo: Unit または該当なし
+    App->>UnitRepo: course_id配下のunit_idスコープ確認と問題一覧（選択肢/ヒント/解説を含む）の取得
     alt 該当なし
         UnitRepo-->>App: NotFound
         App-->>Handler: 404
     else 該当あり
-        UnitRepo-->>App: Unit
-        App->>QRepo: 単元に属する問題一覧（選択肢/ヒント/解説を含む）
-        QRepo->>DB: SELECT ...
-        DB-->>QRepo: 問題一覧
-        QRepo-->>App: 問題一覧
-        App->>ImportRepo: 直近のインポート履歴取得
-        ImportRepo->>DB: SELECT ... WHERE unit_id = ? ORDER BY created_at DESC LIMIT 5
-        DB-->>ImportRepo: 履歴一覧
+        UnitRepo-->>App: Unit・問題一覧
+        App->>ImportRepo: 直近のインポート履歴取得（最大5件）
         ImportRepo-->>App: 履歴一覧
         App-->>Handler: UnitDetail
         Handler-->>Admin: 200 OK
     end
 ```
+
+本Contextから`courses`・`units`・`questions`等へ直接SQLを発行しない。`curriculum`・`question-import`が公開する参照手段へ委譲する（「11. Repository設計」）。
 
 ## 処理フロー図
 
@@ -498,6 +480,7 @@ flowchart TD
 ## 現行DBを利用するか
 
 - 既存Rails DBを継続利用する
+- 本Contextは`courses`・`units`・`questions`・`question_choices`・`question_hints`・`question_explanations`・`import_histories`のいずれも所有しない。すべて`curriculum`・`question-import`が所有するテーブルであり、本Contextからの直接アクセスは行わない（「21. DB操作仕様」）
 
 ## Schema変更有無
 
@@ -512,37 +495,14 @@ flowchart TD
 
 # 21. DB操作仕様
 
-## CourseRepository
+**本Contextはテーブルへ直接アクセスしない。** `courses`・`units`・`questions`・`question_choices`・`question_hints`・`question_explanations`は`curriculum`が、`import_histories`は`question-import`が所有する。以下は本Contextが渡す条件を整理したものであり、いずれのクエリも所有Context側で発行される（「11. Repository設計」）。
 
-- 対象テーブル: courses（subjectsとの結合を含む）
-- 操作種別: 参照
-- 主な検索条件・絞り込み条件: `deleted_at IS NULL`（論理削除除外）、`subject_id`による絞り込み（任意）、`level_name`/`description`への部分一致検索（`q`指定時）
-- 関連テーブルとの結合: subjectsと結合し、科目名を取得する
-- ページネーション・ソート: `sort`（`level_name`/`created_at`/`id`、既定`created_at`）・`order`（`asc`/`desc`、既定`desc`）による並び替え、`per_page`上限100件のページネーションを行う
-
-## UnitRepository
-
-- 対象テーブル: units
-- 操作種別: 参照
-- 主な検索条件・絞り込み条件: `deleted_at IS NULL`、`course_id`による絞り込み。単元詳細取得時は`course_id` + `id`の組み合わせで一致するものだけを対象とする（一致しない場合は取得しない）
-- 関連テーブルとの結合: コース詳細取得時はcoursesと結合する
-- ページネーション・ソート: コース詳細内の単元一覧は`id`昇順。ページネーションは不要
-
-## QuestionSummaryRepository
-
-- 対象テーブル: questions（question_choices, question_hints, question_explanationsとの結合を含む）
-- 操作種別: 参照（集計・一覧取得）
-- 主な検索条件・絞り込み条件: `deleted_at IS NULL`、`unit_id`（単元詳細）または`course_id`経由の`unit_id IN (...)`（コース単位の問題数集計）による絞り込み
-- 関連テーブルとの結合: question_choices（choice_number順）、question_hints（step_number順）、question_explanations（登録順）とそれぞれ結合し、単元詳細表示のために整理する
-- ページネーション・ソート: 単元詳細内の問題一覧は`id`順。集計時はページネーション不要
-
-## ImportHistoryRepository（question-import Context提供）
-
-- 対象テーブル: import_histories
-- 操作種別: 参照
-- 主な検索条件・絞り込み条件: `unit_id`による絞り込み
-- 関連テーブルとの結合: 不要
-- ページネーション・ソート: 作成日時の降順で並び替えたうえで上位5件のみを取得する
+|参照手段|所有Context|対象テーブル|主な絞り込み条件|結合|ページネーション・ソート|
+|-|-|-|-|-|-|
+|コース一覧の検索|`curriculum`|courses（subjectsとの結合を含む）|論理削除除外、`subject_id`による絞り込み（任意）、`level_name`/`description`への部分一致検索（`q`指定時）|subjectsと結合し科目名を取得|`sort`（`level_name`/`created_at`/`id`、既定`created_at`）・`order`（`asc`/`desc`、既定`desc`）、`per_page`上限100件|
+|コース詳細の取得|`curriculum`|courses・units（単元ごとの問題数集計を含む）|論理削除除外、`id`一致|unitsと結合|単元一覧は`id`昇順|
+|単元詳細のスコープ確認と問題一覧の取得|`curriculum`|units・questions（question_choices・question_hints・question_explanationsとの結合を含む）|論理削除除外、`course_id` + `id`の組み合わせで一致するものだけを対象とする|question_choices（choice_number順）・question_hints（step_number順）・question_explanations（登録順）と結合|問題一覧は`id`順|
+|直近のインポート履歴の参照|`question-import`|import_histories|`unit_id`による絞り込み|不要|作成日時の降順、上位5件|
 
 ---
 
@@ -577,7 +537,7 @@ flowchart TD
 | Controller（`Admin::CoursesController`, `Admin::UnitsController`） | Handler | HTTP入出力の受け取りとレスポンス整形に限定する |
 | Query（`Admin::CoursesQuery`） | CourseRepository（検索条件） | 検索・並び替え・絞り込みの組み立てをRepositoryの検索責務として集約する（Transaction Script採用のためusecase層は設けない） |
 | Serializer | Response DTO | レスポンス整形をPresentation層に分離する |
-| Model（`Course`, `Unit`, `Question`, `QuestionChoice`, `QuestionHint`, `QuestionExplanation`） | Repository（参照専用） | 本機能では振る舞いを持たない参照データとして扱う。データの所有はcurriculum Context・Question Contextに委ねる |
+| Model（`Course`, `Unit`, `Question`, `QuestionChoice`, `QuestionHint`, `QuestionExplanation`） | Repository（参照専用） | 本機能では振る舞いを持たない参照データとして扱う。データの所有は`curriculum`に委ねる |
 | Model（`ImportHistory`） | ImportHistoryRepository（question-import Context提供、外部依存） | インポート履歴の所有・状態管理はquestion-import Contextの責務として整理する |
 
 ---
@@ -586,7 +546,7 @@ flowchart TD
 
 ## curriculum Contextへの統合
 
-- 採用しなかった理由: curriculumは生徒向けの単純なマスタ参照（科目絞り込みのみ）であるのに対し、本機能は管理者向けに複数Context（curriculum・Question・question-import）のデータを集約し、論理削除除外・並び替え・IDORスコープ検証といった管理者固有の業務ルールを持つ。同一Contextに統合すると、生徒向け参照に管理者固有の複雑さが混入し、責務が肥大化する
+- 採用しなかった理由: curriculumは生徒向けの単純なマスタ参照（科目絞り込みのみ）であるのに対し、本機能は管理者向けに複数Context（curriculum・question-import）のデータを集約し、論理削除除外・並び替え・IDORスコープ検証といった管理者固有の業務ルールを持つ。同一Contextに統合すると、生徒向け参照に管理者固有の複雑さが混入し、責務が肥大化する
 - 将来的に採用する可能性: 現時点では想定しない。ただし将来的にコース・単元の作成・更新・削除機能が実装される場合、そのデータ所有をcurriculum Contextに置くかcourse-catalog Contextに置くかは改めて判断が必要である
 
 ## Domain Model

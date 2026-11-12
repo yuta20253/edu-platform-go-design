@@ -199,7 +199,7 @@
 ### 業務ルール
 
 - `phone_number` は 10〜11 桁の数字である必要がある。
-- `gender` は `UserPersonalInfo.genders.keys` のいずれかである必要がある。
+- `gender` は `male` / `female` / `other` のいずれかである必要がある。空欄は許容される。
 - `birthday` は未来日付にできない。
 - 個人情報（`phone_number` / `birthday` / `gender`）が未登録の管理者に対する更新で、これら3項目がすべて未入力の場合は、個人情報のレコードを新規作成しない（名前・メールアドレス等のみの更新）。いずれかが入力された場合に限り、個人情報のレコードを新規作成する。
 - 個人情報が既に登録されている管理者に対する更新では、`phone_number` / `birthday` / `gender` の3項目を、更新リクエストの値で置き換える（未入力の項目は空になる）。
@@ -293,7 +293,11 @@
 
 ### Response
 
-- 住所候補一覧: 各住所の `id`, `postal_code`, `city`, `town`, `prefecture`（`id`, `name`）
+- 住所候補の配列。最上位はオブジェクトで包まず、配列をそのまま返す。
+- 各要素は `id`, `postal_code`, `city`, `town`, `prefecture` を持つ。
+- `town` は未設定を許し、その場合は `null` となる。
+- `prefecture` は `id`, `name` の2項目を持つオブジェクトである。住所に都道府県が紐づいていない場合は `null` となる。
+- 1件も該当しない場合は空の配列を返す。
 
 ### Errorケース
 
@@ -315,6 +319,7 @@
 
 - 役割: ユーザーの個人情報を管理するテーブル
 - 主なカラム: `phone_number`, `birthday`, `gender`
+- `gender` は整数で保持し、`male` = 0 / `female` = 1 / `other` = 2 に対応する。APIでは文字列の名前で入出力される。
 
 ## `addresses`
 

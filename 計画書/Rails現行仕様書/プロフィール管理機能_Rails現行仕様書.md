@@ -41,7 +41,7 @@
 2. システムは入力値を検証する。
    - 氏名・氏名カナは必須で、氏名カナはカタカナ形式であること。
    - 電話番号は入力する場合10〜11桁の数字であること。
-   - 性別は定義された選択肢（男性・女性・その他）のいずれかであること。
+   - 性別は必須であり、定義された選択肢（男性・女性・その他）のいずれかであること。未入力は許容されない。
    - 住所IDを指定する場合、存在する住所であること。
    - 生年月日を指定する場合、未来日でないこと。
 3. 検証に成功した場合、ユーザーの基本情報（氏名・氏名カナ・住所）と、個人情報（電話番号・生年月日・性別）を同一トランザクションで更新する。個人情報が未登録の場合は新規に作成する。
@@ -87,9 +87,13 @@
 
 - 200 OK
 - `user`:
-  - `id`, `name`, `name_kana`, `email`, `profile_completed`
+  - `id`, `name`, `name_kana`, `email`, `profile_completed`, `account_linked`
   - `user_personal_info`（`phone_number`, `birthday`, `gender` など）
-  - `user_role`, `high_school`, `address`（都道府県含む）, `grade`
+  - `teacher_permission`, `user_role`, `high_school`, `address`（都道府県含む）, `grade`
+
+`account_linked` は、生徒が学校発行の生徒番号を持つか（学校発行アカウントと紐付け済みか）を表す。生徒以外のロールでは `null` となる。
+
+`teacher_permission` は教員の権限設定を表す。教員以外のロールでは `null` となる（詳細は教師権限管理機能を参照）。
 
 ### Errorケース
 
@@ -109,12 +113,14 @@
 
 |項目|必須|型|説明|
 |-|-|-|-|
-|name|任意|string|氏名|
-|name_kana|任意|string|氏名カナ。指定する場合はカタカナ形式であること|
-|address_id|任意|integer|住所ID。存在する住所であること|
+|name|必須|string|氏名|
+|name_kana|必須|string|氏名カナ。カタカナ形式であること|
+|address_id|任意|integer|住所ID。指定する場合は存在する住所であること|
 |birthday|任意|date|生年月日。未来日は不可|
-|gender|任意|string|性別。`male` / `female` / `other` のいずれか|
+|gender|必須|string|性別。`male` / `female` / `other` のいずれか|
 |phone_number|任意|string|電話番号。指定する場合は10〜11桁の数字|
+
+**`gender` は未指定（空値）を許容しない。** `UserPersonalInfo.genders.keys`への包含検証に空値除外（`allow_blank`）が指定されていないため、未指定・空文字はいずれも検証に失敗する（`phone_number`・`birthday`・`address_id`とは異なる）。
 
 ### 処理内容
 
@@ -127,12 +133,13 @@
 ### 業務ルール
 
 - 本人の情報のみ更新可能であり、他ユーザーの情報は更新できない。
-- 氏名カナはカタカナ・長音符・中黒・空白のみで構成されている必要がある。
+- 氏名は必須である。未入力の場合は更新できない。
+- 氏名カナは必須であり、カタカナ・長音符・中黒・空白のみで構成されている必要がある。
 - 電話番号は未入力を許容するが、入力する場合は10〜11桁の数字である必要がある。
-- 性別は `UserPersonalInfo` に定義された選択肢（`male` / `female` / `other`）以外は指定できない。
-- 住所IDを指定する場合、`addresses` テーブルに存在するIDである必要がある。
-- 生年月日は未来日を指定できない。
-- 氏名・個人情報・住所の更新は一括で行われ、一部項目のみを更新することはできない（未指定の項目は空値として更新される）。
+- 性別は必須であり、`UserPersonalInfo` に定義された選択肢（`male` / `female` / `other`）のいずれかでなければならない。未入力（空値）も許容されない。
+- 住所IDは任意であり、指定する場合は `addresses` テーブルに存在するIDである必要がある。
+- 生年月日は任意であり、指定する場合は未来日を指定できない。
+- 氏名・個人情報・住所の更新は一括で行われ、一部項目のみを更新することはできない（任意項目のうち未指定の項目は空値として更新される）。
 
 ### Database変更
 
@@ -147,14 +154,16 @@ user_personal_infos
 
 - 200 OK
 - `user`:
-  - `id`, `name`, `name_kana`, `email`, `profile_completed`
-  - `user_personal_info`, `user_role`, `high_school`, `address`, `grade`
+  - `id`, `name`, `name_kana`, `email`, `profile_completed`, `account_linked`
+  - `user_personal_info`, `teacher_permission`, `user_role`, `high_school`, `address`, `grade`
+
+更新操作のResponseは、取得操作（`#show`）と同じ`CurrentUserSerializer`の項目構成である。
 
 ### Errorケース
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|入力値検証エラー（氏名未入力、氏名カナ形式不正、電話番号形式不正、性別不正、住所ID不正、生年月日が未来日など）|422|エラーメッセージ一覧|
+|入力値検証エラー（氏名未入力、氏名カナ未入力または形式不正、性別未指定または不正、電話番号形式不正、住所ID不正、生年月日が未来日など）|422|エラーメッセージ一覧|
 
 ---
 

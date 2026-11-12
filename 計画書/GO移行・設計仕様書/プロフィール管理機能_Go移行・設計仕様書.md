@@ -338,7 +338,7 @@ ProfileAccount・PersonalInfo自体は、値の更新以外に明示的な状態
 ## UpdateProfile（Handler処理）
 
 - 目的: ログイン中ユーザー自身の氏名・氏名カナ・住所・個人情報を一括で更新する
-- 入力: current user, name, name_kana, address_id（任意）, phone_number（任意）, birthday（任意）, gender（任意）
+- 入力: current user, name（必須）, name_kana（必須）, gender（必須）, address_id（任意）, phone_number（任意）, birthday（任意）
 - 出力: 更新後のプロフィール情報（ProfileCompletionStatusを含む）
 - トランザクション範囲: ProfileAccountStoreによる氏名・氏名カナ・住所IDの更新と、PersonalInfoStoreによる個人情報の作成・更新を1トランザクションで扱う
 - 呼び出すStore:
@@ -420,7 +420,7 @@ flowchart TD
 ## Presentation
 
 - 型チェック: HTTP入力の型を検証する
-- 必須チェック: 現行仕様上、更新項目はすべて任意項目であるため、Presentation層での必須チェックは行わない
+- 必須チェック: 氏名・氏名カナ・性別は必須である（①「5. API / 処理詳細」`#update`業務ルール）。性別は、値を指定しないこと自体が許されない点で、電話番号・生年月日・住所IDの「任意」とは扱いが異なる
 - フォーマットチェック: 氏名カナのカタカナ形式、電話番号の桁数形式、性別の列挙値形式、生年月日の日付形式を検証する
 
 ## Domain
@@ -439,12 +439,13 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|name_kana|Presentation|カタカナ・長音符・中黒・空白のみ|「氏名カナの形式が不正です」|
-|phone_number|Presentation|未入力または10〜11桁の数字|「電話番号の形式が不正です」|
-|gender|Presentation|male / female / other のいずれか|「性別の指定が不正です」|
-|birthday|Domain|未来日でないこと|「生年月日は未来の日付にできません」|
-|address_id|Domain|存在する住所であること（master-data Context参照）|「指定された住所が存在しません」|
-|name / name_kana / address_id / phone_number / birthday / gender|Domain|一括更新（全項目置換）であり、未指定項目は空値になることを前提とした整合性|（個別のエラーメッセージは持たず、更新結果としてそのまま反映する）|
+|name|Presentation|必須|「氏名を入力してください」|
+|name_kana|Presentation|必須、かつカタカナ・長音符・中黒・空白のみ|「氏名カナの形式が不正です」|
+|gender|Presentation|必須、かつmale / female / other のいずれか|「性別を指定してください」|
+|phone_number|Presentation|任意。指定する場合は10〜11桁の数字|「電話番号の形式が不正です」|
+|birthday|Domain|任意。指定する場合は未来日でないこと|「生年月日は未来の日付にできません」|
+|address_id|Domain|任意。指定する場合は存在する住所であること（master-data Context参照）|「指定された住所が存在しません」|
+|name / name_kana / gender / address_id / phone_number / birthday|Domain|一括更新（全項目置換）であり、任意項目のうち未指定の項目は空値になることを前提とした整合性|（個別のエラーメッセージは持たず、更新結果としてそのまま反映する）|
 
 ---
 
@@ -526,7 +527,7 @@ flowchart TD
 
 ## 各エンドポイントの仕様
 
-- プロフィール更新: Request Bodyに `name`（任意）/`name_kana`（任意）/`address_id`（任意）/`birthday`（任意）/`gender`（任意）/`phone_number`（任意）を含む。すべて任意項目だが、更新は全項目置換方式であり、未指定の項目は空値として更新される。Responseはログイン・`GET /api/v1/me`と同形式のユーザー情報一式（`id`, `name`, `name_kana`, `email`, `profile_completed`, `user_personal_info`, `user_role`, `high_school`, `address`, `grade`）
+- プロフィール更新: Request Bodyに `name`（必須）/`name_kana`（必須）/`gender`（必須）/`address_id`（任意）/`birthday`（任意）/`phone_number`（任意）を含む。任意項目については、更新は全項目置換方式であり、未指定の項目は空値として更新される。Responseはログイン・`GET /api/v1/me`と同形式のユーザー情報一式（`id`, `name`, `name_kana`, `email`, `profile_completed`, `account_linked`, `user_personal_info`, `teacher_permission`, `user_role`, `high_school`, `address`, `grade`）
 
 Status Code:
 
