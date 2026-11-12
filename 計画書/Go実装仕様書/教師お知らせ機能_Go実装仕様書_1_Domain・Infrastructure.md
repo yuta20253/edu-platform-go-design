@@ -996,6 +996,7 @@ var _ announcement.ViewerDirectory = (*userDirectory)(nil)
 |-|-|-|
 |`CreateSystemAnnouncement(ctx context.Context, in SystemAnnouncementInput) error`|専用のUseCase|`school-class`・`interview-request`等|
 |`FindRecentAnnouncements(ctx context.Context, limit int) ([]RecentAnnouncementRef, error)`|`AnnouncementRepository.FindByPublisherRole`相当|`admin-dashboard`|
+|`FindDeliveredAnnouncements(ctx context.Context, userID uint, limit int) ([]DeliveredAnnouncementRef, error)`|`ViewerDirectory.FindViewerScope` → `AnnouncementRepository.FindDeliveredTo`|`teacher-dashboard`|
 
 `SystemAnnouncementInput`は`Title string`・`Content string`・`PublisherID uint`・`Targets []SystemAnnouncementTarget`を持つ。`SystemAnnouncementTarget`は配信先の種類と識別子を持つ。
 
@@ -1005,7 +1006,11 @@ var _ announcement.ViewerDirectory = (*userDirectory)(nil)
 
 `CreateSystemAnnouncement`のUseCaseは`application/`のどのロール別ディレクトリにも属さない。**`application/usecase/create_system_announcement.go`として、ロール別ディレクトリの外に置く。** 利用者ロールに紐づかない操作であるためである（「17. ②からの補足事項」参照）。この1ファイルは本書が担当する。
 
-`FindRecentAnnouncements`の具体的なシグネチャは管理者ダッシュボード機能の③で確定する。同機能は未追随であり、本書では公開操作の存在を示すにとどめる。
+`DeliveredAnnouncementRef`は`ID uint`・`Title string`・`Content string`・`PublishedAt *time.Time`・`PublisherID uint`・`PublisherName string`・`PublisherNameKana string`を持つ。教師ダッシュボードが表示する項目に合わせたもので、状態・配信予定日時・作成日時・配信先を含めない（教師ダッシュボード機能①「5. API / 処理詳細」`#show`）。
+
+**`FindDeliveredAnnouncements`は操作者の配信範囲を本Contextで解決する。** 呼び出し元は利用者の識別子と件数の上限だけを渡し、`ViewerDirectory.FindViewerScope`で所属校・学年・ロールを取得してから`FindDeliveredTo`へ渡す。配信先の突き合わせ規則を呼び出し元へ漏らさないためである（②「11. Repository設計」の「配信されたお知らせの検索について」）。`FindDeliveredTo`はページネーションを引数に取るため、`page = 1`・`perPage = limit`として呼び出し、総件数は捨てる。
+
+**ロールで絞り込まない。** 配信先の突き合わせが利用者の属性で行われるため、呼び出し元が教師であることは条件に現れない（同）。`teacher-dashboard`側で操作者が教師であることはMiddlewareが保証する。
 
 ---
 
@@ -1503,6 +1508,7 @@ Repository実装・アダプタは、DBや相手Contextが返したエラーを�
 ||呼び出し元が開始したトランザクションの内側で動作すること（ロールバックでお知らせも残らないこと）|
 ||作成されたお知らせが、配信先に一致する利用者の一覧に現れること|
 |`FindRecentAnnouncements`|管理者ダッシュボードから呼ばれて結果を返すこと|
+|`FindDeliveredAnnouncements`|操作者を配信対象に含む公開中のお知らせが、配信日時の降順で件数の上限まで返ること。配信対象に含まれないお知らせと公開中でないお知らせが返らないこと|
 
 ---
 
