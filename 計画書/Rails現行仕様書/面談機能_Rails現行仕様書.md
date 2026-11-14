@@ -19,6 +19,7 @@
 
 |操作|概要|
 |-|-|
+|担当教員一覧取得|面談の申請先として選べる担当教員の一覧を取得する|
 |一覧取得|自分に関わる面談申請の一覧を取得する|
 |詳細取得|指定した面談申請の詳細を取得する|
 |新規申請|担当教員に対して面談を申請する|
@@ -29,6 +30,11 @@
 ---
 
 # 3. 業務フロー
+
+## 担当教員一覧の取得
+
+1. 生徒が、面談の申請画面を開く。
+2. システムは、生徒の所属クラスを担当する教員（論理削除されていないもの）を、識別子の昇順で一覧として返す。生徒が所属クラスを持たない場合は空の一覧を返す。
 
 ## 面談の申請
 
@@ -60,6 +66,7 @@
 
 |Controller|Action|HTTP Method|Endpoint|概要|
 |-|-|-|-|-|
+|`Api::V1::Student::TeachersController`|`index`|GET|`/api/v1/student/teachers`|面談の申請先として選べる担当教員の一覧を取得|
 |`Api::V1::Student::InterviewRequestsController`|`index`|GET|`/api/v1/student/interview_requests`|自分に関わる面談申請の一覧を取得|
 |`Api::V1::Student::InterviewRequestsController`|`show`|GET|`/api/v1/student/interview_requests/:id`|面談申請の詳細を取得|
 |`Api::V1::Student::InterviewRequestsController`|`create`|POST|`/api/v1/student/interview_requests`|面談を新規申請|
@@ -70,6 +77,39 @@
 ---
 
 # 5. API / 処理詳細
+
+## `Api::V1::Student::TeachersController#index`
+
+### 概要
+
+ログイン中の生徒が、面談の申請先として選べる担当教員の一覧を取得する。
+
+### Request
+
+パス・クエリパラメータを持たない。
+
+### 処理内容
+
+1. ログイン中の生徒の所属クラスを取得する。所属クラスがない場合は空の一覧を返す。
+2. 所属クラスを担当する教員のうち、論理削除されていないものを、識別子の昇順で取得する。
+
+### 業務ルール
+
+- 一覧に含まれるのは、生徒自身が所属するクラスを担当する教員に限られる。他クラス・他学年・他校の教員は含まれない。
+- 論理削除された教員は一覧に含まれない。
+- クラスへの教員の紐づけの区分（主担当・副担当等）は問わず、そのクラスに紐づく教員であれば一覧に含まれる。
+
+### Database変更
+
+- なし
+
+### Response
+
+- `teachers`（一覧。各要素は `id`・`name` のみ。生徒に見せる情報をこの2項目に限定している）
+
+### Errorケース
+
+- 特定なし（`current_user` の認証前提）
 
 ## `Api::V1::Student::InterviewRequestsController#index`
 
@@ -419,6 +459,7 @@ cancelled（取り消し） … 以降の状態変化なし
 # 8. 権限制御
 
 - `student` ロールのユーザーのみ、本仕様書に記載のエンドポイントを利用できる。
+- 担当教員一覧は、自分の所属クラスを担当する教員に限られる。他クラス・他学年・他校の教員は取得できない。
 - 生徒は、自分が申請した（自分が生徒として当事者になっている）面談のみ閲覧・操作できる。他の生徒が関わる面談は一切参照できない。
 - 面談の確定・完了の操作は教員側にのみ許可されており、生徒はこれらを実行できない。
 - 取り消し操作には、表示中データの版数（`lock_version`）が要求され、他の操作との競合が防止される。
@@ -438,11 +479,11 @@ cancelled（取り消し） … 以降の状態変化なし
 
 |種類|実装|
 |-|-|
-|Controller|`Api::V1::Student::InterviewRequestsController`, `Api::V1::Student::InterviewRequestMessagesController`|
+|Controller|`Api::V1::Student::TeachersController`, `Api::V1::Student::InterviewRequestsController`, `Api::V1::Student::InterviewRequestMessagesController`|
 |Form|`Student::CreateInterviewRequestForm`|
 |Service|`Student::CreateInterviewRequestService`, `Student::CancelInterviewRequestService`, `Student::CreateInterviewRequestMessageService`, `Common::CancelInterviewRequestService`, `Common::PostInterviewRequestMessageService`|
 |Model|`InterviewRequest`, `InterviewRequestMessage`|
-|Serializer|`InterviewRequestSerializer`, `InterviewRequestMessageSerializer`|
+|Serializer|`Student::TeacherSerializer`, `InterviewRequestSerializer`, `InterviewRequestMessageSerializer`|
 
 注意:
 

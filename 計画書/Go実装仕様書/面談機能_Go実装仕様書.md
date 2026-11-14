@@ -6,7 +6,7 @@
 
 ## 機能概要
 
-生徒が担当教員に対して面談を申請し、教員とのメッセージのやり取りを通じて面談の実施を進める機能である。生徒視点で提供するのは、面談申請の一覧・詳細取得、新規申請、取り消し、メッセージの一覧・投稿の6操作である（②「1. 機能概要」）。
+生徒が担当教員に対して面談を申請し、教員とのメッセージのやり取りを通じて面談の実施を進める機能である。生徒視点で提供するのは、申請先として選べる担当教員一覧の取得、面談申請の一覧・詳細取得、新規申請、取り消し、メッセージの一覧・投稿の7操作である（②「1. 機能概要」）。
 
 **本書の特別な位置づけ**: 本機能（面談機能）と教師面談機能は、同一のBounded Context（`interview-request`）・同一のAggregate（InterviewRequest）を扱う一体の業務領域である。②面談機能・②教師面談機能のいずれも同一のEntity設計・状態遷移ルールを前提とすると明記している（②「3. Bounded Context」「23. Railsとの責務対応」）ため、実際のGoコードでは同じpackage（`internal/interviewrequest/...`）にEntity・Value Object・Repository Interface・Repository実装が1セットのみ存在し、生徒向けUseCase/Handler（本書）と教師向けUseCase/Handler（教師面談機能_Go実装仕様書）がこれを共有する。そのため本書は、Domain層（Entity・Value Object・Repository Interface・Domain Service・Domain Event・Domain Error）とInfrastructure層（Repository実装）を、生徒視点・教員視点の両方の操作を包含する形で**正の文書として完全に定義する**。教師面談機能_Go実装仕様書は、本書で定義したDomain層・Infrastructure層をそのまま再利用し、教員向けのApplication層・Presentation層のみを追加で定義する。
 
@@ -26,7 +26,7 @@ Transaction Script／Active Record／Event Sourcingは②「4. 設計パター�
 
 - Bounded Context: `interview-request`（②「3. Bounded Context」）
 - Domain層・Infrastructure層: 生徒視点・教員視点の両方の操作を包含する完全な定義（本書が正）
-- Application層・Presentation層・API仕様: 生徒向け6 UseCase（一覧・詳細・新規申請・取消・メッセージ一覧・メッセージ投稿）のみ
+- Application層・Presentation層・API仕様: 生徒向け7 UseCase（担当教員一覧取得・一覧・詳細・新規申請・取消・メッセージ一覧・メッセージ投稿）のみ
 - 対象外: 教員向けUseCase（確定・完了・教員視点の新規申請・キャンセル・メッセージ投稿）のApplication層・Presentation層は教師面談機能_Go実装仕様書の責務とする
 - ①Rails実装の詳細は本タスクでは提供されていないため、参照が必要な箇所は「①未提供のため参照不可」として扱う
 
@@ -112,6 +112,7 @@ internal/interviewrequest/domain/event/interview_request_message_posted.go
 
 internal/interviewrequest/domain/errors/errors.go
 
+internal/interviewrequest/application/student/dto/list_assignable_teachers_dto.go
 internal/interviewrequest/application/student/dto/list_interview_requests_dto.go
 internal/interviewrequest/application/student/dto/show_interview_request_dto.go
 internal/interviewrequest/application/student/dto/create_interview_request_dto.go
@@ -120,6 +121,7 @@ internal/interviewrequest/application/student/dto/list_interview_request_message
 internal/interviewrequest/application/student/dto/create_interview_request_message_dto.go
 internal/interviewrequest/application/student/dto/pagination_dto.go
 
+internal/interviewrequest/application/student/usecase/list_assignable_teachers_usecase.go
 internal/interviewrequest/application/student/usecase/list_interview_requests_usecase.go
 internal/interviewrequest/application/student/usecase/show_interview_request_usecase.go
 internal/interviewrequest/application/student/usecase/create_interview_request_usecase.go
@@ -138,6 +140,7 @@ internal/interviewrequest/infrastructure/contextadapter/student_directory.go
 internal/interviewrequest/infrastructure/contextadapter/user_name_directory.go
 internal/interviewrequest/infrastructure/contextadapter/grade_restriction_directory.go
 
+internal/interviewrequest/presentation/student/handler/teachers_handler.go
 internal/interviewrequest/presentation/student/handler/interview_request_handler.go
 internal/interviewrequest/presentation/student/handler/interview_request_message_handler.go
 internal/interviewrequest/presentation/student/request/interview_request_request.go
@@ -366,6 +369,7 @@ type InterviewRequestMessageRepository interface {
 ```go
 type TeacherAssignmentDirectory interface {
     IsAssignedToStudent(ctx context.Context, teacherID, studentID uint) (bool, error)
+    FindAssignedTeachers(ctx context.Context, studentID uint) ([]TeacherRef, error)
 }
 
 type StudentDirectory interface {
@@ -385,11 +389,17 @@ type StudentRef struct {
     ID      uint
     GradeID *uint
 }
+
+// TeacherRef は本Contextが担当教員一覧の表示のために必要とする属性のみを持つ。
+type TeacherRef struct {
+    ID   uint
+    Name string
+}
 ```
 
 |インターフェース|責務|利用する視点|
 |-|-|-|
-|`TeacherAssignmentDirectory`|指定教員が指定生徒の所属クラスを担当しているかを確認する（②「11. Repository設計」TeacherAssignmentDirectory）。教員情報自体の作成・更新は持たない|生徒視点（新規申請）|
+|`TeacherAssignmentDirectory`|指定教員が指定生徒の所属クラスを担当しているかを確認する（②「11. Repository設計」TeacherAssignmentDirectory）。指定生徒の所属クラスを担当する教員の一覧（識別子・氏名、論理削除されていないものに限る、識別子の昇順）を取得する（同、面談機能②「3. Bounded Context」「11. Repository設計」）。教員情報自体の作成・更新は持たない|生徒視点（新規申請・担当教員一覧取得）|
 |`StudentDirectory`|対象生徒の存在確認と学年の識別子の取得（教師面談②「11. Repository設計」外部参照Repository、同②「12. UseCase設計」CreateInterviewRequestUseCase）。該当しない識別子は`found`が偽になる|教員視点（新規申請）|
 |`UserNameDirectory`|面談の一覧・詳細に含める生徒名・教員名と、メッセージの送信者名をユーザーIDから解決する（氏名は面談側に複製せず表示時に解決する。②「3. Bounded Context」の`user`への依存。ユーザー基盤②「3. Bounded Context」の集約表が面談・教師面談の参照手段を`GetUserAttributes`（複数ID）と定めている）。存在しないIDは結果に含めない|生徒視点・教員視点|
 |`GradeRestrictionDirectory`|教員の担当学年の制限を取得する。制限がない場合は`nil`を返す（教師面談②「11. Repository設計」、同②「8. Domain Service」InterviewEligibilityPolicy）|教員視点（新規申請）|
@@ -602,7 +612,7 @@ stateDiagram-v2
 
 # 6. Application層設計
 
-本節は生徒向け6 UseCaseのみを記載する。教員向けUseCaseは教師面談機能_Go実装仕様書「6. Application層設計」を参照。
+本節は生徒向け7 UseCaseのみを記載する。教員向けUseCaseは教師面談機能_Go実装仕様書「6. Application層設計」を参照。
 
 ## DTO（Command / Query）
 
@@ -610,6 +620,9 @@ stateDiagram-v2
 
 |struct名|フィールドと型|Command/Query区分|
 |-|-|-|
+|`ListAssignableTeachersQuery`|`CurrentStudentID uint`|Query|
+|`TeacherRefItem`|`ID uint`, `Name string`|Query（Result内包型）|
+|`ListAssignableTeachersResult`|`Items []TeacherRefItem`|Query|
 |`ListInterviewRequestsQuery`|`CurrentStudentID uint`, `Status *string`, `Page repository.PageRequest`|Query|
 |`ShowInterviewRequestQuery`|`CurrentStudentID uint`, `InterviewRequestID uint`|Query|
 |`CreateInterviewRequestCommand`|`CurrentStudentID uint`, `TeacherID uint`, `ReasonCategory string`, `ReasonDetail string`|Command|
@@ -630,6 +643,17 @@ stateDiagram-v2
 **②からの補足**: フィールド構成は面談機能②「12. UseCase設計」の入力・出力記述、②「19. API仕様」のリクエスト・レスポンス記述を根拠に具体化した（推測。①未提供のため参照不可）。ただし、生徒名・教員名・送信者名（`StudentName` / `TeacherName` / `SenderName`）を保持する点は、Rails現行の`InterviewRequestSerializer`（`student_id` / `student_name` / `teacher_id` / `teacher_name`を返す）・`InterviewRequestMessageSerializer`（`sender_id` / `sender_name`を返す）で確認した事実に基づく（推測ではない）。氏名は`UserNameDirectory`で表示時に解決する。
 
 ## UseCase
+
+### ListAssignableTeachersUseCase
+
+- struct名: `ListAssignableTeachersUseCase`
+- コンストラクタが受け取る依存: `teacherAssignmentRepo TeacherAssignmentDirectory`
+- 公開メソッドのシグネチャ: `Execute(ctx context.Context, query dto.ListAssignableTeachersQuery) (dto.ListAssignableTeachersResult, error)`
+- 処理ステップ:
+  1. `teacherAssignmentRepo.FindAssignedTeachers(ctx, query.CurrentStudentID)`を呼び出す
+  2. 取得した`TeacherRef`群から`dto.ListAssignableTeachersResult`を組み立てて返す（`Items`が空の場合も空スライスを返し、`nil`にしない）
+- トランザクション境界: 読み取りのみのためトランザクションは使用しない（面談機能②「14. Transaction設計」）
+- 発生しうるApplication Error: なし。本UseCaseはInterviewRequest Aggregateを一切扱わない唯一の生徒向けUseCaseである（面談機能②「12. UseCase設計」ListAssignableTeachers判断根拠）。所属クラスがない生徒の場合、`TeacherAssignmentDirectory`側が空の一覧を返す（エラーにしない）
 
 ### ListInterviewRequestsUseCase
 
@@ -848,7 +872,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 |`UserNameDirectory`|`user`の`GetUserAttributes`（複数ID。ユーザー基盤③「3. 公開操作の定義」）。返った属性から氏名を取り出す|確定|
 |`StudentDirectory`|同じ`GetUserAttributes`。結果に含まれるかどうかで存在確認を兼ね、学年の識別子を取り出す（ユーザー基盤②「12. UseCase設計」は該当しない識別子を結果に含めない）|確定|
 |`GradeRestrictionDirectory`|`teacher-permission`の担当学年の制限の参照|**同②に公開操作が未定義**（教師面談②「3. Bounded Context」）。インターフェース名・シグネチャは教師生徒参照③「3. Domain層設計」・教師お知らせ機能③_1「8. Infrastructure層設計」と同一にし、所有Context側に操作が定まった時点でそこへ委譲する|
-|`TeacherAssignmentDirectory`|`school-class`のクラスの担当教員の参照|**同②に公開操作が未定義**（②「3. Bounded Context」）。同上|
+|`TeacherAssignmentDirectory`|`school-class`のクラスの担当教員の参照（単一教員の担当確認・クラスの担当教員一覧の両方）|**同②に公開操作が未定義**（②「3. Bounded Context」）。同上。クラス編成②「12. UseCase設計」のクラス詳細取得が同じ`teacher_school_classes`を自Context内の参照専用Repositoryとして直接読んでおり、本Contextも同じ扱い（所有Contextが現行の②群に定義されていないテーブルへの参照専用の依存）とする（②「3. Bounded Context」）|
 
 実在確認の専用操作を`user`に設けず`GetUserAttributes`で兼ねるのは、同Contextが「属性の取得が、該当しない識別子を結果に含めないことで実在確認を兼ねる」方針を採っているためである（共通マスタ参照②「11. Repository設計」が同じ扱いをしている）。
 
@@ -883,6 +907,23 @@ Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastruct
 本節は生徒向けHandler/Request/Response/Routingのみを記載する。教員向けは教師面談機能_Go実装仕様書「9. Presentation層設計」を参照。
 
 ## Handler
+
+### TeachersHandler（`internal/interviewrequest/presentation/student/handler/teachers_handler.go`）
+
+- struct名: `TeachersHandler`
+- 対応する呼び出し先: `ListAssignableTeachersUseCase`
+- メソッド一覧:
+
+|メソッド|HTTPメソッド・パス|
+|-|-|
+|`List`|GET /api/v1/student/teachers|
+
+- 処理順序:
+  1. Middlewareで確定済みのcurrent user（student）情報をcontextから取得する
+  2. 入力バインドは行わない（パス・クエリパラメータを持たない。①「5. API / 処理詳細」`Api::V1::Student::TeachersController#index`）
+  3. `dto.ListAssignableTeachersQuery{CurrentStudentID: ...}`を組み立て、`ListAssignableTeachersUseCase.Execute`を呼び出す
+  4. 戻り値のエラーは`c.Error(err)`でgin.Contextへ登録する（通常は発生しない。「14. Error実装方針」参照）
+  5. 成功時は`dto.ListAssignableTeachersResult`を`TeachersResponse`へ変換し、200で返す
 
 ### InterviewRequestHandler（`internal/interviewrequest/presentation/student/handler/interview_request_handler.go`）
 
@@ -934,6 +975,8 @@ Mail・Cache・Queue（`infrastructure/mail` `infrastructure/cache` `infrastruct
 
 |struct名|フィールドと型|
 |-|-|
+|`TeacherRefResponse`|`ID uint `json:"id"``, `Name string `json:"name"``|
+|`TeachersResponse`|`Teachers []TeacherRefResponse `json:"teachers"``|
 |`InterviewRequestListItemResponse`|`ID uint`, `StudentID uint`, `StudentName string`, `TeacherID uint`, `TeacherName string`, `Status string`, `ReasonCategory *string`, `ScheduledAt *time.Time`, `CreatedAt time.Time`|
 |`InterviewRequestListResponse`|`Items []InterviewRequestListItemResponse`, `Page int`, `PerPage int`, `TotalCount int`, `TotalPages int`|
 |`InterviewRequestDetailResponse`|`ID uint`, `StudentID uint`, `StudentName string`, `TeacherID uint`, `TeacherName string`, `Status string`, `ReasonCategory *string`, `ReasonDetail string`, `ScheduledAt *time.Time`, `CompletedAt *time.Time`, `CancelledAt *time.Time`, `CancelReason string`, `LockVersion int64`, `CreatedAt time.Time`|
@@ -952,6 +995,7 @@ EntityであるInterviewRequest／InterviewRequestMessageをそのまま返さ�
 
 |Method|Path|Handler|
 |-|-|-|
+|GET|/api/v1/student/teachers|TeachersHandler.List|
 |GET|/api/v1/student/interview_requests|InterviewRequestHandler.List|
 |GET|/api/v1/student/interview_requests/:id|InterviewRequestHandler.Show|
 |POST|/api/v1/student/interview_requests|InterviewRequestHandler.Create|
@@ -969,6 +1013,7 @@ EntityであるInterviewRequest／InterviewRequestMessageをそのまま返さ�
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
+|GET|/api/v1/student/teachers|TeachersHandler.List|なし|`TeachersResponse`|200|
 |GET|/api/v1/student/interview_requests|InterviewRequestHandler.List|`ListInterviewRequestsRequest`|`InterviewRequestListResponse`|200|
 |GET|/api/v1/student/interview_requests/:id|InterviewRequestHandler.Show|パスパラメータ`id`|`InterviewRequestDetailResponse`|200|
 |POST|/api/v1/student/interview_requests|InterviewRequestHandler.Create|`CreateInterviewRequestRequest`|`CreateInterviewRequestResponse`|201（面談機能②「19. API仕様」Status Codeの記載は「201/200: メッセージ作成・面談申請作成成功の扱いは既存仕様に合わせて統一する」と曖昧であり、①未提供のため参照不可。REST慣例に基づき作成=201と推測。「17. ②からの補足事項」参照）|
@@ -1063,6 +1108,7 @@ Domain Model採用のため、以下はDomain（Entity／Value Object／Domain S
 
 - current userが当事者（申請した生徒本人）となっている面談申請のみを対象とする。`InterviewRequestRepository.FindByIDForStudent`/`FindAllForStudent`にcurrent userのIDを渡すことで、常に生徒スコープでの検索に限定する（面談機能②「16. Authorization設計」UseCase）
 - 面談の確定・完了操作は本書のUseCaseには実装しない（教師面談機能側の責務。面談機能②「16. Authorization設計」UseCase）
+- `ListAssignableTeachersUseCase`は、current userの所属クラスのみを対象とする。InterviewRequestを扱わないため当事者確認は発生しない（面談機能②「16. Authorization設計」UseCase）
 
 ## Domain
 
@@ -1178,6 +1224,7 @@ SQL文そのものは記載しない。
 
 |対象|テストケース|
 |-|-|
+|`ListAssignableTeachersUseCase`|所属クラスがある場合に、クラスを担当する教員の一覧が返ること／所属クラスがない場合に空の一覧（`nil`ではない）が返ること|
 |`ListInterviewRequestsUseCase`|status絞り込み・ページネーションが正しく機能すること|
 |`ShowInterviewRequestUseCase`|当事者以外のIDでは`ErrInterviewRequestNotFound`となること|
 |`CreateInterviewRequestUseCase`|担当教員でない場合に`ErrTeacherNotAssigned`となること／重複申請時に`ErrDuplicateActiveInterview`となること／正常系でjobPublisherが呼び出されること|
@@ -1203,6 +1250,7 @@ SQL文そのものは記載しない。
 
 |対象|テストケース|
 |-|-|
+|`TeachersHandler.List`|`teachers`キーで一覧が返ること（`id`・`name`のみ）／0件のとき空配列`[]`で返ること（`null`にしない）|
 |`InterviewRequestHandler.Create`|必須項目欠落時に422が返ること|
 |`InterviewRequestHandler.Cancel`|lock_version不一致時に409が返ること|
 |全Handler|未認証・非student roleでのアクセスが401/403となること|
@@ -1213,6 +1261,7 @@ SQL文そのものは記載しない。
 |-|-|
 |面談申請〜メッセージ投稿〜取消|一連のエンドポイント呼び出しが正常に完了し、状態遷移（requested→scheduling→cancelled）が一貫して反映されること（面談機能②「22. テスト戦略」Integration Test）|
 |他生徒の面談へのアクセス|他生徒が当事者となっている面談へのアクセスが404で拒否されること|
+|`GET /api/v1/student/teachers`|所属クラスの担当教員のみが返ること（他クラス・他校の教員が含まれないこと）／論理削除された教員が除外されること／所属クラスがない生徒で空配列が返ること|
 
 ---
 
@@ -1240,4 +1289,6 @@ SQL文そのものは記載しない。
 |通知連携先を`announcement` Contextとし、ジョブ種別を1つにまとめて通知種別を`payload`で区別する|両②「3. Bounded Context」がいずれも`announcement`への依存として定めている。申請・取消・メッセージ投稿・確定のいずれも同じシステムお知らせ作成の手段を呼ぶため（①「9. 非同期処理」）、ジョブ種別を分けない|②・①に基づく（推測ではない）|
 |生徒名・教員名・送信者名を、面談側に複製せず、`UserNameDirectory`（`user`の参照）で表示時に解決する構成とした|Rails現行のSerializerが`student_name` / `teacher_name` / `sender_name`を返すことを確認した。②は氏名の解決方法を明記していないが、②「3. Bounded Context」が`user`への依存（メッセージ送信者名の表示）を定めており、氏名を面談のテーブルに持たない現行DBとも整合する。ユーザー基盤②「3. Bounded Context」の集約表は「メッセージ送信者名の表示」のみを挙げているが、生徒名・教員名の表示にも同じ参照手段（`GetUserAttributes`の複数ID指定に相当）を用いる|補足（返却項目に氏名を含める点は①「5. API / 処理詳細」で確認済み。`GetUserAttributes`を使う点はユーザー基盤②「3. Bounded Context」の集約表に基づく）|
 |メッセージ投稿時の状態遷移を、面談を再取得したうえで行い、楽観ロック競合を遷移のスキップとして扱う（メッセージ作成は維持する）構成とした|面談機能②「12. UseCase設計」・「14. Transaction設計」の記載（Rails現行の`Common::PostInterviewRequestMessageService`が、状態更新をメッセージ作成から独立させ、競合を無視する挙動）を実装単位に落とし込んだ。1つのトランザクション内で、`Update`が競合（`RowsAffected == 0`）を返しても、メッセージ作成・ジョブ登録はコミットされる|②の記載どおり|
+|`TeacherAssignmentDirectory`に`FindAssignedTeachers(ctx, studentID) ([]TeacherRef, error)`を追加し、既存の`IsAssignedToStudent`と同じインターフェースにまとめた|面談機能②「11. Repository設計」は、担当確認・一覧取得のいずれも同じ`TeacherAssignmentRepository`（クラス担当情報に対する最小限の参照）に責務を限定するとしている。既存の`TeacherAssignmentDirectory`インターフェースに同じ対象（クラスの担当教員）への問い合わせを追加するメソッドとして表現した。戻り値`TeacherRef{ID, Name}`は①「5. API / 処理詳細」`Api::V1::Student::TeachersController#index`のResponse項目（`id`・`name`のみ）に基づく|①・②に基づく（推測ではない）|
+|`ListAssignableTeachersUseCase`を、InterviewRequest Aggregateを扱わない唯一の生徒向けUseCaseとして定義した|面談機能②「12. UseCase設計」ListAssignableTeachersが「InterviewRequest Aggregateを一切扱わない、クラス担当情報のみの参照処理である」と明記している。他の6 UseCaseと異なり、`repository.InterviewRequestRepository`への依存を持たせない|②の記載どおり|
 
