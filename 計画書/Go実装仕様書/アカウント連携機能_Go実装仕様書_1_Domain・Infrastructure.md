@@ -8,9 +8,18 @@
 
 教員によって事前に招待登録された未利用の生徒アカウント（統合元候補）を、生徒番号をキーに検索し、現在ログイン中のアカウント（統合先）へ統合する機能である。統合対象候補が4つの適格性条件（操作者が未連携・未利用・同一高校・利用データなし）と生徒番号の書式検証をすべて満たす場合にのみ統合を実行し、学籍情報（高校・学年・クラス・生徒番号）を統合先アカウントへコピーしたうえで、統合元アカウントを論理削除する。統合の成否にかかわらず、試行内容を監査ログ（`account_link_audits`）へ記録する（②「1. 機能概要」要約）。
 
-## 採用設計パターンとその理由（②からの要約）
+|項目|内容|
+|-|-|
+|対象Context|`account-linking`（②「3. Bounded Context」）|
+|採用パターン|Domain Model（②「4. 設計パターン」）|
+|本Contextが所有するテーブル|`account_link_audits`（専有）、`users`（限定された範囲のみ。下記参照）|
+|他Contextへの依存|なし|
 
-②「4. 設計パターン」により **Domain Model** を採用する。
+## `users`テーブルへの直接アクセスについて
+
+本Contextは`users`テーブルの所有者ではないが、②「3. Bounded Context」「11. Repository設計」が明示的に定める例外として、学籍情報（高校・学年・クラス・生徒番号）の参照・更新・論理削除に限定して本Context内のRepositoryから直接アクセスする。認証・パスワード管理等、本機能に無関係なUser操作はいずれも`user` Context（ユーザー基盤機能）の責務であり、本Contextは関与しない。この限定された範囲については、他Contextの公開操作を介さず直接クエリを発行してよい（②が明示した例外であり、アーキテクチャ規約「5. Context間連携ルール」の原則に対する②自身の判断である）。
+
+## 採用設計パターンとその理由（②からの要約）
 
 - 単一の統合操作に4つの適格性条件（操作者の連携済み状況・利用開始状況・所属高校・利用データ有無。生徒番号の書式検証を含めると5条件）が集約されており、このうち3つは統合元候補・統合先という2つのアカウントの属性を比較して判定する業務ルールである
 - 統合対象候補は「未利用」から「論理削除済み」へ、統合先は「旧学籍情報」から「新学籍情報」へと、それぞれ状態が変化する
@@ -20,13 +29,10 @@ Transaction Script（条件追加のたびに手続きが肥大化する）、Ac
 
 ## 本書が対象とする実装範囲
 
-- Bounded Context: `account-linking`（②「3. Bounded Context」）
 - 対象UseCase: LinkAccountUseCase（②「12. UseCase設計」）
 - 対象API: `POST /api/v1/student/account_link`（②「19. API仕様」）
-- 対象外: User実体（アカウント）自体の認証・パスワード管理等、本機能に無関係なUser操作（②「11. Repository設計」AccountRepository「保持しない責務」）。`user` Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）は参照とアカウント作成を担い、更新・論理削除は本Contextの外に残す例外であるため（②「3. Bounded Context」他Contextとの依存関係）、本機能が必要とする範囲（学籍情報の参照・更新・論理削除）に限定したRepositoryを本Context内に定義する
+- 対象外: User実体（アカウント）自体の認証・パスワード管理等、本機能に無関係なUser操作（②「11. Repository設計」AccountRepository「保持しない責務」）
 - ①Rails実装の詳細は本タスクでは提供されていないため、参照が必要な箇所は「①未提供のため参照不可」として扱う
-
----
 
 ---
 
@@ -34,9 +40,11 @@ Transaction Script（条件追加のたびに手続きが肥大化する）、Ac
 
 ## 対象Bounded Context名
 
-`account-linking`
+- `account-linking`（②「3. Bounded Context」）
 
-②にはGo実装上のディレクトリ名（`internal/`配下のパッケージ名）の明記がない。アーキテクチャ規約「8. 命名規約」に基づき、既存の`teacher-permission`→`internal/teacher_permission`の対応関係に倣い、`account-linking`→`internal/account_linking`とする（**②からの補足・推測**。詳細は「17. ②からの補足事項」参照）。
+## ディレクトリ・パッケージ名
+
+アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名から`-`を取り除いて連結した全小文字の名前とする。ディレクトリ名は`internal/accountlinking/`、package名は同じ`accountlinking`となる。短縮・省略はしない。Context名とディレクトリ名は規約から機械的に決まるため、②に明記がなくても推測にはならない。
 
 ## ②で採用した設計パターン
 
@@ -48,52 +56,79 @@ Domain Model（②「4. 設計パターン」）
 
 |文書|担当|実装|テスト込みの目安|
 |-|-|-|-|
-|`アカウント連携機能_Go実装仕様書_1_Domain・Infrastructure.md`（本書）|Domain層・Infrastructure層、および機能全体の実装方針|15|約26|
+|`アカウント連携機能_Go実装仕様書_1_Domain・Infrastructure.md`（本書）|Domain層・Infrastructure層・`context.go`、および機能全体の実装方針|16|約27|
 |`アカウント連携機能_Go実装仕様書_2_Application・Presentation.md`|Application層・Presentation層・API仕様|9|約16|
 
 1_Domain・Infrastructure → 2_Application・Presentation の順に実装すれば、各PRは単体でコンパイルが通る。
 
 Transaction・Validation・Authorization・Errorの実装方針は機能全体で共通であるため本書に置く。2つ目では繰り返さず、本書を参照する。
 
+## 作成するディレクトリ一覧
+
+```
+internal/accountlinking/
+├── context.go
+├── domain/
+│   ├── entity/
+│   ├── valueobject/
+│   ├── repository/
+│   ├── service/
+│   └── errors/
+├── application/
+│   ├── command/
+│   ├── dto/
+│   └── usecase/
+├── infrastructure/
+│   └── gormrepo/
+└── presentation/
+    ├── handler/
+    ├── request/
+    ├── response/
+    └── routes.go
+```
+
+`dependency.go`は作成しない。本Contextは他Contextへの依存を持たない（「1. 機能概要」）。`infrastructure/contextadapter/`も同じ理由で作成しない。本Contextが所有するテーブル（`account_link_audits`）と、②が明示した例外として直接アクセスする`users`の限定範囲は、いずれも`infrastructure/gormrepo/`に置く。
 
 ## 作成するファイル一覧（機能全体）
 
 ### 1_Domain・Infrastructure（本書）の担当
 
 ```
-internal/account_linking/domain/entity/account_link_audit.go
-internal/account_linking/domain/entity/merge_candidate_account.go
-internal/account_linking/domain/entity/target_account.go
-internal/account_linking/domain/errors/errors.go
-internal/account_linking/domain/repository/account_link_audit_repository.go
-internal/account_linking/domain/repository/account_repository.go
-internal/account_linking/domain/service/account_link_eligibility_policy.go
-internal/account_linking/domain/service/account_link_rate_limiter.go
-internal/account_linking/domain/valueobject/account_link_eligibility.go
-internal/account_linking/domain/valueobject/account_link_result.go
-internal/account_linking/domain/valueobject/student_number.go
-internal/account_linking/infrastructure/persistence/gorm/account_link_audit_model.go
-internal/account_linking/infrastructure/persistence/gorm/user_model.go
-internal/account_linking/infrastructure/repository/account_link_audit_repository.go
-internal/account_linking/infrastructure/repository/account_repository.go
+internal/accountlinking/context.go
+
+internal/accountlinking/domain/entity/account_link_audit.go
+internal/accountlinking/domain/entity/merge_candidate_account.go
+internal/accountlinking/domain/entity/target_account.go
+internal/accountlinking/domain/errors/errors.go
+internal/accountlinking/domain/repository/account_link_audit_repository.go
+internal/accountlinking/domain/repository/account_repository.go
+internal/accountlinking/domain/service/account_link_eligibility_policy.go
+internal/accountlinking/domain/service/account_link_rate_limiter.go
+internal/accountlinking/domain/valueobject/account_link_eligibility.go
+internal/accountlinking/domain/valueobject/account_link_result.go
+internal/accountlinking/domain/valueobject/student_number.go
+
+internal/accountlinking/infrastructure/gormrepo/account_link_audit_model.go
+internal/accountlinking/infrastructure/gormrepo/user_model.go
+internal/accountlinking/infrastructure/gormrepo/account_link_audit_repository.go
+internal/accountlinking/infrastructure/gormrepo/account_repository.go
 ```
 
 ### 2_Application・Presentation の担当
 
 ```
-internal/account_linking/application/command/link_account_command.go
-internal/account_linking/application/dto/link_account_result.go
-internal/account_linking/application/usecase/errors.go
-internal/account_linking/application/usecase/link_account_usecase.go
-internal/account_linking/application/usecase/preview_account_link.go
-internal/account_linking/presentation/handler/account_link_handler.go
-internal/account_linking/presentation/request/account_link_request.go
-internal/account_linking/presentation/response/account_link_response.go
-internal/account_linking/presentation/routes.go
+internal/accountlinking/application/command/link_account_command.go
+internal/accountlinking/application/dto/link_account_result.go
+internal/accountlinking/application/usecase/errors.go
+internal/accountlinking/application/usecase/link_account_usecase.go
+internal/accountlinking/application/usecase/preview_account_link.go
+internal/accountlinking/presentation/handler/account_link_handler.go
+internal/accountlinking/presentation/request/account_link_request.go
+internal/accountlinking/presentation/response/account_link_response.go
+internal/accountlinking/presentation/routes.go
 ```
 
 `preview_account_link.go`は`PreviewAccountLinkUseCase`（Rails現行の`Student::AccountLinkPreviewService`に対応）の実装である。`AccountLinkPreviewResponse`は`presentation/response/account_link_response.go`に定義し、別ファイルにしない。
-
 
 ---
 
@@ -133,7 +168,7 @@ internal/account_linking/presentation/routes.go
 
 **②からの補足**: ②「6. Entity設計」はMergeCandidateAccountの責務として「TargetAccountとの比較により、自身が統合元として適格かどうかを判定する振る舞いを持つ」と記載する一方、②「8. Domain Service」はAccountLinkEligibilityPolicyについて「判定は単一Entityの属性だけでなく、2つのEntity間の比較を要するため、どちらか一方のEntityへ責務を寄せると不自然になる」と記載しており、両者はEntity自身に比較責務を持たせるか否かで一見矛盾する。本書では、教師権限管理機能③（`TeacherPermissionUpdateGuard`）・問題解答機能③（AnswerResult/AnswerStatusの整理）で採用した前例と同様に、Entityは自己完結する事実（`IsUnused()`・`ID()`・`HighSchoolID()`等）のみを提供し、2つのEntity間の実際の比較・判定処理はDomain Service（`AccountLinkEligibilityPolicy`）に集約する構成で整理する。これにより②6章・8章いずれの記載とも矛盾しない（**②からの補足**。詳細は「17. ②からの補足事項」参照）。
 
-`MarkMerged`は`deletedAt`のみを設定し、`studentNumber`の値そのものをVO層でクリア（空文字列化）する処理は持たせない。`valueobject.StudentNumber`は生成時に書式を検証するVOであり、Entity内で不正な空値へ書き換えることはVOの不変条件と矛盾するためである。DB上の`student_number`列のクリアは、Infrastructure層のRepository実装（`AccountRepositoryImpl.MarkMerged`）がGORMモデルに対する更新として直接行う（**②からの補足**。②「6. Entity設計」の状態変化「`deleted_at`設定、`student_number`クリア」のうち、`student_number`クリアをInfrastructure層の責務として切り分けたもの。詳細は「17. ②からの補足事項」参照）。
+`MarkMerged`は`deletedAt`のみを設定し、`studentNumber`の値そのものをVO層でクリア（空文字列化）する処理は持たせない。`valueobject.StudentNumber`は生成時に書式を検証するVOであり、Entity内で不正な空値へ書き換えることはVOの不変条件と矛盾するためである。DB上の`student_number`列のクリアは、Infrastructure層のRepository実装（`AccountRepository.MarkMerged`）がGORMモデルに対する更新として直接行う（**②からの補足**。②「6. Entity設計」の状態変化「`deleted_at`設定、`student_number`クリア」のうち、`student_number`クリアをInfrastructure層の責務として切り分けたもの。詳細は「17. ②からの補足事項」参照）。
 
 ### TargetAccount（統合先＝ログイン中アカウント）
 
@@ -209,7 +244,7 @@ internal/account_linking/presentation/routes.go
 |-|-|-|-|
 |`NewAccountLinkEligibility`|`(isSelf, alreadyUsed, differentSchool, hasUsageData bool)`|`AccountLinkEligibility`|4条件の判定結果を保持するVOを生成する|
 |`(e AccountLinkEligibility) IsEligible() bool`|なし|`bool`|4条件がいずれも`false`（違反なし）の場合に`true`を返す|
-|`(e AccountLinkEligibility) IsAlreadyLinked() bool` / `IsAlreadyUsed() bool` / `IsDifferentSchool() bool` / `HasUsageData() bool`|なし|`bool`|個々の条件の違反有無を参照する（UseCaseが違反理由に応じたDomain Errorを判定するために用いる。判定順序は「12. 処理フロー図」参照）|
+|`(e AccountLinkEligibility) IsAlreadyLinked() bool` / `IsAlreadyUsed() bool` / `IsDifferentSchool() bool` / `HasUsageData() bool`|なし|`bool`|個々の条件の違反有無を参照する（UseCaseが違反理由に応じたDomain Errorを判定するために用いる。判定順序は2_Application・Presentation編「処理フロー図」参照）|
 
 ### AccountLinkResult
 
@@ -228,7 +263,7 @@ internal/account_linking/presentation/routes.go
 
 ### AccountRepository（`domain/repository/account_repository.go`）
 
-②「11. Repository設計」AccountRepositoryの責務に対応する。
+②「11. Repository設計」AccountRepositoryの責務に対応する。「1. 機能概要」の例外に基づき、本Contextが`users`テーブルへ直接クエリを発行する唯一のRepositoryである。
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
@@ -291,8 +326,6 @@ internal/account_linking/presentation/routes.go
 |`ErrAlreadyUsed`|`AccountLinkEligibility.IsAlreadyUsed()`が`true`の場合|②「17. Error設計」統合対象アカウントが既に利用開始済み|
 |`ErrDifferentSchool`|`AccountLinkEligibility.IsDifferentSchool()`が`true`の場合|②「17. Error設計」統合対象アカウントの所属高校が異なる|
 |`ErrHasUsageData`|`AccountLinkEligibility.HasUsageData()`が`true`の場合|②「17. Error設計」統合対象アカウントに利用データが存在する|
-
----
 
 ---
 
@@ -396,8 +429,6 @@ classDiagram
 
 ---
 
----
-
 # 5. 状態遷移図
 
 ```mermaid
@@ -411,28 +442,40 @@ stateDiagram-v2
 
 ---
 
+# 6. Application層設計
+
+本書では扱わない。UseCase（`LinkAccountUseCase`・`PreviewAccountLinkUseCase`）とDTOは`2_Application・Presentation.md`で定義する。
+
 ---
 
-# 6. Infrastructure層設計
+# 7. シーケンス図・処理フロー図
 
-## Repository実装
+本書では扱わない。シーケンス図・処理フロー図は`2_Application・Presentation.md`に記載する。
 
-### AccountRepositoryImpl（`infrastructure/repository/account_repository.go`）
+本書が定めるDomain層・Infrastructure層が、`LinkAccountUseCase`からどう呼ばれるかは同文書を参照する。
 
-- 実装struct名: 非公開struct（`accountRepository`）+ コンストラクタ`NewAccountRepository(db *gorm.DB) repository.AccountRepository`（規約「8. 命名規約」により`Impl`接尾辞は実装側のpackage名で代替する）
-- 対応するGORMモデル: `gormmodel.UserModel`（`infrastructure/persistence/gorm/user_model.go`、`users`テーブルに対応。統合元候補・統合先いずれも同一テーブルへの異なる役割でのアクセスである）
+---
+
+# 8. Infrastructure層設計
+
+## Repository実装（`infrastructure/gormrepo/`）
+
+### AccountRepository実装（`infrastructure/gormrepo/account_repository.go`）
+
+- 実装struct名: 非公開struct（`accountRepository`）+ コンストラクタ`NewAccountRepository(db *gorm.DB) repository.AccountRepository`（規約「9. 命名規約」により`Impl`接尾辞を付けない）
+- 対応するGORMモデル: `UserModel`（`infrastructure/gormrepo/user_model.go`、`users`テーブルに対応。統合元候補・統合先いずれも同一テーブルへの異なる役割でのアクセスである）
 - 各メソッドで発行するクエリ内容:
   - `FindMergeCandidateByStudentNumber`: `student_number`が指定値と一致し、`deleted_at`が未設定（未削除）である行を1件取得する。該当なしは`gorm.ErrRecordNotFound`を`errors.Is`で判定し`domainerrors.ErrMergeCandidateNotFound`へ変換する（Gorm規約「9. エラーハンドリング」の標準変換パターン）
   - `FindTargetAccountByID`: `id`が指定値と一致する行を1件取得する
   - `ExistsUsageData`: 指定`user_id`に紐づく`goals`・`tasks`等の業務データテーブルへの存在確認クエリを発行する（②「21. DB操作仕様」に対応。具体的にどのテーブルを対象とするかは①未提供のため確認できず、②に列挙された`goals`/`tasks`等を対象とする。「17. ②からの補足事項」参照）
   - `UpdateRegistration`: 対象`id`の行の`high_school_id`・`grade_id`・`school_class_id`・`student_number`列を更新する
   - `MarkMerged`: 対象`id`の行の`deleted_at`列に現在時刻を、`student_number`列に空値を設定する（GORMの`Updates`にマップを渡すことで、ゼロ値（空文字列）を明示的に更新する。Gorm規約に定める標準の構造体`Updates`はゼロ値フィールドを更新対象から除外するため、マップ形式を用いる）
-- Entity ⇔ GORMモデルの変換方針: `infrastructure/repository`内の非公開変換関数（`toMergeCandidateEntity` / `toTargetAccountEntity` / `fromTargetAccountEntity`）で相互変換する。GORMモデルをドメイン層に漏らさない
+- Entity ⇔ GORMモデルの変換方針: `infrastructure/gormrepo`内の非公開変換関数（`toMergeCandidateEntity` / `toTargetAccountEntity` / `fromTargetAccountEntity`）で相互変換する。GORMモデルをドメイン層に漏らさない
 
-### AccountLinkAuditRepositoryImpl（`infrastructure/repository/account_link_audit_repository.go`）
+### AccountLinkAuditRepository実装（`infrastructure/gormrepo/account_link_audit_repository.go`）
 
 - 実装struct名: 非公開struct（`accountLinkAuditRepository`）+ コンストラクタ`NewAccountLinkAuditRepository(db *gorm.DB) repository.AccountLinkAuditRepository`
-- 対応するGORMモデル: `gormmodel.AccountLinkAuditModel`（`infrastructure/persistence/gorm/account_link_audit_model.go`、`account_link_audits`テーブルに対応）
+- 対応するGORMモデル: `AccountLinkAuditModel`（`infrastructure/gormrepo/account_link_audit_model.go`、`account_link_audits`テーブルに対応）
 - 各メソッドで発行するクエリ内容:
   - `Save`: 新規レコードの作成
   - `CountRecentAttempts`: `user_id`が一致し、`created_at`が`since`以降である行の件数を取得する
@@ -442,50 +485,46 @@ stateDiagram-v2
 
 ②にMail・Cache・Queue等の外部連携に関する記載はない。「対象外」とする。
 
----
+## 依存関係の組み立て（`context.go`）
+
+規約「14. 依存関係の組み立て（DI配線）」の「Context単位の組み立て関数」に従い、`NewContext`を`context.go`に置く。
+
+|項目|内容|
+|-|-|
+|関数|`NewContext(db *gorm.DB) *Context`|
+|組み立てる内容|2つのRepository実装・2つのDomain Serviceを生成し、共通の`transaction.Manager`（`gormtx`）とあわせて`LinkAccountUseCase`・`PreviewAccountLinkUseCase`（`2_Application・Presentation.md`）へ注入する。`AccountLinkHandler`へ注入する|
+|公開するもの|ルーティング登録に必要な`AccountLinkHandler`|
+
+**本Contextは他Contextへ操作を公開しない。** 自身の統合処理に閉じた機能であり、他Contextが必要とする事実を所有しない（「1. 機能概要」）。
 
 ---
 
-# 7. GORM / DBクエリ設計
+# 9. Presentation層設計
 
-②「20. DB設計方針」により、既存Rails DBをそのまま継続利用し、Schema変更は行わない。
-
-## 利用するGORMモデルとテーブルの対応
-
-|Goモデル|テーブル名|備考|
-|-|-|-|
-|`gormmodel.UserModel`|`users`|Gorm規約のデフォルト命名規則（struct名の複数形snake_case）で一致するため、`TableName()`のオーバーライドは不要。統合元候補・統合先いずれもこのモデル経由で読み書きする|
-|`gormmodel.AccountLinkAuditModel`|`account_link_audits`|同上、デフォルト命名規則で一致する|
-
-## 主要クエリの条件・ソート・ページネーション方針
-
-|Repository|メソッド|対象テーブル|条件|結合|
-|-|-|-|-|-|
-|AccountRepository|FindMergeCandidateByStudentNumber|users|`student_number`一致、`deleted_at IS NULL`|なし|
-|AccountRepository|FindTargetAccountByID|users|`id`一致|なし|
-|AccountRepository|ExistsUsageData|goals, tasks等|`user_id`一致の存在確認|なし（複数テーブルへの個別存在確認クエリ。②「21. DB操作仕様」参照）|
-|AccountRepository|UpdateRegistration|users|`id`一致|なし|
-|AccountRepository|MarkMerged|users|`id`一致|なし|
-|AccountLinkAuditRepository|Save|account_link_audits|-|なし|
-|AccountLinkAuditRepository|CountRecentAttempts|account_link_audits|`user_id`一致、`created_at >= since`|なし|
-
-SQL文そのものは記載しない。
-
-## 既存Schemaに対する変更
-
-②「20. DB設計方針」により変更なし。
+本書では扱わない。Handler・Request / Response DTO・`routes.go`は`2_Application・Presentation.md`で定義する。
 
 ---
 
+# 10. API仕様
+
+本書では扱わない。API仕様は`2_Application・Presentation.md`に記載する。
+
+|Method|Path|正常系|担当文書|
+|-|-|-|-|
+|POST|/api/v1/student/account_link|200|`2_Application・Presentation`|
+
 ---
 
-# 8. Transaction実装方針
+# 11. Transaction実装方針
 
-②「14. Transaction設計」を実装単位に落とし込む。
+②「14. Transaction設計」を実装単位に落とし込む。実装機構はアーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の標準パターンにそのまま従う。
 
 ## Transaction開始箇所
 
-`LinkAccountUseCase.Execute`内、`AccountLinkEligibilityPolicy.Judge`の結果`IsEligible()`が`true`であることが確定した直後（学籍情報コピーの直前）で`TransactionManager.WithinTransaction`を呼び出す（②「14. Transaction設計」Transaction開始位置）。
+`LinkAccountUseCase.Execute`内、`AccountLinkEligibilityPolicy.Judge`の結果`IsEligible()`が`true`であることが確定した直後（学籍情報コピーの直前）で`transaction.Manager.WithinTransaction`を呼び出す（②「14. Transaction設計」Transaction開始位置）。
+
+- interface名: `transaction.Manager`（`internal/shared/transaction`。本Contextでは定義せず共通のものを使う）
+- 実装: `internal/shared/transaction/gormtx`。本Contextでは実装しない
 
 ## Transaction終了箇所（Commit / Rollback条件）
 
@@ -494,7 +533,7 @@ SQL文そのものは記載しない。
 
 ## 複数Repositoryにまたがる場合の扱い
 
-`AccountRepository`と`AccountLinkAuditRepository`を同一の`TransactionManager`（同一トランザクション）内で呼び出す。
+`AccountRepository`と`AccountLinkAuditRepository`を同一の`transaction.Manager`（同一トランザクション）内で呼び出す。
 
 一方、以下の処理はこのトランザクションの**外側**で実行する（②「14. Transaction設計」「レート制限チェックそのものも、統合処理のトランザクションの外側で行う」「失敗時の監査ログ記録は、統合処理のトランザクションとは独立して…コミットする」）。
 
@@ -505,9 +544,7 @@ SQL文そのものは記載しない。
 
 ---
 
----
-
-# 9. Validation実装方針
+# 12. Validation実装方針
 
 ②「15. Validation設計」の「バリデーション仕様」表を実装レベルに落とし込む。
 
@@ -530,9 +567,7 @@ Domain Model採用のため、Entity／Value Object生成時の検証とUseCase�
 
 ---
 
----
-
-# 10. Authorization実装方針
+# 13. Authorization実装方針
 
 ②「16. Authorization設計」を実装レベルに落とし込む。
 
@@ -557,15 +592,13 @@ Domain Model採用のため、Entity／Value Object生成時の検証とUseCase�
 
 ---
 
----
-
-# 11. Error実装方針
+# 14. Error実装方針
 
 ②「17. Error設計」の「エラー仕様」表を実装レベルに落とし込む（アーキテクチャ規約「12. Error変換パターン（AppError）」に従う）。
 
 ## Domain Error → Application Errorへの変換方針
 
-UseCaseは、Repository/Domainから返されたエラーを`errors.Is`で判定し、`AppError`を実装した型に変換して返す。`ErrInvalidStudentNumberFormat` / `ErrAlreadyLinked` / `ErrAlreadyUsed` / `ErrDifferentSchool` / `ErrHasUsageData`はいずれも400、`ErrMergeCandidateNotFound`は404、`usecase.ErrRateLimitExceeded`は429として変換する。
+UseCaseは、Repository/Domainから返されたエラーを`errors.Is`で判定し、`internal/shared/apperror`の`AppError`を実装した型に変換して返す。本Contextでは`apperror`を独自に持たず、共通の`apperror`パッケージをそのまま使う。`ErrInvalidStudentNumberFormat` / `ErrAlreadyLinked` / `ErrAlreadyUsed` / `ErrDifferentSchool` / `ErrHasUsageData`はいずれも400、`ErrMergeCandidateNotFound`は404、`usecase.ErrRateLimitExceeded`は429として変換する。
 
 ## Application Error → HTTPレスポンスへの変換方針
 
@@ -573,7 +606,7 @@ Presentation層は、Gin規約「8. エラーハンドリングミドルウェ�
 
 ## Infrastructure Errorのハンドリング方針
 
-GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf`によりラップし（コーディング規約「18. エラーハンドリング」）、`AppError`に変換されていない未分類エラーとして共通エラーハンドリングミドルウェアが500として応答する。
+GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf`によりラップし（コーディング規約「6. エラーハンドリング」）、`AppError`に変換されていない未分類エラーとして共通エラーハンドリングミドルウェアが500として応答する。
 
 |業務シナリオ|Error変数名／型|発生層|HTTP Status|
 |-|-|-|-|
@@ -591,9 +624,38 @@ GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf`によ�
 
 ---
 
+# 15. GORM / DBクエリ設計
+
+②「20. DB設計方針」により、既存Rails DBをそのまま継続利用し、Schema変更は行わない。
+
+## 利用するGORMモデルとテーブルの対応
+
+|Goモデル|テーブル名|備考|
+|-|-|-|
+|`UserModel`|`users`|Gorm規約のデフォルト命名規則（struct名の複数形snake_case）で一致するため、`TableName()`のオーバーライドは不要。統合元候補・統合先いずれもこのモデル経由で読み書きする|
+|`AccountLinkAuditModel`|`account_link_audits`|同上、デフォルト命名規則で一致する|
+
+## 主要クエリの条件・ソート・ページネーション方針
+
+|Repository|メソッド|対象テーブル|条件|結合|
+|-|-|-|-|-|
+|AccountRepository|FindMergeCandidateByStudentNumber|users|`student_number`一致、`deleted_at IS NULL`|なし|
+|AccountRepository|FindTargetAccountByID|users|`id`一致|なし|
+|AccountRepository|ExistsUsageData|goals, tasks等|`user_id`一致の存在確認|なし（複数テーブルへの個別存在確認クエリ。②「21. DB操作仕様」参照）|
+|AccountRepository|UpdateRegistration|users|`id`一致|なし|
+|AccountRepository|MarkMerged|users|`id`一致|なし|
+|AccountLinkAuditRepository|Save|account_link_audits|-|なし|
+|AccountLinkAuditRepository|CountRecentAttempts|account_link_audits|`user_id`一致、`created_at >= since`|なし|
+
+SQL文そのものは記載しない。
+
+## 既存Schemaに対する変更
+
+②「20. DB設計方針」により変更なし。
+
 ---
 
-# 12. テストケース設計（本書の担当分）
+# 16. テストケース設計（本書の担当分）
 
 ## Domain Test
 
@@ -616,27 +678,29 @@ GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf`によ�
 
 |対象|テストケース|
 |-|-|
-|`AccountRepositoryImpl.FindMergeCandidateByStudentNumber`|未削除かつ一致する生徒番号の行が取得できること|
-|`AccountRepositoryImpl.FindMergeCandidateByStudentNumber`|該当なしの場合に`ErrMergeCandidateNotFound`が返ること|
-|`AccountRepositoryImpl.UpdateRegistration`|学籍情報列が正しく更新されること|
-|`AccountRepositoryImpl.MarkMerged`|`deleted_at`が設定され、`student_number`が空値になること|
-|`AccountLinkAuditRepositoryImpl.CountRecentAttempts`|`since`以降の件数のみがカウントされること|
+|`AccountRepository.FindMergeCandidateByStudentNumber`|未削除かつ一致する生徒番号の行が取得できること|
+|`AccountRepository.FindMergeCandidateByStudentNumber`|該当なしの場合に`ErrMergeCandidateNotFound`が返ること|
+|`AccountRepository.UpdateRegistration`|学籍情報列が正しく更新されること|
+|`AccountRepository.MarkMerged`|`deleted_at`が設定され、`student_number`が空値になること|
+|`AccountLinkAuditRepository.CountRecentAttempts`|`since`以降の件数のみがカウントされること|
 
 2_Application・Presentationが担当するUseCase Test・Handler Test・Integration Testは、同文書に記載する。
 
 ---
 
-# 13. ②からの補足事項
+# 17. ②からの補足事項
 
 ②に明記がなく、実装のために追加で判断した内容を以下に記載する。
 
 |判断した内容|判断理由|推測か否か|
 |-|-|-|
-|Bounded Context `account-linking` の内部ディレクトリ名を`internal/account_linking`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
+|Bounded Context `account-linking` のディレクトリ名を`internal/accountlinking`とした|アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」が、Context名から`-`を取り除いた連結形と定めている。②に明記がなくても規約から機械的に決まる|推測ではない（規約から機械的に決まる）|
 |②6章「MergeCandidateAccountがTargetAccountとの比較により適格性を判定する振る舞いを持つ」という記載と、②8章「判定は2つのEntity間の比較であり、どちらか一方のEntityへ責務を寄せると不自然」という記載の整理として、Entityは自己完結する事実（`IsUnused()`等）のみを提供し、実際の比較はDomain Service（`AccountLinkEligibilityPolicy`）が担う構成とした|教師権限管理機能③（`TeacherPermissionUpdateGuard`）・問題解答機能③（AnswerResult/AnswerStatusの整理）と同種の②内記述の重複を、既存の前例と同じ考え方で整理したもの|補足（②内の記述整合のための構造化。推測ではない）|
 |`MergeCandidateAccount.MarkMerged`は`deletedAt`のみを設定し、`student_number`のクリアはInfrastructure層のRepository実装が担う構成とした|`valueobject.StudentNumber`はVOとして書式を検証する不変条件を持つため、Entity内で不正な空値へ書き換えることはVOの不変条件と矛盾する。DB列のクリアという永続化上の操作として、Infrastructure層に切り出した|補足（VOの不変条件を維持するための実装判断）|
 |`AccountRepository`に、②「11. Repository設計」の「保持する検索機能」に明記のない`FindTargetAccountByID`メソッドを追加した|②「11. Repository設計」AccountRepositoryの責務には「本人チェック・適格性判定に必要な属性の取得」とあるが、具体的なメソッド名の記載はない。`AccountLinkEligibilityPolicy.Judge`がTargetAccount Entityを引数に要求する設計（3章）上、これを取得する手段が必要であるため追加した|補足（①未提供のため実装時要確認）|
 |`AccountRepository.ExistsUsageData`が対象とする具体的なテーブル（goals/tasks等）の一覧|②「21. DB操作仕様」は「学習履歴等の業務データ存在確認のため、goals/tasks等との存在確認クエリが必要」とのみ記載し、対象テーブルの網羅的な一覧は明記していない。①未提供のため確認不可|推測（実装前に業務データの対象範囲を確認することを推奨）|
 |`student_number`未入力（Presentation Validation失敗）時のHTTP Statusを422とした|②「19. API仕様」のStatus Code一覧には`400`（形式不正・適格性違反）のみが明記され、Presentationレベルのバインドエラーの扱いは明記がない。他の学生向け機能（タスク管理機能・目標管理機能等）がPresentation Validation失敗を422として扱っている前例に倣った|推測|
-|`TransactionManager`のインターフェース設計（`WithinTransaction`等）|アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」に標準パターンとして定義済みであるため、本書ではその標準パターンをそのまま採用した（推測ではなく規約準拠）|補足|
+|`transaction.Manager` / `AppError`を本Context内に定義せず、`internal/shared/transaction`・`internal/shared/apperror`の共通実装をそのまま使う構成とした|規約「11. Transaction実装パターン（TransactionManager）」「12. Error変換パターン（AppError）」が共通実装を定めており、Contextごとに重複定義しないためである|推測ではない（規約に従った）|
 |`AccountLinkEligibility`の4フィールドの命名・粒度（`isSelf` / `alreadyUsed` / `differentSchool` / `hasUsageData`）|②「9. クラス図」に記載されたフィールド名（`isSelf` / `alreadyUsed` / `differentSchool` / `hasUsageData`）をそのまま採用した|補足（②クラス図からの具体化）|
+
+上記以外の設計判断は②の記載をそのまま踏襲する。

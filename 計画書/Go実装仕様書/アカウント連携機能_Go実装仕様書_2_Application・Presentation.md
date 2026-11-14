@@ -2,27 +2,78 @@
 
 ---
 
-# 1. 本書の範囲
+# 1. 機能概要
 
 本書はApplication層・Presentation層（9ファイル、テスト込みで約16）を扱う。
 
-## 担当するエンドポイント
+## 本書が担当するエンドポイント
 
 |Method|Path|Handler|概要|
 |-|-|-|-|
 |POST|`/api/v1/student/account_link`|`AccountLinkHandler.LinkAccount`|生徒番号を指定してアカウント連携を実行する|
 |POST|`/api/v1/student/account_link/preview`|`AccountLinkHandler.PreviewAccountLink`|統合を確定する前に、対象アカウントの学校・学年・学級名を取得する|
 
-## 本書が前提とする文書
+## 本書の位置づけ
 
-- `アカウント連携機能_Go実装仕様書_1_Domain・Infrastructure.md`: Domain層・Infrastructure層、およびTransaction・Validation・Authorization・Errorの実装方針
-- 1_Domain・Infrastructureを実装・マージしたうえで本書の実装に着手する
+本書は`アカウント連携機能_Go実装仕様書_1_Domain・Infrastructure.md`（以下「1_Domain・Infrastructure」）のスライス編である。
 
-本書では、1_Domain・Infrastructureに記載した実装方針を繰り返さない。担当ファイルの一覧は同文書「2. ディレクトリ構成」の「2_Application・Presentation の担当」を参照する。
+1_Domain・Infrastructureが定めるもの（本書では繰り返さない）:
+
+- Domain層のすべて（Entity・Value Object・Repository Interface・Domain Service・Domain Error）
+- Infrastructure層のすべて（Repository実装・GORMモデル）
+- `context.go`、およびTransaction・Validation・Authorization・Error・GORMの実装方針
+
+本書が定めるもの:
+
+- 上記2エンドポイントのApplication層（`LinkAccountUseCase`・`PreviewAccountLinkUseCase`・DTO）
+- 同Presentation層（Handler・Request / Response DTO・`routes.go`）
+- 同API仕様・テストケース設計
+
+## 採用設計パターン
+
+Domain Model（②「4. 設計パターン」）。1_Domain・Infrastructure「1. 機能概要」を参照。
+
+1_Domain・Infrastructureを実装・マージしたうえで本書の実装に着手する。
 
 ---
 
-# 2. Application層設計
+# 2. ディレクトリ構成
+
+1_Domain・Infrastructure「2. ディレクトリ構成」の機能全体のファイル一覧のうち、本書が担当するものは以下の9である。
+
+```
+internal/accountlinking/application/command/link_account_command.go
+internal/accountlinking/application/dto/link_account_result.go
+internal/accountlinking/application/usecase/errors.go
+internal/accountlinking/application/usecase/link_account_usecase.go
+internal/accountlinking/application/usecase/preview_account_link.go
+internal/accountlinking/presentation/handler/account_link_handler.go
+internal/accountlinking/presentation/request/account_link_request.go
+internal/accountlinking/presentation/response/account_link_response.go
+internal/accountlinking/presentation/routes.go
+```
+
+---
+
+# 3. Domain層設計
+
+本書では定義しない。1_Domain・Infrastructure「3. Domain層設計」を参照。
+
+---
+
+# 4. クラス図
+
+1_Domain・Infrastructure「4. クラス図」を参照。本書はUseCase・Handlerを追加するのみである。
+
+---
+
+# 5. 状態遷移図
+
+1_Domain・Infrastructure「5. 状態遷移図」を参照。本書の`LinkAccountUseCase`が、`MergeCandidateAccount.MarkMerged`による遷移（未利用→論理削除済み）を発生させる唯一のUseCaseである。`PreviewAccountLinkUseCase`は読み取りのみで遷移を発生させない。
+
+---
+
+# 6. Application層設計
 
 ## DTO（Command / Query）
 
@@ -40,7 +91,7 @@ Query DTOは設けない（本機能はLinkAccountというCommand操作のみ�
 ②「12. UseCase設計」LinkAccountに対応する。
 
 - struct名: `LinkAccountUseCase`
-- コンストラクタが受け取る依存: `repository.AccountRepository`, `repository.AccountLinkAuditRepository`, `*service.AccountLinkEligibilityPolicy`, `service.AccountLinkRateLimiter`, `TransactionManager`（アーキテクチャ規約「11. Transaction実装パターン」）
+- コンストラクタが受け取る依存: `repository.AccountRepository`, `repository.AccountLinkAuditRepository`, `*service.AccountLinkEligibilityPolicy`, `service.AccountLinkRateLimiter`, `transaction.Manager`（アーキテクチャ規約「11. Transaction実装パターン」）
 - 公開メソッド: `(u *LinkAccountUseCase) Execute(ctx context.Context, cmd command.LinkAccountCommand) (dto.LinkAccountResult, error)`
 - 処理ステップ（②「13. シーケンス図・処理フロー図」に対応）:
   1. `valueobject.NewStudentNumber(cmd.StudentNumber)`で書式検証する。不正時は`domainerrors.ErrInvalidStudentNumberFormat`を返す（監査ログは記録しない。書式不正の時点では統合元候補が特定できないため）
@@ -51,7 +102,7 @@ Query DTOは設けない（本機能はLinkAccountというCommand操作のみ�
   6. `AccountRepository.ExistsUsageData(ctx, candidate.ID())`で統合元候補の利用データ有無を取得する
   7. `AccountLinkEligibilityPolicy.Judge(candidate, target, hasUsageData)`で適格性を判定する
   8. 適格性を満たさない場合: `AccountLinkEligibility`の各条件を`IsAlreadyLinked → IsAlreadyUsed → IsDifferentSchool → HasUsageData`の順に判定し、最初に該当した条件に対応するDomain Error（`ErrAlreadyLinked` / `ErrAlreadyUsed` / `ErrDifferentSchool` / `ErrHasUsageData`）を確定する。`entity.NewAccountLinkAudit`で失敗ログ（`valueobject.NewAccountLinkResultFailed()`）を生成し、`AccountLinkAuditRepository.Save`で記録したうえで、確定したDomain Errorを返す（トランザクションの外側で記録する。「11. Transaction実装方針」参照）
-  9. 適格性を満たす場合: `TransactionManager.WithinTransaction`内で以下を実行する
+  9. 適格性を満たす場合: `transaction.Manager.WithinTransaction`内で以下を実行する
      - `target.ApplyMergedRegistration(candidate)`
      - `AccountRepository.UpdateRegistration(ctx, target)`
      - `candidate.MarkMerged(現在時刻)`
@@ -63,7 +114,7 @@ Query DTOは設けない（本機能はLinkAccountというCommand操作のみ�
 
 `application/usecase/errors.go`に、Application層のセンチネルエラーとして`ErrRateLimitExceeded`を定義する。
 
-## PreviewAccountLinkUseCase（`application/usecase/preview_account_link.go`）
+### PreviewAccountLinkUseCase（`application/usecase/preview_account_link.go`）
 
 - 目的: 統合を確定する前に、対象アカウントの所属情報（高校名・学年の表示名・学級名）を返す（②「12. UseCase設計」）
 - 関数シグネチャ: `func (u *PreviewAccountLinkUseCase) Execute(ctx context.Context, cmd PreviewAccountLinkCommand) (PreviewAccountLinkResult, error)`
@@ -85,9 +136,7 @@ Query DTOは設けない（本機能はLinkAccountというCommand操作のみ�
 
 ---
 
----
-
-# 3. シーケンス図・処理フロー図
+# 7. シーケンス図・処理フロー図
 
 ## シーケンス図（LinkAccount）
 
@@ -99,7 +148,7 @@ sequenceDiagram
     participant RL as AccountLinkRateLimiter
     participant AR as AccountRepository
     participant EP as AccountLinkEligibilityPolicy
-    participant TM as TransactionManager
+    participant TM as transaction.Manager
 
     H->>UC: Execute(ctx, LinkAccountCommand)
     UC->>ALAR: CountRecentAttempts(userID, since)
@@ -156,29 +205,35 @@ flowchart TD
 
 ---
 
+# 8. Infrastructure層設計
+
+本書では扱わない。1_Domain・Infrastructure「8. Infrastructure層設計」を参照。本書のUseCaseが使うInfrastructure層の要素: `AccountRepository`・`AccountLinkAuditRepository`の実装（いずれも`infrastructure/gormrepo/`）。
+
 ---
 
-# 4. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
 ### AccountLinkHandler（`presentation/handler/account_link_handler.go`）
 
 - struct名: `AccountLinkHandler`
-- 対応する呼び出し先: `*usecase.LinkAccountUseCase`
+- 対応する呼び出し先: `*usecase.LinkAccountUseCase`, `*usecase.PreviewAccountLinkUseCase`
 - メソッド一覧:
 
 |メソッド|HTTPメソッド|パス|
 |-|-|-|
 |`(h *AccountLinkHandler) LinkAccount(c *gin.Context)`|POST|/api/v1/student/account_link|
+|`(h *AccountLinkHandler) PreviewAccountLink(c *gin.Context)`|POST|/api/v1/student/account_link/preview|
 
 - 処理順序（`LinkAccount`）:
   1. Middlewareで設定済みのcurrent user（student）をcontextから取得する
-  2. `AccountLinkRequest`をJSONボディからバインドし、Presentation Validation（「12. Validation実装方針」）を行う
+  2. `AccountLinkRequest`をJSONボディからバインドし、Presentation Validation（1_Domain・Infrastructure「12. Validation実装方針」）を行う
   3. `command.LinkAccountCommand{TargetUserID: current userのID, StudentNumber: request.StudentNumber}`を組み立てる（統合先を必ずcurrent userに固定し、クライアントからの指定を許容しない。②「16. Authorization設計」）
   4. `LinkAccountUseCase.Execute`を呼び出す
   5. 戻り値のエラーを「14. Error実装方針」に従いHTTPステータスへ変換する
   6. 成功時は`AccountLinkResponse`へ変換し200で返す
+- 処理順序（`PreviewAccountLink`）: 同様にRequestをバインドし、`PreviewAccountLinkUseCase.Execute`を呼び出して`AccountLinkPreviewResponse`へ変換する
 
 ## Request / Response DTO
 
@@ -193,22 +248,20 @@ flowchart TD
 |struct名|フィールドと型|
 |-|-|
 |`AccountLinkResponse`|`Message string`|
+|`AccountLinkPreviewResponse`|`HighSchoolName *string`, `GradeDisplayName *string`, `SchoolClassName *string`|
 
-## Routing
-
-`presentation/routes.go`
+## Routing（`presentation/routes.go`。本書の担当）
 
 |Method|Path|Handler|
 |-|-|-|
-|POST|/api/v1/student/account_link|AccountLinkHandler.LinkAccount|
+|POST|/api/v1/student/account_link|`AccountLinkHandler.LinkAccount`|
+|POST|/api/v1/student/account_link/preview|`AccountLinkHandler.PreviewAccountLink`|
 
-認証Middleware（本人確認）・認可Middleware（student roleチェック）を経由する（②「16. Authorization設計」Middleware、「13. Authorization実装方針」参照）。
+認証Middleware（本人確認）・認可Middleware（student roleチェック）を経由する（②「16. Authorization設計」Middleware、1_Domain・Infrastructure「13. Authorization実装方針」参照）。
 
 ---
 
----
-
-# 5. API仕様
+# 10. API仕様
 
 ②「19. API仕様」に基づく実装対象Endpoint一覧。
 
@@ -237,9 +290,39 @@ Errorケースは2つのエンドポイントで共通である。`PreviewAccoun
 
 ---
 
+# 11. Transaction実装方針
+
+本書では扱わない。1_Domain・Infrastructure「11. Transaction実装方針」を参照。
+
 ---
 
-# 6. テストケース設計（本書の担当分）
+# 12. Validation実装方針
+
+本書では扱わない。1_Domain・Infrastructure「12. Validation実装方針」を参照。本書のRequest DTO（`AccountLinkRequest`）は同方針の`AccountLinkRequest`の行に対応する。
+
+---
+
+# 13. Authorization実装方針
+
+本書では扱わない。1_Domain・Infrastructure「13. Authorization実装方針」を参照。
+
+---
+
+# 14. Error実装方針
+
+本書では扱わない。1_Domain・Infrastructure「14. Error実装方針」を参照（上記「10. API仕様」のErrorケースは同方針の表の抜粋である）。
+
+---
+
+# 15. GORM / DBクエリ設計
+
+本書では扱わない。1_Domain・Infrastructure「15. GORM / DBクエリ設計」を参照。本書固有のGORMモデル・クエリはない。
+
+---
+
+# 16. テストケース設計（本書の担当分）
+
+1_Domain・Infrastructureが担当するDomain Test・Repository Testは同文書を参照。本書は本スライスのUseCase・Handlerのテストを扱う。
 
 ## UseCase Test
 
@@ -250,6 +333,7 @@ Errorケースは2つのエンドポイントで共通である。`PreviewAccoun
 |`LinkAccountUseCase`|生徒番号に一致するアカウントが存在しない場合、`ErrMergeCandidateNotFound`が返り監査ログが記録されないこと|
 |`LinkAccountUseCase`|直近10分の試行回数が上限を超えている場合、`ErrRateLimitExceeded`が返り統合処理が実行されないこと|
 |`LinkAccountUseCase`|トランザクション内の処理が途中で失敗した場合、ロールバックされ統合先・統合元のデータが変更されないこと|
+|`PreviewAccountLinkUseCase`|適格性を満たす場合に高校名・学年の表示名・学級名が返ること／氏名・メールアドレスを含まないこと|
 
 ## Handler Test
 
@@ -258,6 +342,7 @@ Errorケースは2つのエンドポイントで共通である。`PreviewAccoun
 |`AccountLinkHandler.LinkAccount`|`student_number`未入力時に422が返ること|
 |`AccountLinkHandler.LinkAccount`|正常時に200と成功メッセージが返ること|
 |`AccountLinkHandler.LinkAccount`|未認証・非student roleでのアクセスが401/403となること|
+|`AccountLinkHandler.PreviewAccountLink`|正常時に200と所属情報が返ること|
 
 ## Integration Test
 
@@ -268,3 +353,14 @@ Errorケースは2つのエンドポイントで共通である。`PreviewAccoun
 |レート制限|直近10分で6回目の試行が429となること|
 
 ---
+
+# 17. ②からの補足事項
+
+②に明記がなく、実装のために本書で補った内容である。1_Domain・Infrastructure「17. ②からの補足事項」に記載した内容に加え、本書固有のものを以下に示す。
+
+|判断した内容|判断理由|推測か|
+|-|-|-|
+|`student_number`未入力（Presentation Validation失敗）時のHTTP Statusを422とした|②「19. API仕様」のStatus Code一覧には`400`（形式不正・適格性違反）のみが明記され、Presentationレベルのバインドエラーの扱いは明記がない。他の学生向け機能がPresentation Validation失敗を422として扱っている前例に倣った|推測|
+|`AccountLinkPreviewResponse`を`AccountLinkResponse`と同じファイルに定義した|②自動生成プロンプトの「文書の分割」方針上、新規ファイルを増やす必要がなく、Previewが`LinkAccount`と密接に関連するレスポンスであるため|推測ではない（実装判断）|
+
+上記以外の設計判断は1_Domain・Infrastructureの記載をそのまま踏襲する。
