@@ -8,9 +8,19 @@
 
 教師がCSVファイルを使って、同校の生徒アカウントをまとめて登録・更新できる機能である。実際のインポート前に内容を検証する事前検証（dry run、同期・DB書き込みなし）と、インポート履歴（ImportHistory）を作成した上で非同期にCSVを処理するインポート実行（202 Accepted）の2操作を提供する。行単位のエラーはImportErrorとして記録され、全行が有効でインポートが成功した場合は、インポートされた各生徒（新規作成か既存生徒の更新か）が成功行（ImportedStudent）として記録される。「1行でも不正な行があれば全体を失敗とし、有効な行についても一切反映しない」という全件成功・全件失敗（all-or-nothing）の業務ルールを持つ。新規作成された生徒アカウントには仮パスワード発行と招待メール送信が行われる。新規行の生徒アカウント作成は`user` Contextの`CreateStudentAccount`を呼んで行い、既存生徒の更新は本Contextが行う（`user`は更新を持たない。②「3. Bounded Context」）。
 
-## 採用設計パターンとその理由（②からの要約）
+|項目|内容|
+|-|-|
+|対象Context|`student-import`（②「3. Bounded Context」）|
+|採用パターン|Domain Model（②「4. 設計パターン」）|
+|本Contextが所有するテーブル|`imported_students`（専有）、`import_histories`・`import_errors`（管理者問題インポート機能と共有）|
+|`users`テーブルへの直接アクセス|限定された範囲のみ（下記参照）|
+|他Contextへの依存|`user`（新規生徒アカウントの作成・生徒番号の発行）、`master-data`（学年名の解決）、`school-class`（学級名の解決。**要確認**）|
 
-②「4. 設計パターン」により、本機能は **Domain Model** を採用する。
+## `users`テーブルへの直接アクセスについて
+
+本Contextは`users`テーブルの所有者ではないが、②「3. Bounded Context」「11. Repository設計」が明示的に定める例外として、既存生徒の更新（氏名・氏名カナ・メールアドレス・学年・学級の上書き）と同校内のメールアドレス一致確認に限定して本Context内のRepositoryから直接アクセスする。新規アカウントの作成（仮パスワードの発行・生徒番号の発行・招待待ちの設定・招待メール送信の依頼）は`user` Contextの責務であり、本Contextは`user`の`CreateStudentAccount`を呼ぶのみである。アカウント連携機能③「1. 機能概要」が`users`について行う例外と同種の判断である。
+
+## 採用設計パターンとその理由（②からの要約）
 
 - ImportHistoryは「processing→completed/failed」という進行状態を持ち、管理者問題インポート機能とは異なり「一部失敗」という中間的な終了状態を持たない全件成功・全件失敗の集計ルールを伴う
 - 行ごとに「メールアドレスが同校の既存生徒と一致すれば更新、一致しなければ新規作成」という業務的な判定ロジックが発生する
@@ -21,14 +31,11 @@ Transaction Script・Active Record・Event Sourcingは②「4. 設計パター�
 
 ## 本書が対象とする実装範囲
 
-- Bounded Context: `student-import`
 - 対象UseCase: `DryRunStudentImportUseCase` / `StartStudentImportUseCase` / `ExecuteStudentImportUseCase`
-- 既存生徒の更新と同校内のメールアドレス一致確認（`StudentAccountRepository`）、および新規行の生徒アカウント作成を`user` Contextへ依頼する処理（`StudentAccountCreationRepository`）を含む
+- 既存生徒の更新と同校内のメールアドレス一致確認（`StudentAccountRepository`）、および新規行の生徒アカウント作成・生徒番号発行を`user` Contextへ依頼する処理（`dependency.go`）を含む
 - 規約「3. 設計パターンごとの構造適用方針」のDomain Model構造で実装する。非同期実行はアーキテクチャ規約「13. 非同期ジョブ実行パターン（JobQueue）」の「確実に実行したい処理」（`jobs`テーブル＋ポーリングワーカー）で実装する
 - 成功行（`ImportedStudent`）のEntity・Repositoryは本書が「正」として定義し、教師インポート履歴管理機能_Go実装仕様書（同一Context `student-import` の参照専用UseCase群）が再利用する
 - ①Rails実装の詳細は本タスクでは提供されておらず、参照が必要な箇所は「①未提供のため参照不可」と明記する
-
----
 
 ---
 
@@ -36,12 +43,15 @@ Transaction Script・Active Record・Event Sourcingは②「4. 設計パター�
 
 ## 対象Bounded Context名
 
-- Context名（②）: `student-import`
-- ディレクトリ名: `internal/student_import`（②からの補足：アーキテクチャ規約「8. 命名規約」に従いkebab-caseをスネークケースへ変換した。推測）
+- `student-import`（②「3. Bounded Context」）
+
+## ディレクトリ・パッケージ名
+
+アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名から`-`を取り除いて連結した全小文字の名前とする。ディレクトリ名は`internal/studentimport/`、package名は同じ`studentimport`となる。短縮・省略はしない。Context名とディレクトリ名は規約から機械的に決まるため、②に明記がなくても推測にはならない。
 
 ## ②で採用した設計パターン
 
-Domain Model
+Domain Model（②「4. 設計パターン」）
 
 ## 文書の担当
 
@@ -49,81 +59,159 @@ Domain Model
 
 |文書|担当|実装|テスト込みの目安|
 |-|-|-|-|
-|`生徒CSVインポート機能_Go実装仕様書_1_Domain.md`（本書）|Domain層、および機能全体の実装方針|20|約34|
+|`生徒CSVインポート機能_Go実装仕様書_1_Domain.md`（本書）|Domain層・`context.go`・`dependency.go`、および機能全体の実装方針|21|約35|
 |`生徒CSVインポート機能_Go実装仕様書_2_Infrastructure.md`|Infrastructure層・GORM / DBクエリ設計|13|約22|
 |`生徒CSVインポート機能_Go実装仕様書_3_Application・Presentation.md`|Application層・Presentation層・API仕様|14|約24|
 
-1_Domain → 2_Infrastructure → 3_Application・Presentation の順に実装すれば、各PRは単体でコンパイルが通る。Infrastructure層はDomain層のRepository Interfaceを実装し、Application層・Presentation層はその両方に依存するためである。
+1_Domain → 2_Infrastructure → 3_Application・Presentation の順に実装すれば、各PRは単体でコンパイルが通る。Infrastructure層はDomain層のRepository Interface・`dependency.go`のインターフェースを実装し、Application層・Presentation層はその両方に依存するためである。
 
 Transaction・Validation・Authorization・Errorの実装方針は機能全体で共通であるため本書に置く。2つ目以降では繰り返さず、本書を参照する。
 
+## 他Contextへの依存（`dependency.go`）
+
+他Contextの公開操作を呼ぶためのインターフェースは、Contextディレクトリ直下の`dependency.go`に置く（アーキテクチャ規約「4. Bounded Context構成」）。実装は`infrastructure/contextadapter/`に置き、2_Infrastructureが担当する。
+
+```go
+type GradeDirectory interface {
+    // ResolveGradeByName は高校IDと学年名から学年IDを解決する。存在しない場合は found が false になる。
+    ResolveGradeByName(ctx context.Context, highSchoolID uint, gradeName string) (gradeID uint, found bool, err error)
+}
+
+type SchoolClassDirectory interface {
+    // ResolveClassByName は学年IDと学級名から学級IDを解決する。存在しない場合は found が false になる。
+    ResolveClassByName(ctx context.Context, gradeID uint, className string) (schoolClassID uint, found bool, err error)
+}
+
+type StudentAccountCreator interface {
+    // CreateStudentAccount は新規行の生徒アカウントの作成を、userのCreateStudentAccountへ依頼する。
+    CreateStudentAccount(ctx context.Context, params CreateStudentAccountParams) (CreateStudentAccountResult, error)
+    // IssueStudentNumber は高校IDから生徒番号を発行する（userのIssueStudentNumberへ委譲）。
+    IssueStudentNumber(ctx context.Context, highSchoolID uint) (string, error)
+}
+
+type CreateStudentAccountParams struct {
+    Name          string
+    NameKana      string
+    Email         string
+    HighSchoolID  uint
+    GradeID       uint
+    SchoolClassID uint
+}
+
+type CreateStudentAccountResult struct {
+    StudentID uint
+    Name      string
+    Email     string
+}
+```
+
+|インターフェース|委譲先|所有Context側の定義|
+|-|-|-|
+|`GradeDirectory`|`master-data`の`FindGradesByHighSchoolID`|共通マスタ参照機能③_1「公開する操作」|
+|`SchoolClassDirectory`|`school-class`の学級名による解決|クラス編成機能③で確定する**（要確認）**|
+|`StudentAccountCreator`|`user`の`CreateStudentAccount`・`IssueStudentNumber`|ユーザー基盤機能③「作成操作」|
+
+**②からの補足**: 旧版は`GradeClassResolutionRepository`という1つのRepository Interfaceで、学年名の解決（`ResolveGrade`）と学級名の解決（`ResolveClass`）をまとめて「`master-data` Context提供」としていたが、`school_classes`テーブルを所有するのは`school-class` Context（クラス編成機能）であり、`master-data`ではない（共通マスタ参照機能②「3. Bounded Context」の依存集約表に`school_classes`の記載はなく、クラス編成機能②「3. Bounded Context」が「学級（`school_classes`）の保持・参照」を自身の責務と定めている）。本書ではこの誤りを修正し、`GradeDirectory`（`master-data`）と`SchoolClassDirectory`（`school-class`）の2つのインターフェースに分離した。
+
+**既存のコース参照機能③等と同じ理由で、本Contextからは`grades`・`school_classes`へ直接クエリを発行しない**（アーキテクチャ規約「5. Context間連携ルール」）。`GradeDirectory`は既存の公開操作（`FindGradesByHighSchoolID`。高校配下の学年一覧を表示名付きで返す）で解決できるため、新しい公開操作の追加は不要である（共通マスタ参照機能③_1「他Contextからの依存の集約」が`student-import`を同操作の利用者として既に記載している）。一方`SchoolClassDirectory`は、クラス編成機能③のいずれの文書にも他Context向けの公開操作が定義されていないため、クラス編成機能の追随時に「学年ID・学級名から学級IDを解決する」参照操作を追加する必要がある（**要確認・未着手**）。
+
+`StudentAccountCreator`の`CreateStudentAccount`・`IssueStudentNumber`は、いずれも`user` Contextの既存の公開操作への委譲である（ユーザー基盤機能③「3. 公開操作の定義」）。
+
+## 作成するディレクトリ一覧
+
+```
+internal/studentimport/
+├── context.go
+├── dependency.go
+├── domain/
+│   ├── entity/
+│   ├── valueobject/
+│   ├── repository/
+│   ├── service/
+│   ├── event/
+│   └── errors/
+├── application/
+│   ├── dto/
+│   └── usecase/
+├── infrastructure/
+│   ├── gormrepo/
+│   ├── contextadapter/
+│   ├── queue/
+│   └── storage/
+└── presentation/
+    ├── handler/
+    ├── request/
+    ├── response/
+    └── routes.go
+```
+
+`domain/repository/`に置くのは、本Contextが所有するテーブル（`import_histories`・`import_errors`・`imported_students`）と、②が明示した例外として直接アクセスする`users`の限定範囲（`StudentAccountRepository`）に対するRepository Interfaceのみである。他Context（`master-data`・`school-class`・`user`）への依存は`dependency.go`に置く（上記）。
 
 ## 作成するファイル一覧（機能全体）
 
 ### 1_Domain（本書）の担当
 
 ```
-internal/student_import/domain/entity/import_error.go
-internal/student_import/domain/entity/import_history.go
-internal/student_import/domain/entity/imported_student.go
-internal/student_import/domain/errors/errors.go
-internal/student_import/domain/event/events.go
-internal/student_import/domain/repository/grade_class_resolution_repository.go
-internal/student_import/domain/repository/import_error_repository.go
-internal/student_import/domain/repository/import_history_repository.go
-internal/student_import/domain/repository/imported_student_repository.go
-internal/student_import/domain/repository/student_account_creation_repository.go
-internal/student_import/domain/repository/student_account_repository.go
-internal/student_import/domain/service/all_or_nothing_import_aggregation_policy.go
-internal/student_import/domain/service/csv_header_validation_policy.go
-internal/student_import/domain/service/student_account_upsert_policy.go
-internal/student_import/domain/service/student_row_validation_policy.go
-internal/student_import/domain/valueobject/import_mode.go
-internal/student_import/domain/valueobject/import_status.go
-internal/student_import/domain/valueobject/imported_student_action.go
-internal/student_import/domain/valueobject/student_import_row.go
-internal/student_import/domain/valueobject/student_row_validation_result.go
+internal/studentimport/context.go
+internal/studentimport/dependency.go
+
+internal/studentimport/domain/entity/import_error.go
+internal/studentimport/domain/entity/import_history.go
+internal/studentimport/domain/entity/imported_student.go
+internal/studentimport/domain/errors/errors.go
+internal/studentimport/domain/event/events.go
+internal/studentimport/domain/repository/import_error_repository.go
+internal/studentimport/domain/repository/import_history_repository.go
+internal/studentimport/domain/repository/imported_student_repository.go
+internal/studentimport/domain/repository/student_account_repository.go
+internal/studentimport/domain/service/all_or_nothing_import_aggregation_policy.go
+internal/studentimport/domain/service/csv_header_validation_policy.go
+internal/studentimport/domain/service/student_account_upsert_policy.go
+internal/studentimport/domain/service/student_row_validation_policy.go
+internal/studentimport/domain/valueobject/import_mode.go
+internal/studentimport/domain/valueobject/import_status.go
+internal/studentimport/domain/valueobject/imported_student_action.go
+internal/studentimport/domain/valueobject/student_import_row.go
+internal/studentimport/domain/valueobject/student_row_validation_result.go
 ```
 
 ### 2_Infrastructure の担当
 
 ```
-internal/student_import/infrastructure/persistence/gorm/import_error_model.go
-internal/student_import/infrastructure/persistence/gorm/import_history_model.go
-internal/student_import/infrastructure/persistence/gorm/imported_student_model.go
-internal/student_import/infrastructure/queue/job_publisher.go
-internal/student_import/infrastructure/queue/worker_handler.go
-internal/student_import/infrastructure/repository/grade_class_resolution_repository.go
-internal/student_import/infrastructure/repository/import_error_repository.go
-internal/student_import/infrastructure/repository/import_history_repository.go
-internal/student_import/infrastructure/repository/imported_student_repository.go
-internal/student_import/infrastructure/repository/student_account_creation_repository.go
-internal/student_import/infrastructure/repository/student_account_repository.go
-internal/student_import/infrastructure/repository/transaction_manager.go
-internal/student_import/infrastructure/storage/csv_file_storage.go
+internal/studentimport/infrastructure/gormrepo/import_error_model.go
+internal/studentimport/infrastructure/gormrepo/import_history_model.go
+internal/studentimport/infrastructure/gormrepo/imported_student_model.go
+internal/studentimport/infrastructure/gormrepo/import_error_repository.go
+internal/studentimport/infrastructure/gormrepo/import_history_repository.go
+internal/studentimport/infrastructure/gormrepo/imported_student_repository.go
+internal/studentimport/infrastructure/gormrepo/student_account_repository.go
+internal/studentimport/infrastructure/contextadapter/grade_directory.go
+internal/studentimport/infrastructure/contextadapter/school_class_directory.go
+internal/studentimport/infrastructure/contextadapter/student_account_creator.go
+internal/studentimport/infrastructure/queue/job_publisher.go
+internal/studentimport/infrastructure/queue/worker_handler.go
+internal/studentimport/infrastructure/storage/csv_file_storage.go
 ```
 
 ### 3_Application・Presentation の担当
 
 ```
-internal/student_import/application/dto/dry_run_dto.go
-internal/student_import/application/dto/execute_import_dto.go
-internal/student_import/application/dto/start_import_dto.go
-internal/student_import/application/usecase/dry_run_student_import_usecase.go
-internal/student_import/application/usecase/errors.go
-internal/student_import/application/usecase/execute_student_import_usecase.go
-internal/student_import/application/usecase/file_storage.go
-internal/student_import/application/usecase/job_publisher.go
-internal/student_import/application/usecase/start_student_import_usecase.go
-internal/student_import/application/usecase/transaction_manager.go
-internal/student_import/presentation/handler/student_import_handler.go
-internal/student_import/presentation/request/student_import_request.go
-internal/student_import/presentation/response/student_import_response.go
-internal/student_import/presentation/routes.go
+internal/studentimport/application/dto/dry_run_dto.go
+internal/studentimport/application/dto/execute_import_dto.go
+internal/studentimport/application/dto/start_import_dto.go
+internal/studentimport/application/usecase/dry_run_student_import_usecase.go
+internal/studentimport/application/usecase/errors.go
+internal/studentimport/application/usecase/execute_student_import_usecase.go
+internal/studentimport/application/usecase/file_storage.go
+internal/studentimport/application/usecase/job_publisher.go
+internal/studentimport/application/usecase/start_student_import_usecase.go
+internal/studentimport/presentation/handler/student_import_handler.go
+internal/studentimport/presentation/request/student_import_request.go
+internal/studentimport/presentation/response/student_import_response.go
+internal/studentimport/presentation/routes.go
 ```
 
-`application/usecase/file_storage.go`・`job_publisher.go`・`transaction_manager.go`はインターフェースの定義であり、その実装（`infrastructure/storage/`・`infrastructure/queue/`・`infrastructure/repository/transaction_manager.go`）は2_Infrastructureの担当である。インターフェースと実装が別の文書に分かれるため、2_Infrastructureを実装する時点で3_Application・Presentationのインターフェース定義が必要になる。インターフェースの定義のみを先に置くか、3つ目を先に実装するかは、実装時に選んでよい。
-
+`application/usecase/file_storage.go`・`job_publisher.go`はインターフェースの定義であり、その実装（`infrastructure/storage/`・`infrastructure/queue/`）は2_Infrastructureの担当である。インターフェースと実装が別の文書に分かれるため、2_Infrastructureを実装する時点で3_Application・Presentationのインターフェース定義が必要になる。インターフェースの定義のみを先に置くか、3つ目を先に実装するかは、実装時に選んでよい。`transaction_manager.go`は作成しない（「11. Transaction実装方針」参照。共通の`transaction.Manager`を使う）。
 
 ---
 
@@ -145,7 +233,7 @@ internal/student_import/presentation/routes.go
 |`Mode`|`valueobject.ImportMode`|append/overwrite|
 |`Status`|`valueobject.ImportStatus`|processing/completed/failed|
 |`FileName`|`string`|アップロードされたCSVの元のファイル名（`file_name`。②「6. Entity設計」の「file情報」に対応。一覧・詳細での表示に用いる）|
-|`FilePath`|`string`|CSVファイルの保存先を表す情報（②20章のSchema変更対象。詳細は8章・15章参照）|
+|`FilePath`|`string`|CSVファイルの保存先を表す情報（②20章のSchema変更対象。詳細は2_Infrastructure参照）|
 |`TotalCount`|`int`|総行数|
 |`SuccessCount`|`int`|成功行数|
 |`ErrorCount`|`int`|失敗行数|
@@ -231,6 +319,8 @@ internal/student_import/presentation/routes.go
 
 ## Repository Interface
 
+本Contextが所有するテーブル（`import_histories`・`import_errors`・`imported_students`）と、②が明示した例外として直接アクセスする`users`の限定範囲に対するRepository Interfaceのみを`domain/repository/`に置く。`master-data`・`school-class`・`user`への依存は「2. ディレクトリ構成」の`dependency.go`を参照。
+
 ### ImportHistoryRepository（`domain/repository/import_history_repository.go`）
 
 |メソッド|引数|戻り値|責務|
@@ -255,34 +345,18 @@ internal/student_import/presentation/routes.go
 
 - 保持しない責務: 新規作成か更新かの判定（`StudentAccountUpsertPolicy`の責務）、生徒アカウントの作成・更新、CSV出力形式への変換（②「11. Repository設計」）
 
-### GradeClassResolutionRepository（`domain/repository/grade_class_resolution_repository.go`、`master-data` Context提供・参照専用）
-
-|メソッド|引数|戻り値|責務|
-|-|-|-|-|
-|`ResolveGrade`|`(ctx context.Context, highSchoolID uint, gradeName string)`|`(*uint, error)`|学年名から`grade_id`を解決する。存在しない場合は`nil, nil`|
-|`ResolveClass`|`(ctx context.Context, gradeID uint, className string)`|`(*uint, error)`|指定学年に属する学級名から`school_class_id`を解決する。存在しない場合は`nil, nil`|
-
 ### StudentAccountRepository（`domain/repository/student_account_repository.go`、本Context提供）
+
+②「3. Bounded Context」「11. Repository設計」が明示する例外に基づき、本Contextが`users`テーブルへ直接クエリを発行する唯一のRepositoryである（「1. 機能概要」参照）。
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
 |`FindByEmailInSchool`|`(ctx context.Context, highSchoolID uint, email string)`|`(*uint, error)`|同校内でのメールアドレス一致確認。一致する生徒IDまたは`nil`を返す|
 |`Update`|`(ctx context.Context, params UpdateStudentAccountParams)`|`error`|既存生徒アカウントを更新する（氏名・氏名カナ・メールアドレス・学年・クラスの上書き。招待メールは送らず、`password_reset_required`にも触れない）|
 
-`UpdateStudentAccountParams`のフィールド: `StudentID uint` / `Name string` / `NameKana string` / `Email string` / `GradeID uint` / `SchoolClassID uint`
+`UpdateStudentAccountParams`のフィールド: `StudentID uint` / `Name string` / `NameKana string` / `Email string` / `GradeID uint` / `SchoolClassID uint` / `StudentNumber *string`（空でない場合のみ更新。「2. ディレクトリ構成」の`StudentAccountCreator.IssueStudentNumber`で発行した値を渡す）
 
-- 保持しない責務: 新規生徒アカウントの作成（`StudentAccountCreationRepository`が`user`へ依頼する）、CSV解析、行単位の検証（`StudentRowValidationPolicy`の責務）（②11章）
-
-### StudentAccountCreationRepository（`domain/repository/student_account_creation_repository.go`、`user` Context提供・作成依頼専用）
-
-|メソッド|引数|戻り値|責務|
-|-|-|-|-|
-|`Create`|`(ctx context.Context, params CreateStudentAccountParams)`|`(CreateStudentAccountResult, error)`|新規行の生徒アカウントの作成を、`user` Contextの`CreateStudentAccount`へ依頼する。仮パスワードの発行・生徒番号の発行・招待待ちの設定・招待メール送信の依頼は`user`が行い、本Contextは指定しない（②11章）|
-
-`CreateStudentAccountParams`のフィールド: `Name string` / `NameKana string` / `Email string` / `HighSchoolID uint` / `GradeID uint` / `SchoolClassID uint`（`user`の`CreateStudentAccount`の入力と同じ項目。CSVの学級は必須のため、クラスは常に設定する）
-`CreateStudentAccountResult`のフィールド: `StudentID uint` / `Name string` / `Email string`（`user`が返す生徒の基本属性のうち、本Contextが使う項目）
-
-- 保持しない責務: 更新、既存アカウントの確認、CSV解析、行単位の検証
+- 保持しない責務: 新規生徒アカウントの作成（`dependency.go`の`StudentAccountCreator`が`user`へ依頼する）、CSV解析、行単位の検証（`StudentRowValidationPolicy`の責務）（②11章）
 
 ## Domain Service
 
@@ -295,9 +369,9 @@ internal/student_import/presentation/routes.go
 ### StudentRowValidationPolicy（`domain/service/student_row_validation_policy.go`）
 
 - struct名: `StudentRowValidationPolicy`
-- コンストラクタ: `NewStudentRowValidationPolicy(gradeClassRepo repository.GradeClassResolutionRepository, accountRepo repository.StudentAccountRepository) *StudentRowValidationPolicy`
+- コンストラクタ: `NewStudentRowValidationPolicy(gradeDir dependency.GradeDirectory, classDir dependency.SchoolClassDirectory, accountRepo repository.StudentAccountRepository) *StudentRowValidationPolicy`
 - 公開メソッド: `(p *StudentRowValidationPolicy) ValidateRow(ctx context.Context, highSchoolID uint, row valueobject.StudentImportRow, seenEmails map[string]struct{}) (valueobject.StudentRowValidationResult, error)`
-- 責務: 氏名・氏名カナ・メールアドレスの形式、学年名・学級名の自校内存在確認（`GradeClassResolutionRepository`経由）、メールアドレスの他校/他ロールでの使用有無（`StudentAccountRepository`経由）、CSV内でのメールアドレス重複の有無（呼び出し元が管理する`seenEmails`との突合）を判定し、`StudentRowValidationResult`を返す（②8章）
+- 責務: 氏名・氏名カナ・メールアドレスの形式、学年名・学級名の自校内存在確認（`GradeDirectory`・`SchoolClassDirectory`経由）、メールアドレスの他校/他ロールでの使用有無（`StudentAccountRepository`経由）、CSV内でのメールアドレス重複の有無（呼び出し元が管理する`seenEmails`との突合）を判定し、`StudentRowValidationResult`を返す（②8章）
 
 ### AllOrNothingImportAggregationPolicy（`domain/service/all_or_nothing_import_aggregation_policy.go`）
 
@@ -308,10 +382,10 @@ internal/student_import/presentation/routes.go
 ### StudentAccountUpsertPolicy（`domain/service/student_account_upsert_policy.go`）
 
 - struct名: `StudentAccountUpsertPolicy`
-- コンストラクタ: `NewStudentAccountUpsertPolicy(accountRepo repository.StudentAccountRepository, creator repository.StudentAccountCreationRepository) *StudentAccountUpsertPolicy`
+- コンストラクタ: `NewStudentAccountUpsertPolicy(accountRepo repository.StudentAccountRepository, creator dependency.StudentAccountCreator) *StudentAccountUpsertPolicy`
 - 公開メソッド: `(p *StudentAccountUpsertPolicy) Upsert(ctx context.Context, highSchoolID uint, row valueobject.StudentImportRow) (StudentAccountUpsertResult, error)`
 - 戻り値`StudentAccountUpsertResult`（同ファイルに定義する結果型）: `StudentID uint`（反映した生徒のユーザーID。更新の場合は`FindByEmailInSchool`が返したID、新規作成の場合は`CreateStudentAccountResult.StudentID`） / `Action valueobject.ImportedStudentAction`（更新なら`updated`、新規作成なら`created`）
-- 責務: `StudentAccountRepository.FindByEmailInSchool`で同校の既存生徒と一致するかを確認し、一致すれば`StudentAccountRepository.Update`（本Contextの更新）、一致しなければ`StudentAccountCreationRepository.Create`（`user`の`CreateStudentAccount`）を呼び出す。反映した生徒と新規作成か更新かの区別を返す。返却値からのImportedStudentの記録は、呼び出し元のUseCaseが行う（②8章）
+- 責務: `StudentAccountRepository.FindByEmailInSchool`で同校の既存生徒と一致するかを確認し、一致すれば`StudentAccountRepository.Update`（本Contextの更新。生徒番号が空であれば先に`StudentAccountCreator.IssueStudentNumber`で発行する）、一致しなければ`StudentAccountCreator.CreateStudentAccount`（`user`の`CreateStudentAccount`）を呼び出す。反映した生徒と新規作成か更新かの区別を返す。返却値からのImportedStudentの記録は、呼び出し元のUseCaseが行う（②8章）
 
 ## Domain Event
 
@@ -331,8 +405,6 @@ internal/student_import/presentation/routes.go
 |`ErrInvalidStatusTransition`|`processing`以外の状態からの`Complete`/`Fail`呼び出し|
 |`ErrInvalidImportedStudent`|`NewImportedStudent`に0の`ImportHistoryID` / `StudentID`が渡された|
 |`ErrInvalidImportedStudentAction`|`NewImportedStudentActionFromDB`に0 / 1以外の値が渡された|
-
----
 
 ---
 
@@ -426,9 +498,10 @@ classDiagram
       +FindByEmailInSchool(ctx, highSchoolID, email) *uint, error
       +Update(ctx, params) error
     }
-    class StudentAccountCreationRepository {
-      <<interface（user Context提供）>>
-      +Create(ctx, params) CreateStudentAccountResult, error
+    class StudentAccountCreator {
+      <<interface（dependency.go、user Context提供）>>
+      +CreateStudentAccount(ctx, params) CreateStudentAccountResult, error
+      +IssueStudentNumber(ctx, highSchoolID) string, error
     }
 
     ImportHistory "1" *-- "many" ImportError : 保有
@@ -443,11 +516,9 @@ classDiagram
     AllOrNothingImportAggregationPolicy ..> ImportHistory : 終了状態を決定
     StudentAccountUpsertPolicy ..> StudentImportRow : 判定
     StudentAccountUpsertPolicy ..> StudentAccountRepository : 既存生徒の更新を依頼
-    StudentAccountUpsertPolicy ..> StudentAccountCreationRepository : 新規行の作成を依頼
+    StudentAccountUpsertPolicy ..> StudentAccountCreator : 新規行の作成を依頼
     StudentAccountUpsertPolicy ..> ImportedStudentAction : 新規作成か更新かを返す
 ```
-
----
 
 ---
 
@@ -466,13 +537,49 @@ stateDiagram-v2
 
 ---
 
+# 6. Application層設計
+
+本書では扱わない。UseCase（`DryRunStudentImportUseCase`・`StartStudentImportUseCase`・`ExecuteStudentImportUseCase`）とDTOは`3_Application・Presentation.md`で定義する。
+
 ---
 
-# 6. Transaction実装方針
+# 7. シーケンス図・処理フロー図
+
+本書では扱わない。シーケンス図・処理フロー図は`3_Application・Presentation.md`に記載する。
+
+---
+
+# 8. Infrastructure層設計
+
+本書では扱わない。Repository実装・`dependency.go`のインターフェースの実装・外部連携実装は`2_Infrastructure.md`に記載する。
+
+---
+
+# 9. Presentation層設計
+
+本書では扱わない。Handler・Request / Response DTO・`routes.go`は`3_Application・Presentation.md`に記載する。
+
+---
+
+# 10. API仕様
+
+本書では扱わない。API仕様は`3_Application・Presentation.md`に記載する。
+
+|Method|Path|正常系|担当文書|
+|-|-|-|-|
+|POST|/api/v1/teacher/import_students|202|`3_Application・Presentation`|
+|POST|/api/v1/teacher/import_students/dry_run|200|`3_Application・Presentation`|
+
+---
+
+# 11. Transaction実装方針
+
+実装機構はアーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の標準パターンにそのまま従う。本Contextでは独自の`TransactionManager`を定義しない。
+
+- interface名: `transaction.Manager`（`internal/shared/transaction`）
+- 実装: `internal/shared/transaction/gormtx`。本Contextでは実装しない
 
 ## Transaction開始箇所
-
-アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」に従い`TransactionManager`（`application/usecase/transaction_manager.go`）を定義する。
 
 - `DryRunStudentImportUseCase`: 使用しない
 - `StartStudentImportUseCase`: UseCase開始時（ファイル保存後、ImportHistory生成後）に開始する
@@ -489,9 +596,7 @@ stateDiagram-v2
 
 ---
 
----
-
-# 7. Validation実装方針
+# 12. Validation実装方針
 
 ## Presentation
 
@@ -509,9 +614,7 @@ stateDiagram-v2
 
 ---
 
----
-
-# 8. Authorization実装方針
+# 13. Authorization実装方針
 
 ## Middleware
 
@@ -532,13 +635,11 @@ stateDiagram-v2
 
 ---
 
----
-
-# 9. Error実装方針
+# 14. Error実装方針
 
 ## Domain Error → Application Errorへの変換方針
 
-`ExecuteStudentImportUseCase`は、`domain/errors`のセンチネルエラーを`errors.Is`で判定し、Application Error相当（`AppError`実装型）へ変換する。ヘッダー不正（`ErrInvalidCsvHeader`）は非同期実行中に判明するため、HTTPレスポンスへ直接変換せず、`ImportHistory.Fail`を経由してImportHistoryの状態へ反映する。
+`ExecuteStudentImportUseCase`は、`domain/errors`のセンチネルエラーを`errors.Is`で判定し、`internal/shared/apperror`の`AppError`を実装した型へ変換する。本Contextでは`apperror`を独自に持たず、共通の`apperror`パッケージをそのまま使う。ヘッダー不正（`ErrInvalidCsvHeader`）は非同期実行中に判明するため、HTTPレスポンスへ直接変換せず、`ImportHistory.Fail`を経由してImportHistoryの状態へ反映する。
 
 ## Application Error → HTTPレスポンスへの変換方針
 
@@ -559,9 +660,13 @@ stateDiagram-v2
 
 ---
 
+# 15. GORM / DBクエリ設計
+
+本書では扱わない。2_Infrastructure.mdに記載する。
+
 ---
 
-# 10. テストケース設計（本書の担当分）
+# 16. テストケース設計（本書の担当分）
 
 ## Domain Test
 
@@ -574,25 +679,28 @@ stateDiagram-v2
 |`AllOrNothingImportAggregationPolicy.Aggregate`|全行有効な場合に`completed`となる／1行でも無効な場合に`failed`となる|
 |`entity.NewImportedStudent`|正常な値で生成できる／`ImportHistoryID`または`StudentID`が0の場合に`ErrInvalidImportedStudent`を返す|
 |`valueobject.NewImportedStudentActionFromDB`|0は`created`、1は`updated`として復元される／それ以外の整数は`ErrInvalidImportedStudentAction`を返す|
-|`StudentAccountUpsertPolicy.Upsert`|メールアドレスが同校の既存生徒と一致する場合に`StudentAccountRepository.Update`が呼ばれ、結果が`updated`と既存生徒のIDになる／一致しない場合に`StudentAccountCreationRepository.Create`が呼ばれ、結果が`created`と作成された生徒のIDになる|
+|`StudentAccountUpsertPolicy.Upsert`|メールアドレスが同校の既存生徒と一致する場合に`StudentAccountRepository.Update`が呼ばれ、結果が`updated`と既存生徒のIDになる／一致しない場合に`StudentAccountCreator.CreateStudentAccount`が呼ばれ、結果が`created`と作成された生徒のIDになる／生徒番号が空の既存生徒を更新する場合に`IssueStudentNumber`が呼ばれること|
 
 2_Infrastructure・3_Application・Presentationが担当するテストは、各文書に記載する。
 
 ---
 
-# 11. ②からの補足事項
+# 17. ②からの補足事項
+
+②に明記がなく、実装のために追加で判断した内容を以下に記載する。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
-|ディレクトリ名を`internal/student_import`とした|アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」の命名規則（Context名のkebab-caseを`_`区切りに置き換え、短縮しない）による。Context名から機械的に決まるため、②文書での対応付けは不要|規約適用による決定（推測ではない）|
-|`GradeClassResolutionRepository`・`StudentAccountRepository`実装が参照する他ContextのGORMモデルを本Contextで新規定義せず、既存テーブルを直接参照する構成とした|`master-data` Context自体の②文書が未整備であり、`user` Contextの②（`ユーザー基盤機能_Go移行・設計仕様書.md`）が定める公開操作の③Go実装仕様書も未作成であるため|推測|
+|ディレクトリ名を`internal/studentimport`とした|アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」が、Context名から`-`を取り除いた連結形と定めている。②に明記がなくても規約から機械的に決まる|推測ではない（規約から機械的に決まる）|
+|`GradeClassResolutionRepository`を`GradeDirectory`（`master-data`）と`SchoolClassDirectory`（`school-class`）に分離し、`dependency.go`に置いた|旧版は学年・学級の解決をいずれも`master-data` Context提供として扱っていたが、`school_classes`を所有するのは`school-class` Context（クラス編成機能）である。アーキテクチャ規約「4. Bounded Context構成」が他Context依存のインターフェースを`dependency.go`に置くと定めているため、所有Contextごとに分離した|推測ではない（規約・所有Contextの誤りの修正）|
+|`SchoolClassDirectory`の委譲先（`school-class`側の公開操作）が未確定である|クラス編成機能③のいずれの文書にも、学級名からの解決を他Contextへ公開する操作が定義されていない。クラス編成機能の追随時に追加が必要である|**要確認**（未着手）|
+|`StudentAccountCreator`に`IssueStudentNumber`を含めた（旧版は`StudentAccountCreationRepository.Create`のみ）|`user`②「論点と決定」6が、既存生徒の更新時に生徒番号が空であれば`user`の`IssueStudentNumber`を呼んで発行すると定めている。これも`user` Contextへの依存であるため、`StudentAccountRepository`（本Context所有の`users`直接アクセス）には含めず、`dependency.go`の`StudentAccountCreator`にまとめた|推測ではない（②の決定に基づく整理）|
 |`ImportHistory`に`FileName`・`CreatedAt`フィールドを追加した|②「6. Entity設計」はImportHistoryが「file情報」を保持すると定めており、その一部である元のファイル名を`FileName`とした。`CreatedAt`は、教師インポート履歴管理機能②の一覧・詳細レスポンス（`created_at`）と、並び替え・期間絞り込みの基準として必要と判断した|推測（②の業務ルール自体は変更していない）|
 |`ImportHistory`に`HighSchoolID`フィールドを追加した|②の`entity.ImportHistory`クラス図には`highSchoolId`相当のフィールド記載がないが、②「16. Authorization設計」の「インポート対象・作成対象の生徒アカウントは、常に実行した教師の所属高校に限定される」という業務要件を実装するために必要と判断した|推測（②の業務ルール自体は変更していない）|
-|新規行の作成を、本Context側で定義する`StudentAccountCreationRepository`を介して`user`の`CreateStudentAccount`へ委譲する構成とした|②11章は、新規行の作成を`user`の`CreateStudentAccount`へ依頼すると定めているが、Domain Model採用機能からの呼び出し方式は②に明記がない。他Contextの公開手段のみを呼ぶ（規約5）・利用側でinterfaceを定義する（コーディング規約7）に従った|推測|
 |`import_histories.file_path`カラムの型・名称を`string`と仮定した|②「20. DB設計方針」は「ファイルの保存パス、またはオブジェクトストレージ上のキーに相当する情報」とのみ記載し、具体的なカラム名・型を確定していない（②自身が「Go実装仕様書で検討する」としている）|推測|
 |CSVファイルの保存先（ローカルディスク／オブジェクトストレージ）を確定しなかった|②に選定基準の記載がなく、管理者問題インポート機能と共通の変更であるため、両機能の③文書間で整合させる必要がある|推測|
 |`ImportedStudentRepository`に一括作成の`CreateBatch`を採用し、全行の`Upsert`完了後に1回で記録する構成とした（行ごとの`Create`ではない）|②は成功行を「生徒データへの反映と同一トランザクションで記録する」と定めるのみで、記録の粒度を明記していない。全行有効な場合のみ記録するため、1回の一括INSERTでクエリ数を抑えられる。1件でも失敗すればトランザクション全体がロールバックされるため、記録タイミングによる整合性の差はない|推測|
 |`imported_students.action`の永続化表現を、Rails現行の整数列挙値（created=0, updated=1）のまま維持し、Go側のモデル変換で`ImportedStudentAction`と相互変換する|②は既存Rails DBを継続利用すると定めており、列型の変更は②で提案されていない|②の記載どおり（既存DB継続利用）。整数値の対応はRails現行スキーマに基づく|
-|既存生徒の更新時に`student_number`が空であれば、`user`が公開する`IssueStudentNumber`を呼んで発行する|`user`②「論点と決定」6の決定に従う。発行規則を本Contextに複製せず、`user`に集約する。シグネチャは`user`③「3. 公開操作の定義」のとおり|②（`user`②）の決定を適用|
+|`transaction.Manager` / `AppError`を本Context内に定義せず、`internal/shared/transaction`・`internal/shared/apperror`の共通実装をそのまま使う構成とした|規約「11. Transaction実装パターン（TransactionManager）」「12. Error変換パターン（AppError）」が共通実装を定めており、Contextごとに重複定義しないためである|推測ではない（規約に従った）|
 
 上記以外の設計判断はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。
