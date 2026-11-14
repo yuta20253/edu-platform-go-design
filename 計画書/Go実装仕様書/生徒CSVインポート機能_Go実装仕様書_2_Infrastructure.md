@@ -2,72 +2,148 @@
 
 ---
 
-# 1. 本書の範囲
+# 1. 機能概要
 
 本書はInfrastructure層（13ファイル、テスト込みで約22）を扱う。
 
-## 本書が前提とする文書
+## 本書の位置づけ
 
-- `生徒CSVインポート機能_Go実装仕様書_1_Domain.md`: Domain層（Entity・Value Object・Repository Interface・Domain Service・Domain Event・Domain Error）、およびTransaction・Validation・Authorization・Errorの実装方針
-- 1_Domainを実装・マージしたうえで本書の実装に着手する
+本書は`生徒CSVインポート機能_Go実装仕様書_1_Domain.md`（以下「1_Domain」）のスライス編である。
 
-本書では、1_Domainに記載した実装方針を繰り返さない。担当ファイルの一覧は1_Domain「2. ディレクトリ構成」の「2_Infrastructure の担当」を参照する。
+1_Domainが定めるもの（本書では繰り返さない）:
+
+- Domain層のすべて（Entity・Value Object・Repository Interface・Domain Service・Domain Event・Domain Error）
+- `dependency.go`（`GradeDirectory`・`SchoolClassDirectory`・`StudentAccountCreator`の3インターフェース）
+- `context.go`、およびTransaction・Validation・Authorization・Errorの実装方針
+
+本書が定めるもの:
+
+- Repository実装（`infrastructure/gormrepo/`）・GORMモデル
+- `dependency.go`のインターフェースの実装（`infrastructure/contextadapter/`）
+- 外部連携実装（ファイルストレージ・非同期ジョブ）
+- GORM / DBクエリ設計
+
+1_Domainを実装・マージしたうえで本書の実装に着手する。
 
 ---
 
-# 2. Infrastructure層設計
+# 2. ディレクトリ構成
 
-## Repository実装
+本書では扱わない。1_Domain「2. ディレクトリ構成」の機能全体のファイル一覧のうち、本書が担当するものは以下の13である。
 
-### ImportHistoryRepository実装（`infrastructure/repository/import_history_repository.go`）
+```
+internal/studentimport/infrastructure/gormrepo/import_error_model.go
+internal/studentimport/infrastructure/gormrepo/import_history_model.go
+internal/studentimport/infrastructure/gormrepo/imported_student_model.go
+internal/studentimport/infrastructure/gormrepo/import_error_repository.go
+internal/studentimport/infrastructure/gormrepo/import_history_repository.go
+internal/studentimport/infrastructure/gormrepo/imported_student_repository.go
+internal/studentimport/infrastructure/gormrepo/student_account_repository.go
+internal/studentimport/infrastructure/contextadapter/grade_directory.go
+internal/studentimport/infrastructure/contextadapter/school_class_directory.go
+internal/studentimport/infrastructure/contextadapter/student_account_creator.go
+internal/studentimport/infrastructure/queue/job_publisher.go
+internal/studentimport/infrastructure/queue/worker_handler.go
+internal/studentimport/infrastructure/storage/csv_file_storage.go
+```
+
+---
+
+# 3. Domain層設計
+
+本書では定義しない。1_Domain「3. Domain層設計」を参照。
+
+---
+
+# 4. クラス図
+
+1_Domain「4. クラス図」を参照。本書はRepository実装・`dependency.go`のインターフェースの実装を追加するのみである。
+
+---
+
+# 5. 状態遷移図
+
+1_Domain「5. 状態遷移図」を参照。本書固有の状態遷移はない。
+
+---
+
+# 6. Application層設計
+
+本書では扱わない。3_Application・Presentation.mdに記載する。
+
+---
+
+# 7. シーケンス図・処理フロー図
+
+本書では扱わない。3_Application・Presentation.mdに記載する。
+
+---
+
+# 8. Infrastructure層設計
+
+## Repository実装（`infrastructure/gormrepo/`）
+
+本Contextが所有するテーブル（`import_histories`・`import_errors`・`imported_students`）と、②が明示した例外として直接アクセスする`users`の限定範囲（`StudentAccountRepository`）をここに置く。
+
+### ImportHistoryRepository実装（`infrastructure/gormrepo/import_history_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewImportHistoryRepository`
-- 対応するGORMモデル: `gormmodel.ImportHistoryModel`（テーブル`import_histories`、管理者問題インポート機能と共有）
+- 対応するGORMモデル: `ImportHistoryModel`（テーブル`import_histories`、管理者問題インポート機能と共有）
 - 各メソッドで発行するクエリ内容:
   - `Create`: `import_histories`へ1件INSERT（`import_type = 'student'`固定）
   - `Update`: id指定で`status`・`success_count`・`error_count`・`total_count`・`finished_at`を更新するUPDATE
   - `FindByID`: `id`一致条件によるSELECT（1件）
 - Entity ⇔ GORMモデルの変換方針: 非公開の変換関数（`toEntity`/`fromEntity`）で行う。`Mode`/`Status`（Value Object）⇔文字列カラムの相互変換もこの関数内で行う
 
-### ImportErrorRepository実装（`infrastructure/repository/import_error_repository.go`）
+### ImportErrorRepository実装（`infrastructure/gormrepo/import_error_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewImportErrorRepository`
-- 対応するGORMモデル: `gormmodel.ImportErrorModel`（テーブル`import_errors`、管理者問題インポート機能と共有）
+- 対応するGORMモデル: `ImportErrorModel`（テーブル`import_errors`、管理者問題インポート機能と共有）
 - 各メソッドで発行するクエリ内容:
   - `CreateBatch`: `import_errors`への複数件一括INSERT
   - `FindByImportHistoryID`: `import_history_id`一致条件によるSELECT（複数件、`row_number`昇順。推測）
 
-### ImportedStudentRepository実装（`infrastructure/repository/imported_student_repository.go`）
+### ImportedStudentRepository実装（`infrastructure/gormrepo/imported_student_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewImportedStudentRepository`
-- 対応するGORMモデル: `gormmodel.ImportedStudentModel`（テーブル`imported_students`。本Contextが所有する）
+- 対応するGORMモデル: `ImportedStudentModel`（テーブル`imported_students`。本Contextが所有する）
 - 各メソッドで発行するクエリ内容:
-  - `CreateBatch`: `imported_students`への複数件一括INSERT（呼び出し元のトランザクションに参加する。アーキテクチャ規約「11. Transaction実装パターン」の`dbFromContext`を用いる）。`import_history_id`と`user_id`の組の一意制約違反は、Infrastructure Errorとして返す（通常は行検証（CSV内メール重複の拒否）により発生しない）
+  - `CreateBatch`: `imported_students`への複数件一括INSERT（呼び出し元のトランザクションに参加する。アーキテクチャ規約「11. Transaction実装パターン」の`gormtx.DBFromContext`を用いる）。`import_history_id`と`user_id`の組の一意制約違反は、Infrastructure Errorとして返す（通常は行検証（CSV内メール重複の拒否）により発生しない）
   - `FindByImportHistoryID`: `import_history_id`一致条件によるSELECT（複数件、`id`昇順）
 - Entity ⇔ GORMモデルの変換方針: 非公開の変換関数（`toEntity`/`fromEntity`）で行う。`Action`（Value Object）⇔整数カラム（created=0, updated=1）の相互変換もこの関数内で行う
 
-### GradeClassResolutionRepository実装（`infrastructure/repository/grade_class_resolution_repository.go`）
-
-- 実装struct名: 非公開struct + コンストラクタ`NewGradeClassResolutionRepository`
-- 対応するGORMモデル: `master-data` Context側の既存`grades`/`school_classes`テーブルを参照専用で読み取る（本Contextでは新規に所有モデルとして定義しない）
-- クエリ内容:
-  - `ResolveGrade`: `high_school_id = ? AND (学年名に相当するカラム) = ?`によるSELECT（1件）
-  - `ResolveClass`: `grade_id = ? AND name = ?`によるSELECT（1件）
-
-### StudentAccountRepository実装（`infrastructure/repository/student_account_repository.go`）
+### StudentAccountRepository実装（`infrastructure/gormrepo/student_account_repository.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewStudentAccountRepository`
-- 対応するGORMモデル: `user` Context所有の既存`users`テーブルを参照・更新する（本Contextでは新規に所有モデルとして定義しない）
+- 対応するGORMモデル: `UserModel`。`user` Context所有の既存`users`テーブルを、②が明示した例外として参照・更新する（1_Domain「1. 機能概要」）。本Contextでは`UserModel`を自前の射影として定義し、`user` Context側のGORMモデルとは別に保持する（認証機能③文書の先例と同じ扱い）
 - 各メソッドで発行するクエリ内容:
   - `FindByEmailInSchool`: `high_school_id = ? AND email = ? AND role = 生徒ロール`によるSELECT（1件）
-  - `Update`: `id = ?`条件で氏名・氏名カナ・メールアドレス・学年・学級のみを更新する（招待メールは送らず、`password_reset_required`・パスワード・認証状態の列には触れない。生徒番号が空の場合は、`user`が公開する`IssueStudentNumber`を呼んで発行した値を同じ更新に含める（`user`②「論点と決定」6、`user`③「3. 公開操作の定義」））
+  - `Update`: `id = ?`条件で氏名・氏名カナ・メールアドレス・学年・学級のみを更新する。`StudentNumber`が非nilの場合のみ`student_number`列も更新する（招待メールは送らず、`password_reset_required`・パスワード・認証状態の列には触れない）
 
-### StudentAccountCreationRepository実装（`infrastructure/repository/student_account_creation_repository.go`）
+## contextadapter（`dependency.go`のインターフェースの実装）
 
-- 実装struct名: 非公開struct + コンストラクタ`NewStudentAccountCreationRepository`
-- 実装内容: `user` Contextが公開する`CreateStudentAccount`を呼び出し、`CreateStudentAccountParams`を`user`の入力へ、`user`が返す基本属性を`CreateStudentAccountResult`へ変換する。本Contextでは`users`へINSERTしない（仮パスワードの生成・生徒番号の発行・招待メール送信依頼の登録は`user`が行う）
-- トランザクション: `ExecuteStudentImportUseCase`が開始したトランザクションに`user`の操作が参加するよう、`ctx`をそのまま渡す（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」。`user`③「4. トランザクションの引き継ぎ」のとおり、`user`側は`ctx`にトランザクションがあればそれに参加する）
-- 入出力の型・エラー種別の判別（メールアドレス重複のValidation等）: `user`③「3. 公開操作の定義」のとおり
+他Context（`master-data`・`school-class`・`user`）の公開操作へ委譲するアダプタを、`infrastructure/contextadapter/`に置く（アーキテクチャ規約「4. Bounded Context構成」。`gormrepo/`には置かない）。アダプタ自身はGORMに依存せず、相手Contextの公開操作を呼び出すだけである（同「5. Context間連携ルール」）。
+
+### GradeDirectory実装（`infrastructure/contextadapter/grade_directory.go`）
+
+- 実装struct名: 非公開struct（例: `gradeDirectory`）+ コンストラクタ`NewGradeDirectory(masterDataContext *masterdata.Context) studentimport.GradeDirectory`
+- 委譲先: `master-data`の`FindGradesByHighSchoolID(ctx, highSchoolID)`（共通マスタ参照機能③_1「公開する操作」）
+- 実装: `FindGradesByHighSchoolID`の結果から、学年の表示名（`DisplayName`）が`gradeName`と一致する要素を探し、一致するものがあれば`gradeID`・`found=true`を、なければ`found=false`を返す
+- 本アダプタはGORMに依存せず、`grades`へクエリを発行しない
+
+### SchoolClassDirectory実装（`infrastructure/contextadapter/school_class_directory.go`）
+
+- 実装struct名: 非公開struct（例: `schoolClassDirectory`）+ コンストラクタ`NewSchoolClassDirectory(schoolClassContext *schoolclass.Context) studentimport.SchoolClassDirectory`
+- 委譲先: `school-class`が公開する学級名による解決操作（**要確認**。クラス編成機能③にまだ定義がない。1_Domain「2. ディレクトリ構成」参照）
+- 実装方針: `school-class`側の追随時に確定する公開操作を呼び出し、結果を`schoolClassID`・`found`へ変換する。本アダプタはGORMに依存せず、`school_classes`へクエリを発行しない
+
+### StudentAccountCreator実装（`infrastructure/contextadapter/student_account_creator.go`）
+
+- 実装struct名: 非公開struct（例: `studentAccountCreator`）+ コンストラクタ`NewStudentAccountCreator(userContext *user.Context) studentimport.StudentAccountCreator`
+- `CreateStudentAccount`: `user` Contextが公開する`CreateStudentAccount`を呼び出し、`CreateStudentAccountParams`を`user`の入力へ、`user`が返す基本属性を`CreateStudentAccountResult`へ変換する。本Contextでは`users`へINSERTしない（仮パスワードの生成・生徒番号の発行・招待メール送信依頼の登録は`user`が行う）
+- `IssueStudentNumber`: `user`の`IssueStudentNumber(ctx, highSchoolID)`をそのまま呼び出す
+- トランザクション: `ExecuteStudentImportUseCase`が開始したトランザクションに`user`の操作が参加するよう、`ctx`をそのまま渡す（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」。ユーザー基盤機能③「4. トランザクションの引き継ぎ」のとおり、`user`側は`ctx`にトランザクションがあればそれに参加する）
+- 入出力の型・エラー種別の判別（メールアドレス重複のValidation等）: ユーザー基盤機能③「3. 公開操作の定義」のとおり
 
 ## 外部連携実装
 
@@ -79,15 +155,49 @@
 
 ---
 
+# 9. Presentation層設計
+
+本書では扱わない。3_Application・Presentation.mdに記載する。
+
 ---
 
-# 3. GORM / DBクエリ設計
+# 10. API仕様
+
+本書では扱わない。3_Application・Presentation.mdに記載する。
+
+---
+
+# 11. Transaction実装方針
+
+本書では扱わない。1_Domain「11. Transaction実装方針」を参照。`gormrepo`配下のRepository実装は`gormtx.DBFromContext(ctx, r.db)`でトランザクション用のコネクションを取得する。
+
+---
+
+# 12. Validation実装方針
+
+本書では扱わない。1_Domain「12. Validation実装方針」を参照。
+
+---
+
+# 13. Authorization実装方針
+
+本書では扱わない。1_Domain「13. Authorization実装方針」を参照。
+
+---
+
+# 14. Error実装方針
+
+本書では扱わない。1_Domain「14. Error実装方針」を参照。
+
+---
+
+# 15. GORM / DBクエリ設計
 
 ## 利用するGORMモデルとテーブルの対応
 
 ②「20. DB設計方針」により、既存Rails DBを継続利用しつつ、ファイル参照方法のみSchema変更を行う（管理者問題インポート機能と共通の変更）。
 
-### ImportHistoryModel（`infrastructure/persistence/gorm/import_history_model.go`）
+### ImportHistoryModel（`infrastructure/gormrepo/import_history_model.go`）
 
 - 対応テーブル: `import_histories`（管理者問題インポート機能と共有）
 
@@ -107,7 +217,7 @@
 |`FinishedAt`|`finished_at`|NULL許容|
 |`CreatedAt`|`created_at`|GORMの自動タイムスタンプ（Gorm規約）|
 
-### ImportErrorModel（`infrastructure/persistence/gorm/import_error_model.go`）
+### ImportErrorModel（`infrastructure/gormrepo/import_error_model.go`）
 
 - 対応テーブル: `import_errors`（管理者問題インポート機能と共有）
 
@@ -118,7 +228,7 @@
 |`RowNumber`|`row_number`||
 |`Message`|`message`||
 
-### ImportedStudentModel（`infrastructure/persistence/gorm/imported_student_model.go`）
+### ImportedStudentModel（`infrastructure/gormrepo/imported_student_model.go`）
 
 - 対応テーブル: `imported_students`（既存Rails DBのテーブル。②「20. DB設計方針」のとおり、Go設計での追加変更はない）
 
@@ -129,6 +239,10 @@
 |`UserID`|`user_id`|インポートされた生徒のID|
 |`Action`|`action`|整数カラム（created=0, updated=1。Rails現行のスキーマ`integer`のまま）。既存Schemaの列型は変更せず、Go側のモデル変換で整数⇔`ImportedStudentAction`を相互変換する（**②からの補足**。推測ではなく、Rails現行のスキーマに基づく）|
 
+### UserModel（`infrastructure/gormrepo/student_account_repository.go`内に定義）
+
+- 対応テーブル: `users`。本Contextが読み書きするサブセット（`id`・`name`・`name_kana`・`email`・`high_school_id`・`grade_id`・`school_class_id`・`student_number`・`user_role_id`）のみを射影する
+
 ## 主要クエリの条件・ソート・ページネーション方針
 
 |Repository|メソッド|対象テーブル|条件|結合|
@@ -136,9 +250,9 @@
 |`ImportHistoryRepository`|`Create`/`Update`/`FindByID`|`import_histories`|`id`一致、または`import_type = 'student'`での絞り込み|不要|
 |`ImportErrorRepository`|`CreateBatch`/`FindByImportHistoryID`|`import_errors`|`import_history_id`一致|不要|
 |`ImportedStudentRepository`|`CreateBatch`/`FindByImportHistoryID`|`imported_students`|`import_history_id`一致（参照）。`id`昇順|不要|
-|`GradeClassResolutionRepository`|`ResolveGrade`/`ResolveClass`|`grades`, `school_classes`|`high_school_id`一致、名称一致、`grade_id`一致|`grades`と`school_classes`の結合（学級が指定学年に属することの確認）|
 |`StudentAccountRepository`|`FindByEmailInSchool`/`Update`|`users`|`high_school_id`一致、`email`一致、生徒ロール（照会）、`id`一致（更新）|不要|
-|`StudentAccountCreationRepository`|`Create`|（`user`の`CreateStudentAccount`が`users`・`jobs`へ書き込む。本Contextはクエリを発行しない）|—|—|
+
+`GradeDirectory`・`SchoolClassDirectory`・`StudentAccountCreator`はSQLを直接発行せず、それぞれの所有Context側の公開操作呼び出しに委譲する（「8. Infrastructure層設計」）。
 
 SQL文そのものは記載しない。
 
@@ -148,9 +262,7 @@ SQL文そのものは記載しない。
 
 ---
 
----
-
-# 4. テストケース設計（本書の担当分）
+# 16. テストケース設計（本書の担当分）
 
 ## Repository Test
 
@@ -158,6 +270,26 @@ SQL文そのものは記載しない。
 |-|-|
 |`ImportHistoryRepository`/`ImportErrorRepository`|永続化・検索の正確性|
 |`ImportedStudentRepository`|`CreateBatch`で記録した成功行が`FindByImportHistoryID`で記録された順に取得できること／同じ履歴に同じ生徒を重複して記録しようとした場合に一意制約違反となること／`action`の整数⇔`ImportedStudentAction`の変換が正しいこと|
-|`GradeClassResolutionRepository`|学年名・学級名からの名称解決の正確性（存在しない場合に`nil`を返すこと）|
 |`StudentAccountRepository`|更新（招待メールを送らず`password_reset_required`に触れないこと）・メール一致確認の正確性|
-|`StudentAccountCreationRepository`|`user`の`CreateStudentAccount`へ入力が正しく変換されて渡され、結果が変換されて返ること（`user`の作成規則そのものは`user`のテストで検証する）|
+
+## contextadapter Test
+
+|対象|テストケース|
+|-|-|
+|`GradeDirectory`|`FindGradesByHighSchoolID`への引数が正しく渡ること／表示名が一致する学年が見つかった場合に`found=true`となること／見つからない場合に`found=false`となること|
+|`SchoolClassDirectory`|`school-class`側の公開操作が確定した時点で、引数・戻り値の変換が正しいことを検証する（**要確認**。公開操作の確定が前提）|
+|`StudentAccountCreator`|`user`の`CreateStudentAccount`へ入力が正しく変換されて渡され、結果が変換されて返ること（`user`の作成規則そのものは`user`のテストで検証する）／`IssueStudentNumber`の呼び出しパラメータが正しいこと|
+
+---
+
+# 17. ②からの補足事項
+
+②に明記がなく、実装のために本書で補った内容である。1_Domain「17. ②からの補足事項」に記載した内容に加え、本書固有のものを以下に示す。
+
+|判断した内容|判断理由|推測か|
+|-|-|-|
+|`GradeDirectory`・`SchoolClassDirectory`・`StudentAccountCreator`の実装を`infrastructure/contextadapter/`に置いた|アーキテクチャ規約「4. Bounded Context構成」が他Context依存のインターフェースの実装を`contextadapter/`に置くと定めているため（旧版は`infrastructure/repository/grade_class_resolution_repository.go`等としていた）|推測ではない（規約に従った）|
+|`GradeDirectory`の実装先を、`master-data`が公開する`FindGradesByHighSchoolID`とした|共通マスタ参照機能③_1が確定済みで公開する操作であり、新しい公開操作の追加が不要であるため|推測ではない（既存の公開操作で足りる）|
+|`StudentAccountRepository`の`UserModel`を、認証機能③と同様に本Context専用の射影として独自定義した|`users`テーブルを複数Contextが異なる役割で参照する既存の先例（認証機能③「15. GORM / DBクエリ設計」）に合わせた|推測ではない（既存③の先例に合わせた）|
+
+上記以外の設計判断は1_Domainの記載をそのまま踏襲する。

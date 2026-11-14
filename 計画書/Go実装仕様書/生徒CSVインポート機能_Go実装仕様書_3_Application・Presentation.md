@@ -2,27 +2,77 @@
 
 ---
 
-# 1. 本書の範囲
+# 1. 機能概要
 
 本書はApplication層・Presentation層（14ファイル、テスト込みで約24）を扱う。
 
-## 担当するエンドポイント
+## 本書が担当するエンドポイント
 
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
 |POST|/api/v1/teacher/import_students|StudentImportHandler.Start|file（CSV必須）, mode（任意）|MessageResponse|202 / 422|
 |POST|/api/v1/teacher/import_students/dry_run|StudentImportHandler.DryRun|file（CSV必須）|DryRunStudentImportResponse|200 / 422|
 
-## 本書が前提とする文書
+## 本書の位置づけ
 
-- `生徒CSVインポート機能_Go実装仕様書_1_Domain.md`: Domain層、およびTransaction・Validation・Authorization・Errorの実装方針
-- `生徒CSVインポート機能_Go実装仕様書_2_Infrastructure.md`: Repository実装・外部連携実装・GORMモデル
+本書は`生徒CSVインポート機能_Go実装仕様書_1_Domain.md`（以下「1_Domain」）・`生徒CSVインポート機能_Go実装仕様書_2_Infrastructure.md`（以下「2_Infrastructure」）のスライス編である。
 
-本書では、1_Domainに記載した実装方針を繰り返さない。担当ファイルの一覧は1_Domain「2. ディレクトリ構成」の「3_Application・Presentation の担当」を参照する。
+1_Domain・2_Infrastructureが定めるもの（本書では繰り返さない）:
+
+- Domain層のすべて、`dependency.go`、Repository実装・`dependency.go`のインターフェースの実装・外部連携実装
+- `context.go`、およびTransaction・Validation・Authorization・Error・GORMの実装方針
+
+本書が定めるもの:
+
+- 上記2エンドポイントのApplication層（3つのUseCase・DTO）
+- 同Presentation層（Handler・Request / Response DTO・`routes.go`）
+- 同API仕様・テストケース設計
+
+1_Domain・2_Infrastructureを実装・マージしたうえで本書の実装に着手する。
 
 ---
 
-# 2. Application層設計
+# 2. ディレクトリ構成
+
+1_Domain「2. ディレクトリ構成」の機能全体のファイル一覧のうち、本書が担当するものは以下の13である。
+
+```
+internal/studentimport/application/dto/dry_run_dto.go
+internal/studentimport/application/dto/execute_import_dto.go
+internal/studentimport/application/dto/start_import_dto.go
+internal/studentimport/application/usecase/dry_run_student_import_usecase.go
+internal/studentimport/application/usecase/errors.go
+internal/studentimport/application/usecase/execute_student_import_usecase.go
+internal/studentimport/application/usecase/file_storage.go
+internal/studentimport/application/usecase/job_publisher.go
+internal/studentimport/application/usecase/start_student_import_usecase.go
+internal/studentimport/presentation/handler/student_import_handler.go
+internal/studentimport/presentation/request/student_import_request.go
+internal/studentimport/presentation/response/student_import_response.go
+internal/studentimport/presentation/routes.go
+```
+
+---
+
+# 3. Domain層設計
+
+本書では定義しない。1_Domain「3. Domain層設計」を参照。
+
+---
+
+# 4. クラス図
+
+1_Domain「4. クラス図」を参照。本書はUseCase・Handlerを追加するのみである。
+
+---
+
+# 5. 状態遷移図
+
+1_Domain「5. 状態遷移図」を参照。本書の`ExecuteStudentImportUseCase`が、`processing`→`completed`/`failed`の遷移を発生させる唯一のUseCaseである。
+
+---
+
+# 6. Application層設計
 
 ## DTO（Command / Query）
 
@@ -56,23 +106,23 @@
 ### StartStudentImportUseCase（`application/usecase/start_student_import_usecase.go`）
 
 - struct名: `StartStudentImportUseCase`
-- コンストラクタが受け取る依存: `ImportHistoryRepository`, `TransactionManager`, `JobPublisher`, `FileStorage`
+- コンストラクタが受け取る依存: `ImportHistoryRepository`, `transaction.Manager`, `JobPublisher`, `FileStorage`
 - 公開メソッド: `(u *StartStudentImportUseCase) Execute(ctx context.Context, cmd dto.StartStudentImportCommand) (dto.StartStudentImportResult, error)`
 - 処理ステップ:
   1. `valueobject.NewImportMode(cmd.RawMode)`でモードを正規化する
   2. `FileStorage.Save(ctx, cmd.File, cmd.FileName)`でファイルを保存し、`FilePath`を取得する
   3. `entity.NewImportHistory(cmd.CurrentTeacherID, cmd.CurrentTeacherHighSchoolID, mode, cmd.FileName, filePath, now)`で`processing`状態のEntityを生成する
-  4. `TransactionManager.WithinTransaction`内で、`ImportHistoryRepository.Create`と`JobPublisher.Publish(ctx, "student_import", payload{ImportHistoryID}, now)`を実行する（アーキテクチャ規約13章のTransactional Outboxパターン。業務データ保存とジョブ登録の不整合を防ぐ）
+  4. `transaction.Manager.WithinTransaction`内で、`ImportHistoryRepository.Create`と`JobPublisher.Publish(ctx, "student_import", payload{ImportHistoryID}, now)`を実行する（アーキテクチャ規約13章のTransactional Outboxパターン。業務データ保存とジョブ登録の不整合を防ぐ）
   5. `dto.StartStudentImportResult`に変換して返す
 - トランザクション境界: ImportHistoryの作成とジョブ登録を1トランザクションとする（②14章）
-- 発生しうるApplication Error: `ErrFileStorageFailed`（ファイル保存失敗。Infrastructure Errorとして扱う場合との違いは14章参照）
+- 発生しうるApplication Error: `ErrFileStorageFailed`（ファイル保存失敗。Infrastructure Errorとして扱う場合との違いは1_Domain「14. Error実装方針」参照）
 
 ### ExecuteStudentImportUseCase（`application/usecase/execute_student_import_usecase.go`）
 
 - struct名: `ExecuteStudentImportUseCase`
-- コンストラクタが受け取る依存: `ImportHistoryRepository`, `ImportErrorRepository`, `ImportedStudentRepository`, `*service.CsvHeaderValidationPolicy`, `*service.StudentRowValidationPolicy`, `*service.AllOrNothingImportAggregationPolicy`, `*service.StudentAccountUpsertPolicy`, `TransactionManager`, `FileStorage`
+- コンストラクタが受け取る依存: `ImportHistoryRepository`, `ImportErrorRepository`, `ImportedStudentRepository`, `*service.CsvHeaderValidationPolicy`, `*service.StudentRowValidationPolicy`, `*service.AllOrNothingImportAggregationPolicy`, `*service.StudentAccountUpsertPolicy`, `transaction.Manager`, `FileStorage`
 - 公開メソッド: `(u *ExecuteStudentImportUseCase) Execute(ctx context.Context, cmd dto.ExecuteStudentImportCommand) (dto.ExecuteStudentImportResult, error)`
-- 処理ステップ（`TransactionManager.WithinTransaction`内で3〜8を実行する。②14章：ヘッダー検証・全行検証・生徒データへの反映・ImportHistoryの終了状態更新までを1トランザクションとする）:
+- 処理ステップ（`transaction.Manager.WithinTransaction`内で3〜8を実行する。②14章：ヘッダー検証・全行検証・生徒データへの反映・ImportHistoryの終了状態更新までを1トランザクションとする）:
   1. `ImportHistoryRepository.FindByID`でImportHistoryを取得する。取得できない場合は`ErrImportHistoryNotFound`を返す
   2. `FileStorage.Read(ctx, importHistory.FilePath)`でCSVを再読み込みし、ヘッダー・全行を取得する
   3. `CsvHeaderValidationPolicy.Validate`でヘッダーを検証する
@@ -88,9 +138,7 @@
 
 ---
 
----
-
-# 3. シーケンス図・処理フロー図
+# 7. シーケンス図・処理フロー図
 
 ## シーケンス図
 
@@ -110,7 +158,7 @@ sequenceDiagram
     participant AG as AllOrNothingImportAggregationPolicy
     participant UP as StudentAccountUpsertPolicy
     participant SR as StudentAccountRepository
-    participant CR as StudentAccountCreationRepository(user)
+    participant CR as StudentAccountCreator(user)
     participant ER as ImportErrorRepository
     participant IR as ImportedStudentRepository
 
@@ -173,9 +221,13 @@ flowchart TD
 
 ---
 
+# 8. Infrastructure層設計
+
+本書では扱わない。2_Infrastructure.mdを参照。本書のUseCaseが使うInfrastructure層の要素: Repository実装（`infrastructure/gormrepo/`）・`dependency.go`のインターフェースの実装（`infrastructure/contextadapter/`）・ファイルストレージ・非同期ジョブ（`infrastructure/storage/`・`infrastructure/queue/`）。
+
 ---
 
-# 4. Presentation層設計
+# 9. Presentation層設計
 
 ## Handler
 
@@ -190,21 +242,44 @@ flowchart TD
 |`DryRun`|POST|`/api/v1/teacher/import_students/dry_run`|
 |`Start`|POST|`/api/v1/teacher/import_students`|
 
-- `DryRun`処理順序: current teacher情報取得 → `request.DryRunStudentImportRequest`へのマルチパートフォームバインド（ファイル必須・CSV形式・5MB以内。②15章「フォーマットチェック」）→ `DryRunStudentImportUseCase.Execute`呼び出し → `response.DryRunStudentImportResponse`へ変換し200を返す。ヘッダー不正時は422（`ErrInvalidCsvHeader`）
+- `DryRun`処理順序: current teacher情報取得 → `request.DryRunStudentImportRequest`へのマルチパートフォームバインド（ファイル必須・CSV形式・5MB以内。1_Domain「12. Validation実装方針」「フォーマットチェック」）→ `DryRunStudentImportUseCase.Execute`呼び出し → `response.DryRunStudentImportResponse`へ変換し200を返す。ヘッダー不正時は422（`ErrInvalidCsvHeader`）
 - `Start`処理順序: current teacher情報取得 → `request.StartStudentImportRequest`へのバインド（ファイル必須・CSV形式・5MB以内、mode任意）→ `StartStudentImportUseCase.Execute`呼び出し → `response.MessageResponse`へ変換し202を返す。ファイル不正時は422（この場合ImportHistoryは作成されない。②19章）
 
-## Context間連携（`user` Contextの`CreateStudentAccount`の呼び出し）
+## Request / Response DTO
 
-- 本Contextは、新規行の生徒アカウント作成を、`user` Contextが公開する`CreateStudentAccount`の呼び出しで依頼する。呼び出しは`domain/repository`の`StudentAccountCreationRepository`（本Context側で定義するinterface）を介し、実装は`infrastructure/repository/student_account_creation_repository.go`が`user`の公開関数へ委譲する（アーキテクチャ規約「5. Context間連携ルール」：相手Contextが公開する手段のみを呼び出す。コーディング規約「7. インターフェース」：利用側で定義する）
-- DI配線: アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従い、`internal/student_import`の組み立て関数（`NewContext`）が`NewStudentAccountCreationRepository`を生成し、`StudentAccountUpsertPolicy`へ渡す。他Contextの組み立て結果を受け取る配線は行わない
-- 教師生徒参照機能（`student-directory`）も、`user`の`CreateStudentAccount`を直接呼ぶ。本Contextと`student-directory`の間に作成処理の共有や依存関係はない
-- 呼び出す関数のシグネチャ・入出力の型は`user`③「3. 公開操作の定義」のとおり
+### Request（`presentation/request/student_import_request.go`）
+
+|struct名|フィールドと型|バリデーションタグ／チェック内容|
+|-|-|-|
+|`StartStudentImportRequest`|`File *multipart.FileHeader`, `Mode string`|`File`は必須・CSV形式・5MB以内。`Mode`は任意|
+|`DryRunStudentImportRequest`|`File *multipart.FileHeader`|`File`は必須・CSV形式・5MB以内|
+
+### Response（`presentation/response/student_import_response.go`）
+
+|struct名|フィールドと型|
+|-|-|
+|`DryRunStudentImportResponse`|`TotalCount int`, `ValidCount int`, `Rows []DryRunRowResponse`|
+|`DryRunRowResponse`|`RowNumber int`, `Severity string`, `Message string`, `Data map[string]string`|
+
+`Start`のResponseは共通の`MessageResponse`を使う（本Contextでは別途定義しない）。
+
+## Routing（`presentation/routes.go`）
+
+|Method|Path|Handler|
+|-|-|-|
+|POST|/api/v1/teacher/import_students|`StudentImportHandler.Start`|
+|POST|/api/v1/teacher/import_students/dry_run|`StudentImportHandler.DryRun`|
+
+認証Middleware・`teacher`ロール確認Middlewareを経由する（1_Domain「13. Authorization実装方針」参照）。
 
 ---
 
----
+# 10. API仕様
 
-# 5. API仕様
+|Method|Path|Handler|Request|Response|Status Code|
+|-|-|-|-|-|-|
+|POST|/api/v1/teacher/import_students|`StudentImportHandler.Start`|`StartStudentImportRequest`|`MessageResponse`|202|
+|POST|/api/v1/teacher/import_students/dry_run|`StudentImportHandler.DryRun`|`DryRunStudentImportRequest`|`DryRunStudentImportResponse`|200|
 
 ## Errorケース
 
@@ -220,9 +295,37 @@ flowchart TD
 
 ---
 
+# 11. Transaction実装方針
+
+本書では扱わない。1_Domain「11. Transaction実装方針」を参照。
+
 ---
 
-# 6. テストケース設計（本書の担当分）
+# 12. Validation実装方針
+
+本書では扱わない。1_Domain「12. Validation実装方針」を参照。
+
+---
+
+# 13. Authorization実装方針
+
+本書では扱わない。1_Domain「13. Authorization実装方針」を参照。
+
+---
+
+# 14. Error実装方針
+
+本書では扱わない。1_Domain「14. Error実装方針」を参照（上記「10. API仕様」のErrorケースは同方針の表の抜粋である）。
+
+---
+
+# 15. GORM / DBクエリ設計
+
+本書では扱わない。2_Infrastructure「15. GORM / DBクエリ設計」を参照。
+
+---
+
+# 16. テストケース設計（本書の担当分）
 
 ## UseCase Test
 
@@ -248,3 +351,13 @@ flowchart TD
 |`user`との連携|新規行が`user`の`CreateStudentAccount`で作成され（生徒番号・招待待ち・招待メール送信依頼を含む）、1行でも失敗した場合に、作成済みのアカウントと招待メール送信依頼が残らないこと。既存生徒の行は更新のみで招待メール送信依頼が登録されないこと|
 
 ---
+
+# 17. ②からの補足事項
+
+②に明記がなく、実装のために本書で補った内容である。1_Domain「17. ②からの補足事項」に記載した内容に加え、本書固有のものを以下に示す。
+
+|判断した内容|判断理由|推測か|
+|-|-|-|
+|`Start`のResponseを共通の`MessageResponse`とし、本Context専用のResponse DTOを作成しなかった|②「19. API仕様」のResponseが成功メッセージのみであり、他機能③と同じ`MessageResponse`の形で足りるため|推測ではない（実装判断）|
+
+上記以外の設計判断は1_Domain・2_Infrastructureの記載をそのまま踏襲する。
