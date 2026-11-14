@@ -6,7 +6,7 @@
 
 ## 機能概要
 
-生徒が担当教員に対して面談を申請し、教員とのメッセージのやり取りを通じて面談の実施を進める機能である。Rails現行仕様では、面談申請の一覧・詳細取得、新規申請、取り消し、メッセージの一覧・投稿という6つの操作を生徒向けに提供している。面談の確定・完了操作は教員側の操作であり、教師面談機能（別②Go移行・設計仕様書）の責務として扱う。ただし、面談の状態（`requested` / `scheduling` / `confirmed` / `completed` / `cancelled`）とその遷移ルールは、生徒・教員の双方の操作から参照・変更される共通の業務ルールであるため、本書でも正確に整理する。
+生徒が担当教員に対して面談を申請し、教員とのメッセージのやり取りを通じて面談の実施を進める機能である。Rails現行仕様では、申請先として選べる担当教員一覧の取得、面談申請の一覧・詳細取得、新規申請、取り消し、メッセージの一覧・投稿という7つの操作を生徒向けに提供している。面談の確定・完了操作は教員側の操作であり、教師面談機能（別②Go移行・設計仕様書）の責務として扱う。ただし、面談の状態（`requested` / `scheduling` / `confirmed` / `completed` / `cancelled`）とその遷移ルールは、生徒・教員の双方の操作から参照・変更される共通の業務ルールであるため、本書でも正確に整理する。
 
 ## 利用者
 
@@ -45,12 +45,13 @@
 - 面談に紐づくメッセージの投稿・参照
 - 面談の状態（`requested` / `scheduling` / `confirmed` / `completed` / `cancelled`）とその遷移ルールの管理
 - 楽観的排他制御（`lock_version`）による更新競合の防止
+- 面談の申請先として選べる、生徒の所属クラスの担当教員一覧の提供
 
 本Contextの生徒向け操作範囲は、申請・取消・メッセージのやり取りに限定される。面談の確定（`confirmed`）・完了（`completed`）への遷移を引き起こす操作自体は教員視点の操作であり、教師面談機能側の責務として別途整理される。ただし、状態そのものとその遷移条件はInterviewRequest Entityに属する業務ルールであり、生徒視点・教員視点いずれの機能からも同一のルールを参照する。
 
 ## 他Contextとの依存関係
 
-- `school-class` Context（②は`クラス編成機能_Go移行・設計仕様書.md`）: 面談申請時に、指定した教員が生徒の所属クラスの担当教員であることを確認するために依存する。クラスへの教員の割り当ては`teacher_school_classes`が保持しており、同テーブルを所有・管理するContextは現行の②群に定義されていない（教員をクラスへ割り当てる機能が移行対象範囲にないため。クラス編成②「3. Bounded Context」が同じ扱いをしている）
+- `school-class` Context（②は`クラス編成機能_Go移行・設計仕様書.md`）: 面談申請時に、指定した教員が生徒の所属クラスの担当教員であることを確認するために依存する。また、面談の申請先として選べる担当教員一覧を提示するため、生徒の所属クラスを担当する教員の一覧を取得するためにも依存する。クラスへの教員の割り当ては`teacher_school_classes`が保持しており、同テーブルを所有・管理するContextは現行の②群に定義されていない（教員をクラスへ割り当てる機能が移行対象範囲にないため。クラス編成②「3. Bounded Context」が同じ扱いをしている）
 - `user` Context（②は`ユーザー基盤機能_Go移行・設計仕様書.md`）: 生徒・教員の識別、面談の一覧・詳細に含める生徒名・教員名、メッセージ送信者名の表示に依存する（Rails現行の`InterviewRequestSerializer`は`student_name` / `teacher_name`、`InterviewRequestMessageSerializer`は`sender_name`を返す。氏名は面談側に複製せず、表示時に`user` Contextから解決する）
 - `announcement` Context（②は`お知らせ機能_Go移行・設計仕様書.md`）: 面談の新規申請・取り消し・新着メッセージの発生を契機に、相手方（教員）へ通知を行うために依存する。お知らせ機能と共通のシステムお知らせ作成の仕組みを呼び出す（①「9. 非同期処理」）
 
@@ -58,7 +59,7 @@
 
 |向き|内容|相手|状態|
 |-|-|-|-|
-|本Contextが必要とする|クラスの担当教員の参照（指定教員が生徒の所属クラスを担当しているか）|`school-class`|**同②に公開操作が未定義**。クラス編成②は`teacher_school_classes`を所有Context未定義の参照専用の依存として扱っており、公開操作を持たない|
+|本Contextが必要とする|クラスの担当教員の参照（指定教員が生徒の所属クラスを担当しているか、および生徒の所属クラスを担当する教員の一覧）|`school-class`|**同②に公開操作が未定義**。クラス編成②は`teacher_school_classes`を所有Context未定義の参照専用の依存として扱っており、公開操作を持たない。クラス編成②「12. UseCase設計」のクラス詳細取得が同じテーブルを自Context内の参照専用Repositoryとして直接読んでおり、本Contextも同じ扱い（所有Contextが現行の②群に定義されていないテーブルへの参照専用の依存）とする|
 |本Contextへの参照要求|面談日時が期間内で取り消し済みでない面談の参照|カレンダー機能|本Contextの公開操作として定めた（下記「本Contextが公開する操作」）|
 
 カレンダー機能は、目標・タスク・面談を期間で横断集計して返す（カレンダー機能①「1. 機能概要」）。本Contextは面談の期間検索を教師面談機能の一覧で既に持つため（教師面談②「11. Repository設計」）、公開操作はその検索条件を当事者指定で呼び出す形になる。
@@ -345,13 +346,24 @@ stateDiagram-v2
 ## TeacherAssignmentRepository（参照用）
 
 - 管理対象: 教員のクラス担当情報（`school-class`が所有するクラスと、所有Contextが②群に未定義の`teacher_school_classes`）
-- 責務: 指定教員が指定生徒の所属クラスを担当しているかどうかの確認
+- 責務:
+  - 指定教員が指定生徒の所属クラスを担当しているかどうかの確認
+  - 指定生徒の所属クラスを担当する教員の一覧取得（論理削除されていない教員に限る、識別子の昇順）
 - 保持しない責務: 教員情報自体の作成・更新
-- 判断根拠: 面談申請の宛先妥当性確認に必要な最小限の参照に限定するため
+- 判断根拠: 面談申請の宛先妥当性確認（新規申請時）と、申請先として選べる教員の提示（一覧取得時）のいずれも、クラス担当情報に対する最小限の参照であり、同一のRepositoryに責務を限定するため
 
 ---
 
 # 12. UseCase設計
+
+## ListAssignableTeachers
+
+- 目的: 生徒が面談の申請先として選べる、所属クラスの担当教員一覧を取得する
+- 入力: current user（生徒）
+- 出力: 教員一覧（識別子・氏名のみ）
+- トランザクション範囲: 読み取りのみ、トランザクション不要
+- 呼び出すRepository: TeacherAssignmentRepository
+- 判断根拠: InterviewRequest Aggregateを一切扱わない、クラス担当情報のみの参照処理である。本Contextの他のUseCase（下記）がいずれもInterviewRequest（またはそのメッセージ）を対象とするのに対し、本UseCaseはAggregateに依存しない独立した参照操作である点が異なる。生徒が所属クラスを持たない場合は空の一覧を返す（エラーにしない。①「5. API / 処理詳細」の業務ルール）
 
 ## ListInterviewRequests
 
@@ -484,7 +496,7 @@ flowchart TD
 ## Transaction終了位置
 
 - CreateInterviewRequest / CancelInterviewRequest / CreateInterviewRequestMessageは、InterviewRequest（および必要な場合はInterviewRequestMessage）の作成・更新が完了した時点でコミットする
-- ListInterviewRequests / ShowInterviewRequest / ListInterviewRequestMessagesは読み取りのみのため、トランザクションを使用しない
+- ListAssignableTeachers / ListInterviewRequests / ShowInterviewRequest / ListInterviewRequestMessagesは読み取りのみのため、トランザクションを使用しない
 - 相手方への通知（`announcement`への依頼）は、規約「13. 非同期ジョブ実行パターン（JobQueue）」に従い、業務データの書き込みと同一トランザクション内でジョブとして登録する（Transactional Outboxパターン）
 
 ## 理由
@@ -546,6 +558,7 @@ flowchart TD
 
 - current userが当事者（申請した生徒本人）となっている面談申請のみを対象とする
 - 面談の確定・完了操作は本機能のUseCaseには実装しない（教師面談機能側の責務）
+- ListAssignableTeachersは、current userの所属クラスのみを対象とする。InterviewRequestを扱わないため当事者確認は発生しない
 
 ## Domain
 
@@ -607,6 +620,7 @@ flowchart TD
 
 |エンドポイント|HTTP Method|概要|
 |-|-|-|
+|/api/v1/student/teachers|GET|面談の申請先として選べる担当教員一覧取得|
 |/api/v1/student/interview_requests|GET|面談申請一覧取得|
 |/api/v1/student/interview_requests/:id|GET|面談申請詳細取得|
 |/api/v1/student/interview_requests|POST|面談申請の新規作成|
@@ -616,6 +630,7 @@ flowchart TD
 
 ## 各エンドポイントの仕様
 
+- 担当教員一覧取得: 入力パラメータなし。レスポンスは教員一覧（識別子・氏名のみ）。所属クラスがない場合は空の一覧
 - 一覧取得: クエリパラメータ`status`（任意）/`page`/`per_page`。レスポンスは面談申請一覧（生徒ID・生徒名・教員ID・教員名を含む）とページ情報
 - 詳細取得: パスパラメータ`id`。レスポンスは面談申請詳細（一覧と同じ項目。生徒名・教員名を含む）
 - 新規作成: ボディに`teacher_id`/`reason_category`/`reason_detail`。レスポンスは完了メッセージ
@@ -677,7 +692,7 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 |-|-|-|-|-|-|
 |InterviewRequestRepository|interview_requests|参照・作成・更新|student_id、status、id|なし|作成日時降順、ページネーションあり|
 |InterviewRequestMessageRepository|interview_request_messages|参照・作成|interview_request_id|なし|投稿日時昇順、ページネーションあり|
-|TeacherAssignmentRepository|（`school-class`が所有するクラスと`teacher_school_classes`）|参照|teacher_id、生徒の所属クラスID|クラス担当情報との結合が必要|不要|
+|TeacherAssignmentRepository|（`school-class`が所有するクラスと`teacher_school_classes`）|参照|teacher_id + 生徒の所属クラスID（担当確認）、生徒の所属クラスID（一覧取得。論理削除されていない教員に限る）|クラス担当情報との結合が必要|一覧取得は識別子の昇順。ページネーションは不要|
 
 具体的なSQL・GORMのクエリコードは③Go実装仕様書（`規約/Gorm規約.md`）で扱う。
 
@@ -691,7 +706,8 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 
 ## UseCase Test
 
-- 目的: ListInterviewRequests / ShowInterviewRequest / CreateInterviewRequest / CancelInterviewRequest / ListInterviewRequestMessages / CreateInterviewRequestMessageの業務振る舞いと当事者制限を検証する
+- 目的: ListAssignableTeachers / ListInterviewRequests / ShowInterviewRequest / CreateInterviewRequest / CancelInterviewRequest / ListInterviewRequestMessages / CreateInterviewRequestMessageの業務振る舞いと当事者制限を検証する
+- ListAssignableTeachersは、所属クラスがない場合に空の一覧を返すこと、論理削除された教員が一覧から除かれることを検証する
 
 ## Repository Test
 
