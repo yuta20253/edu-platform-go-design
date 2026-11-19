@@ -14,7 +14,7 @@
 
 他Contextの③（認証機能・教師生徒参照機能・生徒CSVインポート機能・教員招待通知機能・管理者管理者ユーザー機能・教師教員管理機能・管理者教員管理機能）が本Contextの操作を呼ぶ記述を持つため、呼び出し側が参照できる境界を先に定める。
 
-本Contextの内部実装（infrastructure層のクエリ、GORMモデル、招待メールの文面、テストケース設計）は本書では扱わない。
+本Contextの内部実装（infrastructure層のクエリ、GORMモデル、招待メールの文面、テストケース設計）は本書では扱わない。本ContextはHTTPエンドポイントを持たない内部専用Contextであるため、画面・APIに関わる節（9・10・13）も対象外とする。各節の対象外・対象の判断は該当節に記載する。
 
 ## 採用設計パターンとその理由（②からの要約）
 
@@ -81,7 +81,27 @@ type Mailer interface {
 
 ---
 
-# 3. 公開操作の定義
+# 3. Domain層設計
+
+**対象外（Transaction Script採用のため、Domain層を設けない）。** 公開操作の入出力の型・処理ステップは「6. Application層設計」に記載する。
+
+---
+
+# 4. クラス図
+
+**省略する。** 本Contextは状態を持つEntityを持たず、手続き的な関数群（「6. Application層設計」）と入出力の型のみで構成される。struct間の関係を図示する意味がない。
+
+---
+
+# 5. 状態遷移図
+
+**省略する。** 本Contextが扱う唯一の状態（招待完了状態`password_reset_required`）は、遷移の責務を`authentication`が持つ（認証②「10. 状態遷移図」）。本Contextは作成時の初期値を設定するのみで、遷移そのものを持たない。
+
+---
+
+# 6. Application層設計
+
+Transaction Script採用のため、「UseCase」の代わりに`application/`直下に置く関数として記載する。
 
 ## 入出力の共通型
 
@@ -255,35 +275,19 @@ func (c *Context) RequestInvitationEmail(ctx context.Context, userID uint, mode 
 
 即時方式が送信失敗をエラーではなく`InvitationResult`で返すのは、`teacher-notification`が失敗を業務結果として`TeacherNotification`へ記録する必要があるためである（②「12. UseCase設計」）。エラーで返すと、呼び出し側が「記録すべき失敗」と「処理を中断すべき障害」を区別できない。
 
-本操作は認可を行わない。「その教員へ送ってよいか」（他職員操作権限・同校・招待未完了）の判定は呼び出し元の責務である（②「16. Authorization設計」）。
+本操作は認可を行わない。「その教員へ送ってよいか」（他職員操作権限・同校・招待未完了）の判定は呼び出し元の責務である（②「16. Authorization設計」。「13. Authorization実装方針」参照）。
 
 ---
 
-# 4. トランザクションの引き継ぎ
+# 7. シーケンス図・処理フロー図
 
-本Contextの作成操作は、呼び出し側のトランザクションに参加する必要がある。アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」に従い、`context.Context`で引き継ぐ（②「論点と決定」9）。
-
-```go
-// Good（本Contextの作成操作）
-func (c *Context) CreateStudentAccount(ctx context.Context, in CreateStudentAccountInput) (UserAttributes, error) {
-    var attrs UserAttributes
-
-    err := transaction.RunInTx(ctx, c.db, func(tx *gorm.DB) error {
-        // 行の作成と、jobs への招待メール送信依頼の登録を同じトランザクションで行う
-        return nil
-    })
-
-    return attrs, err
-}
-```
-
-`transaction.RunInTx`は、`ctx`にトランザクションがあればそれに参加し、なければ新しく開始する（規約11章）。呼び出し元の採用パターン（教員管理はActive Record、教師生徒参照はTransaction Script、生徒CSVインポートはDomain Model）によらず、引き継ぎの方式は同一である。
-
-`RequestInvitationEmail`の即時方式は、この引き継ぎの対象外である。呼び出し側のトランザクションの外で呼ぶ（コミット前に送信してはならない）。
+**省略する。** いずれの公開操作も分岐の少ない手続き的な処理であり、処理ステップは「6. Application層設計」の各関数のコメントで足りる。複数Contextをまたぐ分岐もない。
 
 ---
 
-# 5. `users`への書き込み範囲
+# 8. Infrastructure層設計
+
+## `users`への書き込み範囲
 
 `users`は複数のContextが列ごとに異なる責務で書き込む共有テーブルである（②「20. DB設計方針」、アーキテクチャ規約の方針）。**本Contextは、自分が所有する列だけを対象に更新する。** 構造体全体を渡す`Save`を使わない。
 
@@ -316,21 +320,103 @@ return tx.Save(&u).Error
 
 本Contextが作成時に設定する列と、作成後に他Contextが更新する列の対応は②「20. DB設計方針」の表に従う。
 
----
+## 対象外とする範囲
 
-# 6. 本書で扱わない範囲
+以下は本書の対象外とする。本Contextの内部実装を具体化する際に追加する。
 
-次の内容は本書では定めない。本Contextの内部実装を具体化する際に追加する。
-
-- infrastructure層のクエリの実装（`SearchUsers`の条件の組み立て、`CountUsers`のグループ集計）
-- GORMモデルの定義とタグ
+- infrastructure層のクエリの具体的な実装（`SearchUsers`の条件の組み立て、`CountUsers`のグループ集計）
+- GORMモデルの定義とタグ（「15. GORM / DBクエリ設計」も対象外とする）
 - 招待メールの文面・件名・リンクの構成
 - 生徒番号の衝突時の再試行回数と上限の扱い
-- テストケース設計
 
 ---
 
-# 7. ②からの補足事項
+# 9. Presentation層設計
+
+**対象外。** 本ContextはHTTPエンドポイントを持たない内部専用Contextであり、`presentation/`ディレクトリを作成しない（②「1. 機能概要」、「2. ディレクトリ構成」）。
+
+---
+
+# 10. API仕様
+
+**対象外。** 本ContextはHTTPエンドポイントを持たない（「9. Presentation層設計」参照）。
+
+---
+
+# 11. Transaction実装方針
+
+本Contextの作成操作は、呼び出し側のトランザクションに参加する必要がある。アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」に従い、`context.Context`で引き継ぐ（②「論点と決定」9）。
+
+```go
+// Good（本Contextの作成操作）
+func (c *Context) CreateStudentAccount(ctx context.Context, in CreateStudentAccountInput) (UserAttributes, error) {
+    var attrs UserAttributes
+
+    err := transaction.RunInTx(ctx, c.db, func(tx *gorm.DB) error {
+        // 行の作成と、jobs への招待メール送信依頼の登録を同じトランザクションで行う
+        return nil
+    })
+
+    return attrs, err
+}
+```
+
+`transaction.RunInTx`は、`ctx`にトランザクションがあればそれに参加し、なければ新しく開始する（規約11章）。呼び出し元の採用パターン（教員管理はActive Record、教師生徒参照はTransaction Script、生徒CSVインポートはDomain Model）によらず、引き継ぎの方式は同一である。
+
+`RequestInvitationEmail`の即時方式は、この引き継ぎの対象外である。呼び出し側のトランザクションの外で呼ぶ（コミット前に送信してはならない）。
+
+---
+
+# 12. Validation実装方針
+
+Transaction Script採用のため、`application/`直下の各関数内のガード節で検証する。
+
+|関数|検証内容|
+|-|-|
+|`SearchUsers`|`SearchCondition`の`Deactivated`が指定されていること（ゼロ値はエラー）。絞り込み条件（`IDs`・`Roles`・`HighSchoolIDs`等）が1つも指定されていない場合はエラーとする|
+|`CreateTeacherAccount`|`PendingInvitation`・`SendInvitationEmail`がいずれも`nil`でないこと|
+|`CreateAdminAccount`|`Email`が空でないこと。`Name`が空の場合はメールアドレスの`@`より前を氏名として補う（検証ではなく補完）|
+|`ValidateStudentNumberFormat`|生徒番号の書式（高校の学校コード-8桁の英数字大文字）に一致すること（②「7. Value Object設計」）|
+
+`DeactivatedScope`・`DeliveryMode`にゼロ値を割り当てず`iota + 1`から始めるのは、Goの`int`のゼロ値（0）と「指定なし」を区別できないためである（「6. Application層設計」参照）。
+
+---
+
+# 13. Authorization実装方針
+
+**対象外。** 本Contextは認可を行わない。「その対象を参照・作成・送信してよいか」の判定は、画面・APIを持つ呼び出し元Contextの責務である（②「16. Authorization設計」）。例えば`RequestInvitationEmail`では、他職員操作権限・同校・招待未完了といった判定を呼び出し元が済ませたうえで本Contextを呼ぶ前提になっている。
+
+---
+
+# 14. Error実装方針
+
+本Contextはセンチネルエラー（`errors.go`）を返すのみで、HTTPステータスへの変換は行わない。変換は呼び出し元Context（画面・APIを持つ側）が、自身のAppError設計（アーキテクチャ規約「12. Error変換パターン（AppError）」）に従って行う。
+
+|エラー|発生条件|
+|-|-|
+|`ErrSearchConditionRequired`|`SearchUsers`で絞り込み条件が1つも指定されていない場合|
+|`ErrDeactivatedScopeRequired`|`SearchCondition.Deactivated`が指定されていない場合|
+|`ErrDeliveryModeRequired`|`RequestInvitationEmail`で`DeliveryMode`が指定されていない場合|
+|`ErrPendingInvitationRequired` / `ErrSendInvitationEmailRequired`|`CreateTeacherAccount`で該当フィールドが`nil`の場合|
+|`ErrInvalidStudentNumberFormat`|`ValidateStudentNumberFormat`が書式に一致しない場合|
+
+`RequestInvitationEmail`の送信失敗（`InvitationFailed`）はエラーではなく`InvitationResult`として返す（「6. Application層設計」の「招待メールの送信依頼」）。業務結果として記録する必要があるためで、障害を示すエラーとは区別する。
+
+---
+
+# 15. GORM / DBクエリ設計
+
+**対象外。** クエリ・GORMモデルの具体的な実装は本書の範囲外とする（「8. Infrastructure層設計」の「対象外とする範囲」）。
+
+---
+
+# 16. テストケース設計
+
+**対象外。** 本書の対象範囲外とする（「8. Infrastructure層設計」の「対象外とする範囲」）。
+
+---
+
+# 17. ②からの補足事項
 
 |補足した内容|理由|区分|
 |-|-|-|
