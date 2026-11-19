@@ -116,10 +116,8 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象のタスクが存在しない、または他の生徒のタスク|404|`{"message": "タスクが見つかりません"}`（`ApplicationController#not_found`）|
-|対象の単元がそのタスクに紐づかない|404|`{"message": "Unitが見つかりません"}`。**モデル名の日本語訳が定義されていないため、名称が英語のまま出る**|
-
-このControllerは独自の例外ハンドラを持たないため、共通ハンドラの本文の形（`message` キー）になる。同じ404でも `ConfirmationsController#show` は独自ハンドラを持ち `errors` キーで返すため、**機能内で404の本文の形が2通りある**（「6. データモデル」の「エラーレスポンスの本文」）。
+|対象のタスクが存在しない、または他の生徒のタスク|404|`{"errors": ["タスクが見つかりません"]}`（`ApplicationController#not_found`）|
+|対象の単元がそのタスクに紐づかない|404|`{"errors": ["単元が見つかりません"]}`|
 
 ## `Api::V1::Student::AnswersController#create`
 
@@ -179,13 +177,13 @@
 |必須項目の未入力|422|`{"errors": ["メッセージ", ...]}`|
 |`time_spent_sec` が 0 未満または 3600 超、整数でない|422|同上|
 |`explanation_viewed` が真偽値でない|422|同上|
-|`task_id` が操作者自身のタスクでない（存在しない場合を含む）|422|`Task が不正です`|
-|`unit_id` がそのタスクに紐づかない|422|`Unit が不正です`|
-|`question_id` がその単元に紐づかない|422|`Question が不正です`|
-|`question_choice_id` が対象問題の選択肢でない|422|`Question choice はこの問題の選択肢ではありません`|
+|`task_id` が操作者自身のタスクでない（存在しない場合を含む）|422|`タスクが不正です`|
+|`unit_id` がそのタスクに紐づかない|422|`単元が不正です`|
+|`question_id` がその単元に紐づかない|422|`問題が不正です`|
+|`question_choice_id` が対象問題の選択肢でない|422|`選択肢はこの問題の選択肢ではありません`|
 |解答履歴の保存がモデルの検証に失敗した|422|`ActiveRecord::RecordInvalid` を Form が捕まえ、例外のメッセージを `base` に積む|
 
-いずれの 422 もメッセージは「項目名 + メッセージ本体」の形で組み立てられるが、この機能の Form の項目名は日本語訳が定義されていないため、**項目名が英語のまま出る**（「6. データモデル」の「エラーレスポンスの本文」）。
+いずれの 422 もメッセージは「項目名 + メッセージ本体」の形で組み立てられ、この機能の Form の項目名は日本語訳が定義されている（「6. データモデル」の「エラーレスポンスの本文」）。
 
 ## `Api::V1::Student::AnswersController#update`
 
@@ -235,7 +233,7 @@
 |条件|HTTP Status|内容|
 |-|-|-|
 |必須項目の未入力、`time_spent_sec`・`explanation_viewed` の形式不正|422|`{"errors": ["メッセージ", ...]}`|
-|`question_choice_id` が対象問題の選択肢でない|422|`Question choice はこの問題の選択肢ではありません`|
+|`question_choice_id` が対象問題の選択肢でない|422|`選択肢はこの問題の選択肢ではありません`|
 |対象の解答履歴が見つからない|**422**|`解答履歴が見つかりません`（`base` に積まれるため項目名が付かない）。404 ではない|
 |解答履歴の保存がモデルの検証に失敗した|422|`ActiveRecord::RecordInvalid` を Form が捕まえ、例外のメッセージを `base` に積む|
 
@@ -288,7 +286,8 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象のタスクまたは単元が見つからない（他の生徒のタスクを含む）|404|`{"errors": ["対象データが見つかりません"]}`。**このControllerは `set_questions` で独自に `ActiveRecord::RecordNotFound` を捕まえており、`ApplicationController#not_found` の `{"message": ...}` とは本文の形が異なる**|
+|対象のタスクが存在しない、または他の生徒のタスク|404|`{"errors": ["タスクが見つかりません"]}`（`ApplicationController#not_found`）|
+|対象の単元がそのタスクに紐づかない|404|`{"errors": ["単元が見つかりません"]}`|
 
 ## `Api::V1::Student::SubmissionsController#update`
 
@@ -335,8 +334,8 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象タスクが存在しない、または他の生徒のタスク|404|`{"message": "タスクが見つかりません"}`（`ApplicationController#not_found`）。このControllerは独自のハンドラを持たないため、共通ハンドラの形になる|
-|タスクに `goal_id` が設定されていない|404|`{"message": "目標が見つかりません"}`。目標の状態の再評価で `@user.goals.find(nil)` となり `ActiveRecord::RecordNotFound` が発生し、共通ハンドラが対象を `Goal` として本文を組み立てる。`tasks.goal_id` は NULL 可であり（「タスク管理機能」の「6. データモデル」）、API 経由で作成したタスクは必須だが既存データに NULL がありうる。タスクの状態の更新はトランザクションにより巻き戻る|
+|対象タスクが存在しない、または他の生徒のタスク|404|`{"errors": ["タスクが見つかりません"]}`（`ApplicationController#not_found`）|
+|タスクに `goal_id` が設定されていない|404|`{"errors": ["目標が見つかりません"]}`。目標の状態の再評価で `@user.goals.find(nil)` となり `ActiveRecord::RecordNotFound` が発生し、共通ハンドラが対象を `Goal` として本文を組み立てる。`tasks.goal_id` は NULL 可であり（「タスク管理機能」の「6. データモデル」）、API 経由で作成したタスクは必須だが既存データに NULL がありうる。タスクの状態の更新はトランザクションにより巻き戻る|
 
 ---
 
@@ -393,23 +392,22 @@
 
 ## エラーレスポンスの本文
 
-**この機能は404の本文の形が2通りある。**
+この機能のエラー本文は共通の例外ハンドラが決める。いずれの条件でも本文の形は同じである。
 
 |条件|HTTP Status|本文|
 |-|-|-|
 |バリデーション失敗（Form）|422|`{"errors": ["メッセージ", ...]}`|
-|`ConfirmationsController#show` で対象のタスク・単元が見つからない|404|`{"errors": ["対象データが見つかりません"]}`（Controller 独自の `rescue`）|
-|上記以外で `ActiveRecord::RecordNotFound`|404|`{"message": "〇〇が見つかりません"}`（`ApplicationController#not_found`）。`〇〇` はモデル名の日本語訳であり、`Task` は `タスク`、`Goal` は `目標`、`Unit` は訳が定義されていないため `Unit` と英語になる|
+|`ActiveRecord::RecordNotFound`|404|`{"errors": ["〇〇が見つかりません"]}`（`ApplicationController#not_found`）。`〇〇` はモデル名の日本語訳であり、`Task` は `タスク`、`Goal` は `目標`、`Unit` は `単元`|
 |`Pundit::NotAuthorizedError`|403|`{"errors": ["この操作を行う権限がありません"]}`|
 
-422 のメッセージは「項目名 + メッセージ本体」の形で組み立てられるが、この機能の Form（`Student::CreateQuestionHistoryForm` / `UpdateQuestionHistoryForm`）の項目名は日本語訳が定義されていないため、**項目名が英語のまま出る**。
+422 のメッセージは「項目名 + メッセージ本体」の形で組み立てられる。この機能の Form（`Student::CreateQuestionHistoryForm` / `UpdateQuestionHistoryForm`）の項目名は日本語訳が定義されているため、項目名・メッセージ本体ともに日本語で出力される。
 
 |項目|メッセージに出る項目名|
 |-|-|
-|`task_id`|`Task`|
-|`unit_id`|`Unit`|
-|`question_id`|`Question`|
-|`question_choice_id`|`Question choice`|
+|`task_id`|`タスク`|
+|`unit_id`|`単元`|
+|`question_id`|`問題`|
+|`question_choice_id`|`選択肢`|
 |`time_spent_sec`|`Time spent sec`|
 |`explanation_viewed`|`Explanation viewed`|
 

@@ -135,7 +135,7 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象目標が存在しない、または他の生徒の目標|404|`{"message": "目標が見つかりません"}`（`ApplicationController#not_found`）|
+|対象目標が存在しない、または他の生徒の目標|404|`{"errors": ["目標が見つかりません"]}`（`ApplicationController#not_found`）|
 |進行中または完了のタスクが紐づく|422|`{"errors": ["進行中または完了のタスクがあるため削除できません"]}`。`Goal::HasActiveTasksError` を `Api::V1::Student::BaseController` が `rescue_from` で捕まえ、422 で返す|
 
 ## `Api::V1::Student::GoalsController#show`
@@ -188,7 +188,7 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象の目標が存在しない|404|`{"message": "目標が見つかりません"}`（`ApplicationController#not_found`）|
+|対象の目標が存在しない|404|`{"errors": ["目標が見つかりません"]}`（`ApplicationController#not_found`）|
 |他ユーザーの目標にアクセス|404|同上（`current_user.goals` を起点に検索するため、他の生徒の目標は見つからない）|
 
 ## `Api::V1::Student::GoalsController#create`
@@ -271,7 +271,7 @@
 |条件|HTTP Status|内容|
 |-|-|-|
 |バリデーション失敗|422|`{"errors": ["メッセージ", ...]}`（`form.errors.full_messages`）|
-|対象の目標が存在しない、または他の生徒の目標|404|`{"message": "目標が見つかりません"}`（`ApplicationController#not_found`）|
+|対象の目標が存在しない、または他の生徒の目標|404|`{"errors": ["目標が見つかりません"]}`（`ApplicationController#not_found`）|
 
 ---
 
@@ -305,24 +305,22 @@
 
 ## エラーレスポンスの本文
 
-この機能のエラー本文は `ApplicationController` の共通ハンドラが決める。本文の形は条件によって異なる。
+この機能のエラー本文は `ApplicationController` の共通ハンドラが決める。いずれの条件でも本文の形は同じである。
 
 |条件|HTTP Status|本文|
 |-|-|-|
 |バリデーション失敗（Form）|422|`{"errors": ["メッセージ", ...]}`|
-|`ActiveRecord::RecordNotFound`|404|`{"message": "目標が見つかりません"}`（`errors` ではなく `message` の単一文字列）|
+|`ActiveRecord::RecordNotFound`|404|`{"errors": ["目標が見つかりません"]}`|
 |`Pundit::NotAuthorizedError`|403|`{"errors": ["この操作を行う権限がありません"]}`|
 |`Goal::HasActiveTasksError`|422|`{"errors": ["進行中または完了のタスクがあるため削除できません"]}`（`Api::V1::Student::BaseController` の `rescue_from`）|
 
-422 のメッセージは「項目名 + メッセージ本体」の形で組み立てられる。この機能の Form（`Student::CreateGoalForm` / `UpdateGoalForm`）の項目名は日本語訳が定義されていないため、**項目名が英語のまま出る**。メッセージ本体のみ日本語である。
+422 のメッセージは「項目名 + メッセージ本体」の形で組み立てられる。この機能の Form（`Student::CreateGoalForm` / `UpdateGoalForm`）の項目名は日本語訳が定義されているため、項目名・メッセージ本体ともに日本語で出力される。
 
 |条件|メッセージ|
 |-|-|
-|`title` 未入力|`Title を入力してください`|
-|`due_date` 未入力|`Due date を入力してください`|
-|`due_date` が日付として解釈できない|`Due date は正しい日付を入力してください`|
-
-一方、404 のモデル名は日本語訳が定義されているため `目標が見つかりません` となる。
+|`title` 未入力|`タイトルを入力してください`|
+|`due_date` 未入力|`期限を入力してください`|
+|`due_date` が日付として解釈できない|`期限は正しい日付を入力してください`|
 
 ---
 

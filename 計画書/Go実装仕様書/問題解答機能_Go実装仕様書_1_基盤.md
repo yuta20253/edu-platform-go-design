@@ -391,14 +391,14 @@ DBにも他Contextの呼び出しにも依存せず、与えられた3つの値�
 |`ErrGoalNotFound`|提出で、タスクに目標が紐づいていない|—（404へ変換する。本文の名称は`目標`）|
 |`ErrInvalidCorrectAnswer`|問題の正解を整数に変換できない|—（500へ変換する。データ不整合）|
 
-メッセージの文言は①のとおり項目名が英語のまま出る形を維持する。フロントエンドを変更しない方針のためである（②「17. Error設計」の「エラーレスポンスの本文」）。
+メッセージの項目名は①のとおり日本語訳が定義されている（②「17. Error設計」の「エラーレスポンスの本文」）。
 
 **「対象が見つからない」ためのエラーを用途ごとに分けている。** ステータスと本文の形が経路によって異なるためである（②「17. Error設計」）。
 
 |エラー|ステータス|本文|
 |-|-|-|
 |`ErrInvalidTask` / `ErrInvalidUnit` / `ErrInvalidQuestion`|422|`{"errors": [...]}`|
-|`ErrTaskNotFound` / `ErrUnitNotFound` / `ErrGoalNotFound`|404|`{"message": "〇〇が見つかりません"}`|
+|`ErrTaskNotFound` / `ErrUnitNotFound` / `ErrGoalNotFound`|404|`{"errors": ["〇〇が見つかりません"]}`|
 |`ErrTaskOrUnitNotFound`|404|`{"errors": ["対象データが見つかりません"]}`|
 
 1つのエラーにまとめると、同じ「タスクが見つからない」が解答の登録では422、提出では404という違いを表せない。
@@ -878,17 +878,17 @@ Domain Model採用のため、`domain/errors.go`のセンチネルエラーをUs
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
 
-レスポンスのボディは、②「17. Error設計」の「エラーレスポンスの本文」のとおりRails現行の形を維持する。**この機能は404の本文の形が2通りある。**
+レスポンスのボディは、②「17. Error設計」の「エラーレスポンスの本文」のとおりRails現行の形を維持する。いずれの条件でも本文の形は同じである。
 
 |条件|HTTP Status|ボディ|
 |-|-|-|
 |入力・業務検証の失敗|422|`{"errors": ["メッセージ", ...]}`|
 |`ErrTaskOrUnitNotFound`（確認表示）|404|`{"errors": ["対象データが見つかりません"]}`|
-|`ErrTaskNotFound` / `ErrUnitNotFound` / `ErrGoalNotFound`|404|`{"message": "〇〇が見つかりません"}`。`〇〇`は`タスク`・`Unit`・`目標`|
+|`ErrTaskNotFound` / `ErrUnitNotFound` / `ErrGoalNotFound`|404|`{"errors": ["〇〇が見つかりません"]}`。`〇〇`は`タスク`・`単元`・`目標`|
 |`ErrInvalidCorrectAnswer`・その他の未分類のエラー|500|`{"errors": [...]}`|
 |認証・認可・CSRF|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
 
-404の本文の形が2通りあるため、**ミドルウェアは`AppError`が指定した本文の形に従う**。ステータスが404なら必ず`message`キー、という分岐にしない。`AppError`に「本文の形」と「名称」を持たせ、ミドルウェアがそれに従って組み立てる。
+404の本文に入る名称は対象ごとに異なるため、`AppError`に「名称」を持たせ、ミドルウェアがそれを本文に差し込む形にする。
 
 他機能の③は「ステータスが404なら`message`キー」という分岐を記載しているが（目標管理機能③・タスク管理機能③・学習ログ機能③「14. Error実装方針」）、本機能には`errors`形式の404があるためその分岐では足りない。
 
