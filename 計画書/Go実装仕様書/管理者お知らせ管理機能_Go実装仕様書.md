@@ -1036,8 +1036,8 @@ flowchart TD
 |配信済みのため削除できない|422|`{"errors": ["is 配信済みのため削除できません"]}`|
 |既に配信済み（手動配信）|422|`{"errors": ["status はすでに配信済みです"]}`|
 |操作する権限がない|403|`{"errors": ["この操作を行う権限がありません"]}`|
-|教員が発行した、存在しない|404|`{"message": "Announcementが見つかりません"}`|
-|高校が存在しない|404|`{"message": "High schoolが見つかりません"}`|
+|教員が発行した、存在しない|404|`{"errors": ["お知らせが見つかりません"]}`|
+|高校が存在しない|404|`{"errors": ["高校が見つかりません"]}`|
 |`status`が既知でない（一覧）|200|絞り込みを行わない。エラーにしない|
 |`page`・`per_page`が0以下（一覧）|200|既定値を使う|
 |該当する行が0件（一覧）|200|空の配列とページ情報を返す|
@@ -1047,7 +1047,7 @@ flowchart TD
 
 `422`・`403`・`400`の本文は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」に従い`{"errors": [...]}`とする。
 
-`404`の本文が`message`キーであるのは、Rails現行の形を維持するためである（②「17. Error設計」）。モデル名が英語表記（`Announcement`・`High school`）になる点も維持する。
+`404`の本文は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」のとおり`errors`形式とする（②「17. Error設計」）。
 
 **作成時に複数の検証に失敗した場合、Rails現行は複数のメッセージを`errors`に含める**（①「5. API / 処理詳細」`#create`）。Gin規約「8. エラーハンドリングミドルウェア」の`ErrorHandler`は`appErr.Error()`の1要素のみを`errors`に入れるため、現状の規約のままでは複数のメッセージを返せない。この点は規約側で扱う事項であり、本書では新しいルールを設けない（「17. ②からの補足事項」5参照）。
 
@@ -1360,7 +1360,7 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 ||0件のとき`[]`で返ること|
 |`AnnouncementHandler.Show`|**`announcement`キーで包まれること**|
 ||`content`が含まれること|
-||`ErrAnnouncementNotFound`のとき`404`と`{"message": "Announcementが見つかりません"}`が返ること|
+||`ErrAnnouncementNotFound`のとき`404`と`{"errors": ["お知らせが見つかりません"]}`が返ること|
 |`AnnouncementHandler.Create`|**`announcement`キーがないとき`400`が返ること**|
 ||`201`と`{"message": "お知らせを作成しました。"}`が返ること|
 ||**レスポンスに識別子が含まれないこと**|
@@ -1378,7 +1378,7 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 |共通|application層のエラーを`c.Error`へ渡し、自身で`c.JSON`しないこと|
 ||`c.Error`を1回だけ呼ぶこと|
 |`HighSchoolAnnouncementHandler.Index`|`high_school_id`が符号なし整数として解釈できないとき`422`が返ること|
-||`ErrHighSchoolNotFound`のとき`404`と`{"message": "High schoolが見つかりません"}`が返ること|
+||`ErrHighSchoolNotFound`のとき`404`と`{"errors": ["高校が見つかりません"]}`が返ること|
 ||各要素に`content`が含まれること|
 ||**配信先のキーが`targets`であること**|
 ||`target_type`という単独の項目を持たないこと|

@@ -606,7 +606,7 @@ Rails現行の教師による教員作成（`Teacher::CreateTeacherForm`）は�
 - Request: パスパラメータ`id`（対象教員）
 - Response: 一覧の各要素と同じ6項目を、**ラップせずそのまま**返す（①「5. API / 処理詳細」`#show`）。招待状況は常に`pending`を返す
 - Status Code: 正常系200。異常系は対象教員不存在404（他校・教員以外を含む）、未認証401、`teacher`ロール不一致403
-- Error Response方針: 対象教員が見つからない場合、Rails現行は`ApplicationController`の共通ハンドラが`{ "message": "<モデル名>が見つかりません" }`を返す（①「5. API / 処理詳細」`#show`）。この1件のみ`errors`形式ではないため、互換を優先して現行の形式を維持する
+- Error Response方針: 対象教員が見つからない場合、`ApplicationController`の共通ハンドラが`{"errors": ["ユーザーが見つかりません"]}`を返す（①「5. API / 処理詳細」`#show`）。規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」と同じ形式である
 
 ### POST /api/v1/teacher/colleagues
 

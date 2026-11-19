@@ -670,8 +670,8 @@ flowchart TD
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|対象のタスクが存在しない、または他の生徒のタスク|404|`ErrTaskNotFound`。本文は`{"message": "タスクが見つかりません"}`|
-|タスクに目標が紐づいていない|404|`ErrGoalNotFound`。本文は`{"message": "目標が見つかりません"}`|
+|対象のタスクが存在しない、または他の生徒のタスク|404|`ErrTaskNotFound`。本文は`{"errors": ["タスクが見つかりません"]}`|
+|タスクに目標が紐づいていない|404|`ErrGoalNotFound`。本文は`{"errors": ["目標が見つかりません"]}`|
 |タスクの状態の更新または目標の状態の再評価に失敗した|500|両方が巻き戻る|
 
 リクエストボディを持たないため、入力検証に起因する422はパスパラメータの形式不正のみである。
@@ -762,8 +762,8 @@ UpdateAnswerはタスク・単元の紐づきを検証しない。解答履歴�
 |`ErrInvalidQuestionChoice`|`CreateAnswerUseCase` / `UpdateAnswerUseCase`|422|同|
 |`ErrInvalidTimeSpentSec`|両UseCase（`TimeSpentSec`の生成）|422|同|
 |`ErrQuestionHistoryNotFound`|`UpdateAnswerUseCase`|422|同|
-|`ErrTaskNotFound`|`SubmitTaskUseCase`|404|`{"message": "タスクが見つかりません"}`|
-|`ErrGoalNotFound`|`SubmitTaskUseCase`|404|`{"message": "目標が見つかりません"}`|
+|`ErrTaskNotFound`|`SubmitTaskUseCase`|404|`{"errors": ["タスクが見つかりません"]}`|
+|`ErrGoalNotFound`|`SubmitTaskUseCase`|404|`{"errors": ["目標が見つかりません"]}`|
 |`ErrInvalidCorrectAnswer`|`AnswerJudgePolicy`|500|`{"errors": [...]}`|
 |パスパラメータの形式不正|Handler|422|同|
 
@@ -881,8 +881,8 @@ UpdateAnswerはタスク・単元の紐づきを検証しない。解答履歴�
 |-|
 |正常系: 200と`{"status": "..."}`が返ること（`status`キーでラップされること）|
 |正常系: リクエストボディを送らなくても成功すること|
-|異常系: タスクの不存在で404と`{"message": "タスクが見つかりません"}`が返ること|
-|異常系: タスクに目標が紐づいていない場合に404と`{"message": "目標が見つかりません"}`が返ること|
+|異常系: タスクの不存在で404と`{"errors": ["タスクが見つかりません"]}`が返ること|
+|異常系: タスクに目標が紐づいていない場合に404と`{"errors": ["目標が見つかりません"]}`が返ること|
 
 ## Integration Test
 

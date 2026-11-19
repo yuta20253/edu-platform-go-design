@@ -186,9 +186,9 @@ internal/studylog/presentation/routes.go
 |`ErrStudyLogNotFound`|`StudyLogStore`が指定の条件に一致する学習ログを取得できなかった場合（他の生徒のものを指定した場合を含む）|—（同。本文の名称は`Study log`）|
 |`ErrInvalidStudyLogStatus`|`Complete()`・検証時に状態が許容値外の場合|—（内部エラー。APIの入力で状態を受け取らないため、通常は発生しない）|
 
-`ErrAlreadyCompleted`は**400**へ変換する。Rails現行が`Student::AlreadyCompletedStudyLogError`を`Api::V1::Student::BaseController`の`rescue_from`で捕まえ、400で返しているためである（①「5. API / 処理詳細」`#update`、②「17. Error設計」の「Rails現行の挙動を維持するもの」）。業務ルール違反としては422が自然だが、フロントエンドを変更しない方針を優先する。
+`ErrAlreadyCompleted`は**422**へ変換する（①「5. API / 処理詳細」`#update`）。
 
-404に変換するエラーを3つに分けているのは、**本文に入るモデル名が対象ごとに異なる**ためである。`Task`は日本語訳があり`タスク`になるが、`Unit`・`StudyLog`は訳が定義されていないため`Unit`・`Study log`と英語になる（①「6. データモデル」の「エラーレスポンスの本文」）。1つのエラーにまとめると名称を作り分けられない。
+404に変換するエラーを3つに分けているのは、**本文に入るモデル名が対象ごとに異なる**ためである。`Task`は`タスク`、`Unit`は`単元`、`StudyLog`は`学習記録`になる（①「6. データモデル」の「エラーレスポンスの本文」）。1つのエラーにまとめると名称を作り分けられない。
 
 ---
 
@@ -267,7 +267,7 @@ stateDiagram-v2
 
 - 作成時は`studying`で固定する。APIの入力で状態を受け取らない（①「7. 状態管理」）
 - `CompleteStudyLog`で`completed`へ移る。同時に終了時刻を現在時刻、所要時間を算出値に設定する
-- **`completed`から`studying`へ戻る遷移はない。** 完了済みの学習ログを重ねて完了させようとすると`ErrAlreadyCompleted`（400）になる
+- **`completed`から`studying`へ戻る遷移はない。** 完了済みの学習ログを重ねて完了させようとすると`ErrAlreadyCompleted`（422）になる
 - 遷移は一方向・単一経路であり、`Complete`メソッドの1箇所でのみ起きる
 
 他機能への波及（この図には含めない）:
@@ -358,11 +358,11 @@ flowchart TD
     B -- はい --> C{タスクが操作者のものか}
     C -- いいえ --> E404T[404 タスクが見つかりません]
     C -- はい --> D{単元がそのタスクに紐づくか}
-    D -- いいえ --> E404U[404 Unitが見つかりません]
+    D -- いいえ --> E404U[404 単元が見つかりません]
     D -- はい --> F{user_id・task_id・unit_id・idに<br/>一致する学習ログがあるか}
-    F -- いいえ --> E404S[404 Study logが見つかりません]
+    F -- いいえ --> E404S[404 学習記録が見つかりません]
     F -- はい --> G{既に完了しているか}
-    G -- はい --> E400[400 この学習ログはすでに完了しています]
+    G -- はい --> E422[422 この学習ログはすでに完了しています]
     G -- いいえ --> H[終了時刻=現在時刻<br/>所要時間=分単位切り捨て<br/>状態=completed]
     H --> I[3列を更新してコミット]
     I --> J[200 OK]
@@ -525,7 +525,7 @@ flowchart TD
 2. パスパラメータ`task_id`・`unit_id`・`id`を読み取る。リクエストボディはない
 3. `taskUnitDirectory.VerifyTaskUnit`で対象タスク・単元を確認する（`#create`と同じ手順。①「5. API / 処理詳細」`#update`）
 4. `store.FindScoped`で`user_id`・`task_id`・`unit_id`・`id`のすべてに一致する学習ログを取得する。一致しなければ`ErrStudyLogNotFound`→404
-5. `studyLog.Complete(time.Now())`を呼ぶ。既に完了していれば`ErrAlreadyCompleted`→**400**のAppErrorへ変換して返す
+5. `studyLog.Complete(time.Now())`を呼ぶ。既に完了していれば`ErrAlreadyCompleted`→**422**のAppErrorへ変換して返す
 6. `store.UpdateCompletion`で`status`・`ended_at`・`duration_minutes`を更新する
 7. `StudyLogResponse`へ変換して200 OKで返す
 
@@ -591,7 +591,7 @@ flowchart TD
 
 いずれもリクエストボディを持たない。作成が201であるのは、①「5. API / 処理詳細」のとおり`#create`が`status: :created`を返しているためである。
 
-エラーレスポンスの本文は「14. Error実装方針」のとおり、400が`{"errors": [...]}`、404が`{"message": "〇〇が見つかりません"}`である。
+エラーレスポンスの本文は「14. Error実装方針」のとおり、422・404のいずれも`{"errors": [...]}`である。
 
 各Endpointのエラーケース:
 
@@ -602,8 +602,8 @@ flowchart TD
 |未認証|401|認証Middlewareが返す（②「16. Authorization設計」）|
 |`student`ロールでない|403|ロール確認Middlewareが返す|
 |CSRFトークンが不正|403|CSRF検証Middlewareが返す（Gin規約「5. CSRF対策」）|
-|対象タスクが存在しない、または他の生徒のタスクである|404|`ErrTaskNotFound`。本文は`{"message": "タスクが見つかりません"}`|
-|対象単元が指定タスクに紐づいていない|404|`ErrUnitNotFound`。本文は`{"message": "Unitが見つかりません"}`|
+|対象タスクが存在しない、または他の生徒のタスクである|404|`ErrTaskNotFound`。本文は`{"errors": ["タスクが見つかりません"]}`|
+|対象単元が指定タスクに紐づいていない|404|`ErrUnitNotFound`。本文は`{"errors": ["単元が見つかりません"]}`|
 
 認証・認可・CSRFのステータスコードは本機能で定めるものではなく、該当Middlewareの仕様に従う。
 
@@ -615,8 +615,8 @@ flowchart TD
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|対象の学習ログが存在しない、または他の生徒のものである|404|`ErrStudyLogNotFound`。本文は`{"message": "Study logが見つかりません"}`|
-|対象の学習ログが既に完了している|**400**|`ErrAlreadyCompleted`。本文は`{"errors": ["この学習ログはすでに完了しています"]}`（①「5. API / 処理詳細」`#update`）|
+|対象の学習ログが存在しない、または他の生徒のものである|404|`ErrStudyLogNotFound`。本文は`{"errors": ["学習記録が見つかりません"]}`|
+|対象の学習ログが既に完了している|422|`ErrAlreadyCompleted`。本文は`{"errors": ["この学習ログはすでに完了しています"]}`（①「5. API / 処理詳細」`#update`）|
 
 論理削除済みの学習ログは404にならず、完了操作の対象になる（①「6. データモデル」）。
 
@@ -711,17 +711,17 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 
 |条件|HTTP Status|ボディ|
 |-|-|-|
-|`ErrAlreadyCompleted`|**400**|`{"errors": ["この学習ログはすでに完了しています"]}`|
-|`ErrTaskNotFound`|404|`{"message": "タスクが見つかりません"}`|
-|`ErrUnitNotFound`|404|`{"message": "Unitが見つかりません"}`|
-|`ErrStudyLogNotFound`|404|`{"message": "Study logが見つかりません"}`|
+|`ErrAlreadyCompleted`|422|`{"errors": ["この学習ログはすでに完了しています"]}`|
+|`ErrTaskNotFound`|404|`{"errors": ["タスクが見つかりません"]}`|
+|`ErrUnitNotFound`|404|`{"errors": ["単元が見つかりません"]}`|
+|`ErrStudyLogNotFound`|404|`{"errors": ["学習記録が見つかりません"]}`|
 |パスパラメータの形式不正|422|`{"errors": [...]}`|
 |その他の未分類のエラー|500|`{"errors": [...]}`|
 |認証・認可・CSRF|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
 
 404のみ本文の形が異なるため、ミドルウェアは`AppError`から得たステータスが404の場合に`message`キーの本文を組み立てる。この分岐は`internal/shared/middleware`のエラーハンドラに1箇所だけ置き、Handler側に持たせない。
 
-**404の本文に入る名称が対象ごとに異なる点が、本機能の特徴である。** `タスク`・`Unit`・`Study log`の3通りがある。`Task`はモデル名の日本語訳があるが、`Unit`・`StudyLog`は訳が定義されていないため英語のまま出る（①「6. データモデル」の「エラーレスポンスの本文」）。そのため404のAppErrorは名称を値として保持し、ミドルウェアがその名称を本文に差し込む形にする。ミドルウェア側に機能ごとの名称表を持たせない。
+**404の本文に入る名称が対象ごとに異なる点が、本機能の特徴である。** `Task`は`タスク`、`Unit`は`単元`、`StudyLog`は`学習記録`になる（①「6. データモデル」の「エラーレスポンスの本文」）。そのため404のAppErrorは名称を値として保持し、ミドルウェアがその名称を本文に差し込む形にする。ミドルウェア側に機能ごとの名称表を持たせない。
 
 **②からの補足**: 404の本文の形はRails現行の`ApplicationController#not_found`が決めており、全機能に共通する。ミドルウェア側の分岐も全機能で共通になるため、実装時は本機能に固有の処理として書かない。一方、名称を3通り作り分ける必要があるのは本機能固有である。
 
@@ -734,7 +734,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`ErrTaskNotFound`|Handler（`TaskUnitDirectory`経由）|404（名称: `タスク`）|
 |`ErrUnitNotFound`|Handler（同）|404（名称: `Unit`）|
 |`ErrStudyLogNotFound`|Store → Application（変換）|404（名称: `Study log`）|
-|`ErrAlreadyCompleted`|Model（`Complete`）|**400**|
+|`ErrAlreadyCompleted`|Model（`Complete`）|422|
 |パスパラメータの形式不正|Presentation|422|
 |`ErrInvalidStudyLogStatus`|Model|500（APIの入力で状態を受け取らないため、通常は発生しない）|
 |`task-management`の「タスクの着手」の失敗|Handler（`TaskStarter`経由）|500|
@@ -743,7 +743,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |CSRFトークン不正|Middleware|403|
 |DB接続失敗・永続化失敗|Store（Infrastructure相当）|500|
 
-`ErrAlreadyCompleted`を400とするのは、Rails現行が`Student::AlreadyCompletedStudyLogError`を`Api::V1::Student::BaseController`の`rescue_from`で捕まえ、400で返しているためである（①「5. API / 処理詳細」`#update`、②「17. Error設計」の「Rails現行の挙動を維持するもの」）。業務ルール違反としては422が自然だが、フロントエンドを変更しない方針を優先する。
+`ErrAlreadyCompleted`を422とするのは、Rails現行が`Student::AlreadyCompletedStudyLogError`を`Api::V1::Student::BaseController`の`rescue_from`で捕まえ、422で返しているためである（①「5. API / 処理詳細」`#update`）。
 
 タスクの着手が失敗した場合は、学習ログの作成もロールバックされる。呼び出し側のトランザクションに含まれているためである（「11. Transaction実装方針」）。
 
@@ -834,14 +834,14 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`StudyLogHandler.CreateStudyLog`|正常系: `TaskStarter.StartTask`が呼ばれること|
 |`StudyLogHandler.CreateStudyLog`|正常系: 学習中の学習ログが既にある場合も新しく作成され201が返ること|
 |`StudyLogHandler.CreateStudyLog`|異常系: `TaskStarter.StartTask`が失敗した場合に学習ログの作成もロールバックされること|
-|`StudyLogHandler.CreateStudyLog`|異常系: タスクが他の生徒のものの場合に404と`{"message": "タスクが見つかりません"}`が返ること|
-|`StudyLogHandler.CreateStudyLog`|異常系: 単元がタスクに紐づかない場合に404と`{"message": "Unitが見つかりません"}`が返ること|
+|`StudyLogHandler.CreateStudyLog`|異常系: タスクが他の生徒のものの場合に404と`{"errors": ["タスクが見つかりません"]}`が返ること|
+|`StudyLogHandler.CreateStudyLog`|異常系: 単元がタスクに紐づかない場合に404と`{"errors": ["単元が見つかりません"]}`が返ること|
 |`StudyLogHandler.CompleteStudyLog`|正常系: 200で`id`・`status`・`started_at`・`ended_at`・`duration_minutes`の5項目が返ること|
 |`StudyLogHandler.CompleteStudyLog`|正常系: `user_id`・`task_id`・`unit_id`がレスポンスに含まれないこと|
 |`StudyLogHandler.CompleteStudyLog`|正常系: `started_at`・`ended_at`が日時のまま返ること（`YYYY/MM/DD`へ整形しないこと）|
 |`StudyLogHandler.CompleteStudyLog`|正常系: `TaskStarter.StartTask`が呼ばれないこと|
-|`StudyLogHandler.CompleteStudyLog`|異常系: 学習ログが存在しない・他の生徒のものの場合に404と`{"message": "Study logが見つかりません"}`が返ること|
-|`StudyLogHandler.CompleteStudyLog`|異常系: 既に完了している場合に**400**と`{"errors": ["この学習ログはすでに完了しています"]}`が返ること|
+|`StudyLogHandler.CompleteStudyLog`|異常系: 学習ログが存在しない・他の生徒のものの場合に404と`{"errors": ["学習記録が見つかりません"]}`が返ること|
+|`StudyLogHandler.CompleteStudyLog`|異常系: 既に完了している場合に422と`{"errors": ["この学習ログはすでに完了しています"]}`が返ること|
 |全Handler|異常系: パスパラメータが整数でない場合に422が返ること|
 |エラーハンドラ|404のみ`message`キー、それ以外は`errors`キーの本文になること|
 |エラーハンドラ|404の名称が対象ごとに`タスク`・`Unit`・`Study log`になること|
@@ -881,4 +881,4 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`started_at`・`ended_at`の**日時の表現形式**を確定しなかった|Goの`time.Time`の既定のJSON表現はRFC3339（小数部6桁）、RailsのActiveSupportの既定は小数部3桁であり**桁数が異なる**。フロントエンドが文字列として扱っている場合は影響しないが、桁数に依存した処理があると差が出る|**要確認**（フロントエンドを変更しない方針に関わる。整形方針を揃えるかは実装前に確認が必要）|
 |ルートの登録を`study_logs`以下のみに限る形にした|パスの前半（`/tasks/:task_id/units/:unit_id`）は`task-management`が所有するリソースの下にある。パスの文字列を複数のContextが重複して持たないようにするため|要確認（入れ子のルートをどのContextが登録するかの方針は規約に定めがない。`cmd/server/main.go`での組み立て方とあわせて確認が必要）|
 
-ディレクトリ名・package名（`internal/studylog/`）、レスポンスの形状（`study_log_id`キー、5項目、日付の整形なし）、HTTPステータス（201・200・400・404）、`study_logs.status`の整数2値での保持、トランザクション境界は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
+ディレクトリ名・package名（`internal/studylog/`）、レスポンスの形状（`study_log_id`キー、5項目、日付の整形なし）、HTTPステータス（201・200・422・404）、`study_logs.status`の整数2値での保持、トランザクション境界は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

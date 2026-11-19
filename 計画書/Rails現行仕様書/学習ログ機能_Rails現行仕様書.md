@@ -100,8 +100,8 @@ goals（status。上記でタスクの状態が変わった場合）
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象タスクが存在しない、または自分のタスクでない|404|`{"message": "タスクが見つかりません"}`（`ApplicationController#not_found`）|
-|対象単元がタスクに紐づいていない|404|`{"message": "Unitが見つかりません"}`。**モデル名の日本語訳が定義されていないため、名称が英語のまま出る**|
+|対象タスクが存在しない、または自分のタスクでない|404|`{"errors": ["タスクが見つかりません"]}`（`ApplicationController#not_found`）|
+|対象単元がタスクに紐づいていない|404|`{"errors": ["単元が見つかりません"]}`|
 |未認証|401|認証エラー|
 
 ## `Api::V1::Student::StudyLogsController#update`
@@ -154,10 +154,10 @@ study_logs
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象タスクが存在しない、または自分のタスクでない|404|`{"message": "タスクが見つかりません"}`|
-|対象単元がタスクに紐づいていない|404|`{"message": "Unitが見つかりません"}`|
-|対象の学習ログが存在しない、または自分のものでない|404|`{"message": "Study logが見つかりません"}`。**モデル名の日本語訳が定義されていないため、名称が英語のまま出る**|
-|対象の学習ログが既に完了している|**400**|`{"errors": ["この学習ログはすでに完了しています"]}`。`Student::AlreadyCompletedStudyLogError` を `Api::V1::Student::BaseController` が `rescue_from` で捕まえ、400 で返す|
+|対象タスクが存在しない、または自分のタスクでない|404|`{"errors": ["タスクが見つかりません"]}`|
+|対象単元がタスクに紐づいていない|404|`{"errors": ["単元が見つかりません"]}`|
+|対象の学習ログが存在しない、または自分のものでない|404|`{"errors": ["学習記録が見つかりません"]}`|
+|対象の学習ログが既に完了している|422|`{"errors": ["この学習ログはすでに完了しています"]}`。`Student::AlreadyCompletedStudyLogError` を `Api::V1::Student::BaseController` が `rescue_from` で捕まえ、422 で返す|
 |未認証|401|認証エラー|
 
 ---
@@ -191,12 +191,12 @@ study_logs
 
 ## エラーレスポンスの本文
 
-この機能のエラー本文は共通の例外ハンドラが決める。本文の形は条件によって異なる。
+この機能のエラー本文は共通の例外ハンドラが決める。いずれの条件でも本文の形は同じである。
 
 |条件|HTTP Status|本文|
 |-|-|-|
-|`ActiveRecord::RecordNotFound`|404|`{"message": "〇〇が見つかりません"}`（`ApplicationController#not_found`）。`〇〇` はモデル名の日本語訳であり、`Task` は `タスク`、`Unit` と `StudyLog` は訳が定義されていないため `Unit`・`Study log` と英語になる|
-|`Student::AlreadyCompletedStudyLogError`|400|`{"errors": ["この学習ログはすでに完了しています"]}`（`Api::V1::Student::BaseController#bad_request`）|
+|`ActiveRecord::RecordNotFound`|404|`{"errors": ["〇〇が見つかりません"]}`（`ApplicationController#not_found`）。`〇〇` はモデル名の日本語訳であり、`Task` は `タスク`、`Unit` は `単元`、`StudyLog` は `学習記録`|
+|`Student::AlreadyCompletedStudyLogError`|422|`{"errors": ["この学習ログはすでに完了しています"]}`（`Api::V1::Student::BaseController#unprocessable_entity_error`）|
 |`Pundit::NotAuthorizedError`|403|`{"errors": ["この操作を行う権限がありません"]}`|
 
 ---

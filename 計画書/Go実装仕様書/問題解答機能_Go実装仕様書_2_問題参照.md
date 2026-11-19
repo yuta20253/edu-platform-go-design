@@ -522,8 +522,8 @@ CSRFの対象外であるため、CSRFに起因するエラーは発生しない
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|対象のタスクが存在しない、または他の生徒のタスク|404|`ErrTaskNotFound`。本文は`{"message": "タスクが見つかりません"}`|
-|対象の単元がそのタスクに紐づかない|404|`ErrUnitNotFound`。本文は`{"message": "Unitが見つかりません"}`。**モデル名の日本語訳がないため名称が英語になる**|
+|対象のタスクが存在しない、または他の生徒のタスク|404|`ErrTaskNotFound`。本文は`{"errors": ["タスクが見つかりません"]}`|
+|対象の単元がそのタスクに紐づかない|404|`ErrUnitNotFound`。本文は`{"errors": ["単元が見つかりません"]}`|
 
 問題が0件の場合は空配列を返す。エラーにしない。
 
@@ -582,8 +582,8 @@ Domain層の検証は行わない。本書のUseCaseはEntityを新しく生成�
 
 |Error|発生箇所|HTTP Status|ボディ|
 |-|-|-|-|
-|`ErrTaskNotFound`|`ListQuestionsUseCase`|404|`{"message": "タスクが見つかりません"}`|
-|`ErrUnitNotFound`|`ListQuestionsUseCase`|404|`{"message": "Unitが見つかりません"}`|
+|`ErrTaskNotFound`|`ListQuestionsUseCase`|404|`{"errors": ["タスクが見つかりません"]}`|
+|`ErrUnitNotFound`|`ListQuestionsUseCase`|404|`{"errors": ["単元が見つかりません"]}`|
 |`ErrTaskOrUnitNotFound`|`ShowConfirmationUseCase`|404|`{"errors": ["対象データが見つかりません"]}`|
 |パスパラメータの形式不正|Handler|422|`{"errors": [...]}`|
 
@@ -657,8 +657,8 @@ Domain層の検証は行わない。本書のUseCaseはEntityを新しく生成�
 |正常系: **`correct_answer`がレスポンスに含まれないこと**|
 |正常系: 問題が0件のとき空配列が返ること|
 |異常系: `task_id`が整数でない場合に422が返ること|
-|異常系: タスクの不存在で404と`{"message": "タスクが見つかりません"}`が返ること|
-|異常系: 単元の不存在で404と`{"message": "Unitが見つかりません"}`が返ること|
+|異常系: タスクの不存在で404と`{"errors": ["タスクが見つかりません"]}`が返ること|
+|異常系: 単元の不存在で404と`{"errors": ["単元が見つかりません"]}`が返ること|
 
 ### ConfirmationHandler.ShowConfirmation
 

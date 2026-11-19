@@ -643,13 +643,11 @@ var _ schooldirectory.TeacherCountDirectory = (*userCountDirectory)(nil)
 |`page`・`per_page`が整数として解釈できない|422|`{"errors": ["ページの指定が不正です"]}`|
 |`page`・`per_page`が0以下|200|エラーにしない。既定値を使う（①「5. API / 処理詳細」`#index`）|
 |パスパラメータが符号なし整数として解釈できない|422|`{"errors": ["高校の指定が不正です"]}`|
-|指定された高校が存在しない|404|`{"message": "High schoolが見つかりません"}`|
+|指定された高校が存在しない|404|`{"errors": ["高校が見つかりません"]}`|
 |`master-data`・`user`の参照手段の呼び出しに失敗|500|`{"errors": ["internal server error"]}`|
 |本Contextの参照の失敗|500|同|
 |未認証|401|認証ミドルウェアの応答|
 |`admin`ロール以外|403|`{"errors": ["この操作を行う権限がありません"]}`|
-
-`404`の本文が`message`キーであるのは、Rails現行の形を維持するためである（②「17. Error設計」）。モデル名が英語表記（`High school`）になる点も維持する。
 
 ---
 
@@ -747,7 +745,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 
 `ErrHighSchoolNotFound`の`StatusCode`は404、`LogLevel`は情報レベルとする。存在しない識別子の指定は利用者の操作によって起こりうるものであり、障害ではない。
 
-**`404`の本文は`{"message": "High schoolが見つかりません"}`とする。** 規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」はエラー本文を`{"errors": [...]}`と定めているが、Rails現行の`404`は`message`キーであり、フロントエンドを変更しない方針のため維持する（②「17. Error設計」）。
+**`404`の本文は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」のとおり`{"errors": ["高校が見つかりません"]}`とする（②「17. Error設計」）。**
 
 `AppError`に本文の形と名称を持たせ、ミドルウェアがそれに従って本文を組み立てる。機能ごとの名称表をミドルウェアに持たせないためである。問題解答機能③基盤編「14. Error実装方針」が同じ仕組みを採っており、それに揃える。名称は`High school`とする。日本語訳が定義されていないRails現行の出力に合わせる（①「5. API / 処理詳細」`#show`）。
 
@@ -886,7 +884,7 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 ||操作者を取得しないこと（current userが取得できない状態でも動作すること）|
 ||application層のエラーを`c.Error`へ渡し、自身で`c.JSON`しないこと|
 |`HighSchoolHandler.Show`|**最上位が単体のオブジェクトで返ること**（`schools`等のキーで包まないこと）|
-||`ErrHighSchoolNotFound`のとき`404`と`{"message": "High schoolが見つかりません"}`が返ること|
+||`ErrHighSchoolNotFound`のとき`404`と`{"errors": ["高校が見つかりません"]}`が返ること|
 ||パスパラメータが符号なし整数でないとき`422`を返すこと|
 |`GradeHandler.Index`|`grades`キーを持つこと|
 ||**`meta`を含めないこと**|
