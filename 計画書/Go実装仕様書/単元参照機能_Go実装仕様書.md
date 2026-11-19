@@ -160,7 +160,7 @@ internal/curriculum/presentation/response/unit_response.go
 |`ErrUnitNotFound`|対象の単元がそのタスクに紐づかない|404（本文の名称は`Unit`）|
 |`ErrUnitInconsistent`|紐づきの確認が済んだあとに単元が取得できない|500|
 
-**タスクと単元を区別する。** 404の本文に入るモデル名が異なるためである（①「5. API / 処理詳細」`#show`）。`Task`は`タスク`と日本語になるが、`Unit`は訳が定義されていないため英語のまま出る。
+**タスクと単元を区別する。** 404の本文に入るモデル名が異なるためである（①「5. API / 処理詳細」`#show`）。`Task`は`タスク`、`Unit`は`単元`になる。
 
 `ErrUnitInconsistent`は他Contextとの不整合を示す。`task-management`が「紐づいている」と答えた単元が本Contextに存在しないことは、データの不整合であり利用者の入力の誤りではない（②「17. Error設計」）。
 
@@ -447,7 +447,7 @@ GORMに依存せず相手Contextの公開操作を呼ぶアダプタであるた
 
 リクエストボディ・クエリパラメータを持たない。
 
-エラーレスポンスの本文は「14. Error実装方針」のとおり、404が`{"message": "〇〇が見つかりません"}`、それ以外が`{"errors": [...]}`である。
+エラーレスポンスの本文は「14. Error実装方針」のとおり、404・その他いずれも`{"errors": [...]}`である。
 
 ## Errorケース
 
@@ -456,8 +456,8 @@ GORMに依存せず相手Contextの公開操作を呼ぶアダプタであるた
 |未認証|401|認証Middlewareが返す|
 |`student`ロールでない|403|ロール確認Middlewareが返す。本文は`{"errors": ["この操作を行う権限がありません"]}`|
 |パスパラメータが整数でない|422|`{"errors": [...]}`|
-|対象のタスクが存在しない、または他の生徒のタスク|404|`ErrTaskNotFound`。本文は`{"message": "タスクが見つかりません"}`|
-|対象の単元がそのタスクに紐づかない|404|`ErrUnitNotFound`。本文は`{"message": "Unitが見つかりません"}`。**モデル名の日本語訳がないため名称が英語になる**|
+|対象のタスクが存在しない、または他の生徒のタスク|404|`ErrTaskNotFound`。本文は`{"errors": ["タスクが見つかりません"]}`|
+|対象の単元がそのタスクに紐づかない|404|`ErrUnitNotFound`。本文は`{"errors": ["単元が見つかりません"]}`|
 |紐づきの確認後に単元が取得できない|500|`ErrUnitInconsistent`。他Contextとの不整合|
 
 論理削除済みの単元・コースは404にならず、200で返る（①「5. API / 処理詳細」`#show`）。
@@ -539,15 +539,15 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 
 |条件|HTTP Status|ボディ|
 |-|-|-|
-|`ErrTaskNotFound`|404|`{"message": "タスクが見つかりません"}`|
-|`ErrUnitNotFound`|404|`{"message": "Unitが見つかりません"}`|
+|`ErrTaskNotFound`|404|`{"errors": ["タスクが見つかりません"]}`|
+|`ErrUnitNotFound`|404|`{"errors": ["単元が見つかりません"]}`|
 |パスパラメータの形式不正|422|`{"errors": [...]}`|
 |`ErrUnitInconsistent`・その他の未分類のエラー|500|`{"errors": [...]}`|
 |認証・認可|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
 
 404のみ本文の形が異なるため、ミドルウェアは`AppError`から得たステータスが404の場合に`message`キーの本文を組み立てる。この分岐は`internal/shared/middleware`のエラーハンドラに1箇所だけ置き、Handler側に持たせない。
 
-**404の本文に入る名称が対象ごとに異なる。** `タスク`と`Unit`の2通りがある。`Task`はモデル名の日本語訳があるが、`Unit`は訳が定義されていないため英語のまま出る（①「5. API / 処理詳細」`#show`）。そのため404のAppErrorは名称を値として保持し、ミドルウェアがその名称を本文に差し込む形にする。
+**404の本文に入る名称が対象ごとに異なる。** `Task`は`タスク`、`Unit`は`単元`になる（①「5. API / 処理詳細」`#show`）。そのため404のAppErrorは名称を値として保持し、ミドルウェアがその名称を本文に差し込む形にする。
 
 学習ログ機能③・問題解答機能③も同じ仕組みを必要とする（各③「14. Error実装方針」）。いずれも404の名称が複数通りある。
 
@@ -638,8 +638,8 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 |`UnitHandler.ShowUnitDetail`|正常系: current userを取得して関数へ渡すこと|
 |`UnitHandler.ShowUnitDetail`|異常系: `task_id`が整数でない場合に422が返ること|
 |`UnitHandler.ShowUnitDetail`|異常系: `id`が整数でない場合に422が返ること|
-|`UnitHandler.ShowUnitDetail`|異常系: タスクの不存在で404と`{"message": "タスクが見つかりません"}`が返ること|
-|`UnitHandler.ShowUnitDetail`|異常系: 単元の不存在で404と`{"message": "Unitが見つかりません"}`が返ること|
+|`UnitHandler.ShowUnitDetail`|異常系: タスクの不存在で404と`{"errors": ["タスクが見つかりません"]}`が返ること|
+|`UnitHandler.ShowUnitDetail`|異常系: 単元の不存在で404と`{"errors": ["単元が見つかりません"]}`が返ること|
 |`UnitHandler.ShowUnitDetail`|異常系: 不整合で500が返ること|
 |エラーハンドラ|404の名称が対象ごとに`タスク`・`Unit`になること|
 

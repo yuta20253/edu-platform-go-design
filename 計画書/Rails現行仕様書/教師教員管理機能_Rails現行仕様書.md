@@ -131,7 +131,7 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
-|対象教員が存在しない、または同校でない|404|`ApplicationController` の `ActiveRecord::RecordNotFound` ハンドラが `{ message: "<モデル名>が見つかりません" }` を返す（モデル名は `User.model_name.human`）|
+|対象教員が存在しない、または同校でない|404|`ApplicationController` の `ActiveRecord::RecordNotFound` ハンドラが `{ errors: ["<モデル名>が見つかりません"] }` を返す（モデル名は `User.model_name.human`。「ユーザー」になる）|
 
 ## `Api::V1::Teacher::TeachersController#create`
 

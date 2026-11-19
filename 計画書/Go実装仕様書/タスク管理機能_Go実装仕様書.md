@@ -125,13 +125,13 @@ internal/taskmanagement/presentation/routes.go
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`(t *Task) Validate() error`|なし|`error`|Title・Contentの必須チェック、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。Titleの長さは検証しない（下記）。ロジックの実装内容は本書では規定しない|
+|`(t *Task) Validate() error`|なし|`error`|Title・Contentの必須チェック、Titleの長さ（100文字以内）、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。ロジックの実装内容は本書では規定しない|
 |`(t *Task) ApplyStatus(s TaskStatus)`|`s TaskStatus`|なし|状態を反映し、同時に完了日時を整合させる。`TaskStatusCompleted`なら現在時刻を設定し、それ以外なら`nil`にする（①「7. 状態管理」の`sync_completed_at`と`TaskStatusUpdaterService`の双方に対応）|
 |`(t Task) IsNotStarted() bool`|なし|`bool`|未着手かを判定する。`StartTask`が「未着手のときだけ進行中にする」を判断するために用いる（①「5. API / 処理詳細」の「タスクの着手」）|
 
 不変条件: Title・Contentが空でないこと、DueDateが設定済みかつ妥当な値であること、Priority・Statusが許容値の範囲内であること。
 
-Titleの長さは`Validate()`で検証しない。`tasks.title`は`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。ここで検証を加えると同じ入力に対するステータスコードが500から422へ変わり、フロントエンドから見える挙動が変わる。フロントエンドを変更しない方針を優先する（②「17. Error設計」の「Rails現行の挙動を維持するもの」）。
+Titleの長さは`Validate()`で検証する。`tasks.title`は`string(100)`であり（①「6. データモデル」）、100文字を超える場合は`ErrTitleTooLong`を返し422へ変換する。
 
 状態と完了日時の整合は`ApplyStatus`の1箇所に閉じ込める。Railsは`before_validation`のコールバックと`TaskStatusUpdaterService`の両方で同じ整合を行っているが（①「7. 状態管理」）、本書ではTask側の1箇所に集約する。状態を変える経路は`ApplyStatus`のみとし、`Status`フィールドへの直接代入を行わない。
 
@@ -169,10 +169,8 @@ Titleの長さは`Validate()`で検証しない。`tasks.title`は`string(100)`�
 |-|-|-|
 |定義済みの優先度名（`normal`）|正常|正常|
 |定義済みの数値（`3`）|優先度名へ変換して正常|正常|
-|定義されていない数値（`9`）|変換結果が空になり必須チェックで**422**|同じ（`ErrPriorityRequired`を返し422へ変換する）|
-|定義されていない優先度名（`urgent`）|必須チェックを通過し永続化時に失敗して**500**|同じ（`ErrInvalidPriority`を返し500へ変換する。②「17. Error設計」の「Rails現行の挙動を維持するもの」）|
-
-定義されていない優先度名を422ではなく500とするのは、Rails現行の挙動を維持する方針によるものである。フロントエンドを変更しないため、ステータスコードを変えない（②「19. API仕様」の「Railsとの差分」）。
+|定義されていない数値（`9`）|変換結果が空になり必須チェックで422|同じ（`ErrPriorityRequired`を返し422へ変換する）|
+|定義されていない優先度名（`urgent`）|専用の検証で422|同じ（`ErrInvalidPriority`を返し422へ変換する。②「17. Error設計」）|
 
 ### DueDate（`due_date.go`）
 
@@ -242,21 +240,20 @@ DBにも他Contextの呼び出しにも依存せず、与えられた3つの集�
 
 |エラー|発生条件|メッセージ|
 |-|-|-|
-|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`Title を入力してください`|
-|`ErrContentRequired`|`Validate()`時にContentが空の場合|`Content を入力してください`|
-|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`Due date を入力してください`|
-|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`Due date は正しい日付を入力してください`|
-|`ErrPriorityRequired`|`ParsePriority`に定義されていない数値が渡された場合、または未入力の場合|`Priority を入力してください`|
-|`ErrInvalidPriority`|`ParsePriority`に定義されていない優先度名が渡された場合|—（500へ変換する。「14. Error実装方針」）|
+|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`タイトルを入力してください`|
+|`ErrTitleTooLong`|`Validate()`時にTitleが100文字を超える場合|`タイトルは100文字以内で入力してください`|
+|`ErrContentRequired`|`Validate()`時にContentが空の場合|`内容を入力してください`|
+|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`期限を入力してください`|
+|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`期限は正しい日付を入力してください`|
+|`ErrPriorityRequired`|`ParsePriority`に定義されていない数値が渡された場合、または未入力の場合|`優先度を入力してください`|
+|`ErrInvalidPriority`|`ParsePriority`に定義されていない優先度名が渡された場合|`優先度は一覧にありません`（422へ変換する。「14. Error実装方針」）|
 |`ErrInvalidTaskStatus`|`ParseTaskStatus`・`Validate()`時に許容値外の場合|—（内部エラー。APIの入力でStatusを受け取らないため、通常は発生しない）|
-|`ErrGoalNotOwned`|指定された目標が操作者自身のものでない（存在しない場合を含む）|`Goal が不正です`|
-|`ErrUnitNotFound`|指定された単元のいずれかが存在しない|`Unit ids に不正な値が含まれています`|
-|`ErrStartedUnitCannotBeRemoved`|`Decide`時に、外す対象に学習開始済みの単元が含まれていた場合|`Unit ids 学習開始済みの単元は削除できません`|
+|`ErrGoalNotOwned`|指定された目標が操作者自身のものでない（存在しない場合を含む）|`目標が不正です`|
+|`ErrUnitNotFound`|指定された単元のいずれかが存在しない|`単元に不正な値が含まれています`|
+|`ErrStartedUnitCannotBeRemoved`|`Decide`時に、外す対象に学習開始済みの単元が含まれていた場合|`単元 学習開始済みの単元は削除できません`|
 |`ErrTaskNotFound`|`TaskStore`が指定ID・所有者に一致するTaskを取得できなかった場合（他の生徒のタスクを指定した場合を含む）|—（「14. Error実装方針」で404へ変換する）|
 
-メッセージの文言は①のとおり項目名が英語のまま出る形を維持する。フロントエンドを変更しない方針のためである（②「17. Error設計」の「エラーレスポンスの本文」）。
-
-`ErrUnitNotFound`は、Rails現行と同じく**同じメッセージを2件返す**。検証が2回登録されていることによる重複であるが、`errors`配列の要素数が変わるとフロントエンドの表示が変わるため維持する（②「17. Error設計」の「Rails現行の挙動を維持するもの」）。実装では、作成時にこのエラーを2件分としてレスポンスへ積む。
+メッセージの項目名は①のとおり日本語訳が定義されている（②「17. Error設計」の「エラーレスポンスの本文」）。
 
 ---
 
@@ -524,7 +521,7 @@ flowchart TD
     D -- はい --> OK[正常]
     C -- いいえ --> F{定義済みの優先度名か}
     F -- はい --> OK
-    F -- いいえ --> E500[500 ErrInvalidPriority<br/>Rails現行の挙動を維持]
+    F -- いいえ --> E422C[422 ErrInvalidPriority]
 ```
 
 一覧・詳細は分岐が所有権の確認と絞り込みのみであるため、処理フロー図は省略する。処理順序は「9. Presentation層設計」のHandler処理順序に記載したとおりである。
@@ -730,7 +727,7 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 1. current userを取得する
 2. `CreateTaskRequest`へバインドする（`task`キーでネストした本文。②「15. Validation設計」）
 3. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`（①「5. API / 処理詳細」`#create`）
-4. `unitDirectory.ExistsAll`で指定された単元がすべて存在するか確認する。偽なら`ErrUnitNotFound`を**2件分**としてレスポンスへ積む（「3. Domain層設計」のDomain Error）
+4. `unitDirectory.ExistsAll`で指定された単元がすべて存在するか確認する。偽なら`ErrUnitNotFound`（「3. Domain層設計」のDomain Error）
 5. `ParsePriority`で優先度を変換する
 6. Request DTOからTaskを組み立てる。`UserID`はcurrent userのID、`Status`は`TaskStatusNotStarted`、`EstimatedTime`は`0`とする
 7. `task.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
@@ -851,7 +848,7 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 
 作成が201、更新が200であるのは、①「5. API / 処理詳細」のとおり`#create`が`status: :created`、`#update`が`status: :ok`を返しているためである。
 
-エラーレスポンスの本文は「14. Error実装方針」のとおり、422等が`{"errors": [...]}`、404のみ`{"message": "タスクが見つかりません"}`である。
+エラーレスポンスの本文は「14. Error実装方針」のとおり、422・404のいずれも`{"errors": [...]}`である。
 
 各Endpointのエラーケース:
 
@@ -884,9 +881,10 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 |`goal_id` / `title` / `content` / `due_date` / `priority`の未入力|422|バリデーションエラー|
 |`due_date`が日付として解釈できない|422|`ErrInvalidDueDate`|
 |`priority`に定義されていない数値（例: `9`）|422|`ErrPriorityRequired`|
-|`priority`に定義されていない優先度名（例: `urgent`）|**500**|`ErrInvalidPriority`。Rails現行の挙動を維持する（②「17. Error設計」）|
+|`priority`に定義されていない優先度名（例: `urgent`）|422|`ErrInvalidPriority`|
+|`title`が100文字を超える|422|`ErrTitleTooLong`|
 |指定された目標が操作者自身のものでない（存在しない場合を含む）|422|`ErrGoalNotOwned`|
-|指定された単元のいずれかが存在しない|422|`ErrUnitNotFound`。同じメッセージを2件返す（Rails現行の挙動を維持する）|
+|指定された単元のいずれかが存在しない|422|`ErrUnitNotFound`|
 
 ### PATCH /api/v1/student/tasks/:id
 
@@ -894,7 +892,8 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 |-|-|-|
 |対象Taskが存在しない、または他の生徒のTaskである|404|`ErrTaskNotFound`|
 |`title` / `content` / `due_date` / `priority`の未入力、`due_date`が日付として解釈できない|422|バリデーションエラー|
-|`priority`に定義されていない優先度名|500|`ErrInvalidPriority`|
+|`priority`に定義されていない優先度名|422|`ErrInvalidPriority`|
+|`title`が100文字を超える|422|`ErrTitleTooLong`|
 |指定された単元のいずれかが存在しない|422|`ErrUnitNotFound`|
 |学習開始済みの単元を紐づけから外そうとした|422|`ErrStartedUnitCannotBeRemoved`|
 
@@ -987,13 +986,11 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 |条件|HTTP Status|ボディ|
 |-|-|-|
 |入力・業務検証の失敗|422|`{"errors": ["メッセージ", ...]}`。エラーが1件でも配列で返す（アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）|
-|`ErrTaskNotFound`|404|`{"message": "タスクが見つかりません"}`。`message`の単一文字列であり、`errors`の配列ではない|
-|`ErrInvalidPriority`・その他の未分類のエラー|500|`{"errors": [...]}`|
+|`ErrTaskNotFound`|404|`{"errors": ["タスクが見つかりません"]}`|
+|その他の未分類のエラー|500|`{"errors": [...]}`|
 |認証・認可・CSRF|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
 
-404のみ本文の形が異なるため、ミドルウェアは`AppError`から得たステータスが404の場合に`message`キーの本文を組み立てる。この分岐は`internal/shared/middleware`のエラーハンドラに1箇所だけ置き、Handler側に持たせない。
-
-**②からの補足**: 404の本文の形はRails現行の`ApplicationController#not_found`が決めており、全機能に共通する。ミドルウェア側の分岐も全機能で共通になるため、実装時は本機能に固有の処理として書かない。
+いずれのステータスでもボディの形は同じ（`{"errors": [...]}`）であり、ステータスごとの分岐はミドルウェア側に持たせない。
 
 ## Infrastructure Errorのハンドリング方針
 
@@ -1003,20 +1000,17 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |-|-|-|
 |`ErrTaskNotFound`（他の生徒のTaskを含む）|Store → Application（変換）|404|
 |バリデーションエラー（Presentation: 型・必須）|Presentation（Request DTOバインド）|422|
-|`ErrTitleRequired` / `ErrContentRequired` / `ErrDueDateRequired` / `ErrPriorityRequired`|Model|422|
+|`ErrTitleRequired` / `ErrTitleTooLong` / `ErrContentRequired` / `ErrDueDateRequired` / `ErrPriorityRequired`|Model|422|
 |`ErrInvalidDueDate`|Model|422|
-|`ErrInvalidPriority`（定義されていない優先度名）|Model|**500**（Rails現行の挙動を維持する）|
+|`ErrInvalidPriority`（定義されていない優先度名）|Model|422|
 |`ErrGoalNotOwned`|Handler（`GoalDirectory`経由）|422|
-|`ErrUnitNotFound`|Handler（`UnitDirectory`経由）|422（同じメッセージを2件返す）|
+|`ErrUnitNotFound`|Handler（`UnitDirectory`経由）|422|
 |`ErrStartedUnitCannotBeRemoved`|Domain（`TaskUnitRelationPolicy`）|422|
 |`ErrInvalidTaskStatus`|Model|500（APIの入力でStatusを受け取らないため、通常は発生しない）|
 |認証エラー|Middleware|401|
 |認可エラー（役割不一致）|Middleware|403|
 |CSRFトークン不正（`POST` / `PATCH`）|Middleware|403|
-|Titleが100文字を超えた（DBの制約違反）|Store（Infrastructure相当）|500（Rails現行の挙動を維持する。「3. Domain層設計」）|
 |DB接続失敗・永続化失敗|Store（Infrastructure相当）|500|
-
-`ErrInvalidPriority`を500とするのは、Rails現行が許容値外の優先度名を必須チェックで弾かず、永続化時の例外がそのまま500になるためである（①「5. API / 処理詳細」`#create`、②「17. Error設計」の「Rails現行の挙動を維持するもの」）。業務ルール違反としては422が自然だが、フロントエンドを変更しない方針を優先する。
 
 ---
 
@@ -1137,14 +1131,14 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`TaskHandler.ListTasks`|正常系: 単元に`started`が含まれないこと|
 |`TaskHandler.ListTasks`|正常系: タスクが0件のとき`tasks`が空配列で200が返ること|
 |`TaskHandler.ShowTask`|正常系: 単元ごとに`started`が含まれて200が返ること|
-|`TaskHandler.ShowTask`|異常系: 存在しない・他の生徒のTaskを指定した場合に404と`{"message": "タスクが見つかりません"}`が返ること|
+|`TaskHandler.ShowTask`|異常系: 存在しない・他の生徒のTaskを指定した場合に404と`{"errors": ["タスクが見つかりません"]}`が返ること|
 |`TaskHandler.CreateTask`|正常系: 201と`{"message": "タスクが作成されました。"}`が返ること|
 |`TaskHandler.CreateTask`|正常系: 作成されたタスクの`status`が`not_started`、`estimated_time`が0であること|
 |`TaskHandler.CreateTask`|異常系: 必須項目の未入力時に422と`{"errors": [...]}`が返ること|
 |`TaskHandler.CreateTask`|異常系: 他の生徒の目標を指定した場合に422が返ること|
-|`TaskHandler.CreateTask`|異常系: 存在しない単元を指定した場合に422が返り、同じメッセージが2件入ること|
-|`TaskHandler.CreateTask`|異常系: `priority`に定義されていない数値で422、定義されていない優先度名で500が返ること|
-|`TaskHandler.CreateTask`|異常系: `title`が100文字を超えた場合に500が返ること（Rails現行の挙動を維持する）|
+|`TaskHandler.CreateTask`|異常系: 存在しない単元を指定した場合に422が返ること|
+|`TaskHandler.CreateTask`|異常系: `priority`に定義されていない数値・優先度名のいずれも422が返ること|
+|`TaskHandler.CreateTask`|異常系: `title`が100文字を超えた場合に422が返ること|
 |`TaskHandler.UpdateTask`|正常系: 200と`{"message": "タスクが更新されました。"}`が返ること|
 |`TaskHandler.UpdateTask`|正常系: `goal_id`・`status`が変更されないこと|
 |`TaskHandler.UpdateTask`|正常系: `unit_ids`を渡さない場合に紐づけが変わらないこと|
@@ -1177,13 +1171,11 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#index`のレスポンスに合わせた|補足|
 |`GoalDirectory` / `UnitDirectory` / `GoalStatusReevaluator`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。コーディング規約「7. インターフェース」のとおり利用側で定め、相手側が別の形を公開している場合はアダプタが差を吸収する|補足（`goal-management`の③は確定済み。`curriculum`の③はバッチ4で作成する）|
 |`StartedUnitDirectory`のシグネチャに`userID`を含めた|解答履歴は生徒ごとに記録されるため、タスクの識別子だけでは対象が決まらない。`question-answering`が公開する`FindStartedUnitIDs(ctx, userID, taskID)`に対応する（問題解答機能③「8. Infrastructure層設計」）|補足（相手Contextの③で確定した形に合わせた）|
-|Titleの長さをドメインで検証しないことにした|`tasks.title`が`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えるとステータスコードが500から422へ変わり、フロントエンドから見える挙動が変わるため、フロントエンドを変更しない方針を優先した|補足（②「17. Error設計」の決定に従う。検証を加えるかは別途の判断）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
 |`Priority`を`iota + 1`で宣言した|`tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
 |`EstimatedTime`を`*int`とした|カラムがNULL可であり既存データにNULLが存在し得るため。作成時は`0`を設定する（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
 |`GoalID`を`uint`（非ポインタ）とし、Response DTOでは`*uint`とした|カラムはNULL可だがRailsの`belongs_to :goal`により登録・更新時は必須である。一方、既存データにNULLが存在し得るため出力では`null`を返しうる（①「6. データモデル」）|補足（①の実体に基づく）|
 |`UpdateTaskBody.UnitIDs`をポインタ型（`*[]uint`）とした|「渡されなかった」と「空配列で渡された」を区別する必要があるため。Rails現行も`attributes.key?(:unit_ids)`で区別している（①「5. API / 処理詳細」`#update`）|補足（①の実体に基づく）|
-|`ErrUnitNotFound`を同じメッセージ2件としてレスポンスへ積む|Rails現行が検証を2回登録しているため（①「5. API / 処理詳細」`#create`）。フロントエンドを変更しない方針により維持する（②「17. Error設計」）|補足（②の決定に従う）|
-|`DELETE /api/v1/student/tasks/:id`の経路を設けない|Rails現行は`resources :tasks`により経路だけが存在するが`destroy`が実装されておらず、呼ぶと例外になる（①「4. API一覧」）。使えない経路を移植する理由がない|補足（①の実体に基づく）|
+|`DELETE /api/v1/student/tasks/:id`の経路を設けない|Rails現行に`destroy`が実装されておらず、ルーティングにも存在しない（①「4. API一覧」）。提供されていない操作を移植する理由がない|補足（①の実体に基づく）|
 
 ディレクトリ名・package名（`internal/taskmanagement/`）、レスポンスの形状（`tasks`＋`meta`、`message`、404の`message`）、HTTPステータス、`due_date`の入力の扱い、`tasks.status`・`tasks.priority`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

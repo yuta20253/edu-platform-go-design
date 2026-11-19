@@ -115,7 +115,7 @@ internal/drafttask/presentation/routes.go
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`(d *DraftTask) Validate() error`|なし|`error`|Title・Contentの必須チェック、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。ロジックの実装内容は本書では規定しない|
+|`(d *DraftTask) Validate() error`|なし|`error`|Title・Contentの必須チェック、Titleの長さ（100文字以内）、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。ロジックの実装内容は本書では規定しない|
 
 不変条件: Title・Contentが空でないこと、DueDateが設定済みかつ妥当な値であること、Priority・Statusが許容値の範囲内であること。
 
@@ -154,14 +154,12 @@ internal/drafttask/presentation/routes.go
 |入力|Rails現行|本書|
 |-|-|-|
 |`1`〜`5`|正常|正常|
-|未入力|必須チェックで**422**|同じ（`ErrPriorityRequired`を返し422へ変換する）|
-|`0`|Form属性のinteger型変換を経ても`0`。`0`は未入力として扱われないため必須チェックを通過し、保存時に優先度として解釈できず**500**|同じ（`ErrInvalidPriority`を返し500へ変換する）|
-|`9`等の範囲外の整数|同じく**500**|同じ|
-|`normal`等の優先度名|Form属性のinteger型変換で`0`になり、同じく**500**|同じ（Request DTOで整数として受け取り、変換できない文字列は`0`として扱う）|
+|未入力|必須チェックで422|同じ（`ErrPriorityRequired`を返し422へ変換する）|
+|`0`|Form属性のinteger型変換を経ても`0`。専用の検証で422|同じ（`ErrInvalidPriority`を返し422へ変換する）|
+|`9`等の範囲外の整数|同じく422|同じ|
+|`normal`等の優先度名|Form属性のinteger型変換で`0`になり、同じく422|同じ（Request DTOで整数として受け取り、変換できない文字列は`0`として扱う）|
 
-許容値外を422ではなく500とするのは、Rails現行の挙動を維持する方針によるものである。フロントエンドを変更しないため、ステータスコードを変えない（②「17. Error設計」の「Rails現行の挙動を維持するもの」）。
-
-**タスク管理機能との違い**: タスク管理機能は優先度名も受け取り、定義されていない数値は422、定義されていない優先度名は500という使い分けになる。本機能は整数のみを受け取るため、未入力が422、それ以外の許容値外はすべて500である。同じ「優先度」でも入力の扱いが異なるため、型を共有しない。
+**タスク管理機能との違い**: タスク管理機能は優先度名も受け取るため、整数・優先度名のいずれも解釈してから許容値を検証する。本機能は整数のみを受け取るため、変換を経ずに直接許容値を検証する。いずれも許容値外は422である。同じ「優先度」でも入力の扱いが異なるため、型を共有しない。
 
 ### DueDate（`due_date.go`）
 
@@ -221,21 +219,22 @@ internal/drafttask/presentation/routes.go
 
 |エラー|発生条件|メッセージ|
 |-|-|-|
-|`ErrGoalRequired`|`goal_id`が未入力の場合|`Goal を入力してください`|
-|`ErrGoalNotOwned`|指定された目標が操作者自身のものでない（存在しない場合を含む）|`Goal が不正です`|
-|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`Title を入力してください`|
-|`ErrContentRequired`|`Validate()`時にContentが空の場合|`Content を入力してください`|
-|`ErrPriorityRequired`|優先度が未入力の場合|`Priority を入力してください`|
-|`ErrInvalidPriority`|優先度が`1`〜`5`以外の場合（`0`・範囲外の整数・優先度名を渡した場合を含む）|—（500へ変換する。「14. Error実装方針」）|
-|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`Due date を入力してください`|
-|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`Due date は正しい日付を入力してください`|
-|`ErrUnitNotFound`|指定された単元のいずれかが存在しない|`Unit ids に不正な値が含まれています`（**1件**。タスク管理機能では2件返る）|
+|`ErrGoalRequired`|`goal_id`が未入力の場合|`目標を入力してください`|
+|`ErrGoalNotOwned`|指定された目標が操作者自身のものでない（存在しない場合を含む）|`目標が不正です`|
+|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`タイトルを入力してください`|
+|`ErrTitleTooLong`|`Validate()`時にTitleが100文字を超える場合|`タイトルは100文字以内で入力してください`|
+|`ErrContentRequired`|`Validate()`時にContentが空の場合|`内容を入力してください`|
+|`ErrPriorityRequired`|優先度が未入力の場合|`優先度を入力してください`|
+|`ErrInvalidPriority`|優先度が`1`〜`5`以外の場合（`0`・範囲外の整数・優先度名を渡した場合を含む）|`優先度は一覧にありません`（422へ変換する。「14. Error実装方針」）|
+|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`期限を入力してください`|
+|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`期限は正しい日付を入力してください`|
+|`ErrUnitNotFound`|指定された単元のいずれかが存在しない|`単元に不正な値が含まれています`（**1件**）|
 |`ErrInvalidDraftTaskStatus`|`Validate()`時に状態が許容値外の場合|—（内部エラー。APIの入力で状態を受け取らないため、通常は発生しない）|
 |`ErrDraftTaskNotFound`|`DraftTaskStore`が指定ID・所有者に一致する下書きタスクを取得できなかった場合（他の生徒のものを指定した場合を含む）|—（「14. Error実装方針」で404へ変換する）|
 
-メッセージの文言は①のとおり項目名が英語のまま出る形を維持する。フロントエンドを変更しない方針のためである（②「17. Error設計」の「エラーレスポンスの本文」）。
+メッセージの項目名は①のとおり日本語訳が定義されている（②「17. Error設計」の「エラーレスポンスの本文」）。
 
-`ErrUnitNotFound`は、Rails現行と同じく**1件のみ**返す。タスク管理機能は検証が2回登録されているため2件返るが、本機能のFormは1回のみである（①「5. API / 処理詳細」`#create`）。
+`ErrUnitNotFound`は、Rails現行と同じく**1件のみ**返す（①「5. API / 処理詳細」`#create`）。
 
 ---
 
@@ -401,7 +400,7 @@ flowchart TD
     B -- はい --> E422[422 ErrPriorityRequired]
     B -- いいえ --> C{整数として<br/>1から5の範囲か}
     C -- はい --> OK[正常]
-    C -- いいえ --> E500[500 ErrInvalidPriority<br/>0・範囲外の整数・優先度名を含む<br/>Rails現行の挙動を維持]
+    C -- いいえ --> E422[422 ErrInvalidPriority]
 ```
 
 ### CreateDraftTask
@@ -411,7 +410,7 @@ flowchart TD
     A[POST /draft_tasks] --> B{必須項目が揃っているか<br/>goal_id/title/content/priority/due_date}
     B -- いいえ --> E422[422 バリデーションエラー]
     B -- はい --> C{priorityが1から5か}
-    C -- いいえ --> E500[500 ErrInvalidPriority]
+    C -- いいえ --> E422[422 ErrInvalidPriority]
     C -- はい --> D{due_dateが日付として<br/>解釈できるか}
     D -- いいえ --> E422
     D -- はい --> F{指定の目標が<br/>操作者自身のものか}
@@ -542,7 +541,7 @@ flowchart TD
 
 1. current userを取得する
 2. `CreateDraftTaskRequest`へバインドする（`draft_task`キーでネストした本文。②「15. Validation設計」）
-3. `NewDraftTaskPriority`で優先度を変換する。未入力なら`ErrPriorityRequired`（422）、`1`〜`5`以外なら`ErrInvalidPriority`（500）
+3. `NewDraftTaskPriority`で優先度を変換する。未入力なら`ErrPriorityRequired`（422）、`1`〜`5`以外なら`ErrInvalidPriority`（422）
 4. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`（①「5. API / 処理詳細」`#create`）
 5. `unit_ids`が指定されている場合、`unitDirectory.ExistsAll`で存在確認する。偽なら`ErrUnitNotFound`（1件）
 6. Request DTOからDraftTaskを組み立てる。`UserID`はcurrent userのID、`Status`は`DraftTaskStatusNotStarted`、`EstimatedTime`は`0`、`CompletedAt`・`CourseID`は未設定とする
@@ -567,7 +566,7 @@ flowchart TD
 
 `status`・`completed_at`・`estimated_time`・`course_id`は入力として受け取らない。
 
-`Priority`を`*int`とするのは、`0`が渡された場合（500）と未入力の場合（422）を区別する必要があるためである。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない。優先度名のような整数として解釈できない文字列が渡された場合は`0`として扱い、500とする（Rails現行がForm属性のinteger型変換で同じ結果になるため。「3. Domain層設計」）。
+`Priority`を`*int`とするのは、`0`が渡された場合（`ErrInvalidPriority`）と未入力の場合（`ErrPriorityRequired`）を区別する必要があるためである。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない。優先度名のような整数として解釈できない文字列が渡された場合は`0`として扱い、`ErrInvalidPriority`とする（Rails現行がForm属性のinteger型変換で同じ結果になるため。「3. Domain層設計」）。いずれも最終的なステータスは422である。
 
 パスパラメータ`id`（詳細）は必須・整数として検証する。
 
@@ -623,7 +622,7 @@ flowchart TD
 
 作成が201であるのは、①「5. API / 処理詳細」のとおり`#create`が`status: :created`を返しているためである。
 
-エラーレスポンスの本文は「14. Error実装方針」のとおり、422が`{"errors": [...]}`、404のみ`{"message": "Draft taskが見つかりません"}`である。
+エラーレスポンスの本文は「14. Error実装方針」のとおり、422・404のいずれも`{"errors": [...]}`である。
 
 各Endpointのエラーケース:
 
@@ -653,8 +652,8 @@ flowchart TD
 |`due_date`が日付として解釈できない|422|`ErrInvalidDueDate`|
 |指定された目標が操作者自身のものでない（存在しない場合を含む）|422|`ErrGoalNotOwned`|
 |指定された単元のいずれかが存在しない|422|`ErrUnitNotFound`（**1件**）|
-|`priority`が`1`〜`5`以外（`0`・範囲外の整数・優先度名を渡した場合を含む）|**500**|`ErrInvalidPriority`。Rails現行の挙動を維持する（②「17. Error設計」）|
-|`title`が100文字を超えた|**500**|DBの制約違反。Rails現行の挙動を維持する（②「17. Error設計」）|
+|`priority`が`1`〜`5`以外（`0`・範囲外の整数・優先度名を渡した場合を含む）|422|`ErrInvalidPriority`|
+|`title`が100文字を超えた|422|`ErrTitleTooLong`|
 
 ---
 
@@ -701,7 +700,7 @@ Active Record採用のため、DraftTask（Model）の`Validate()`メソッド�
 - DueDateが設定済みであり、かつ日付として妥当な値であること
 - Priority・Statusが許容値の範囲内であること
 
-Titleの長さは検証しない。`draft_tasks.title`は`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えると同じ入力に対するステータスコードが500から422へ変わり、フロントエンドから見える挙動が変わる。フロントエンドを変更しない方針を優先する（②「17. Error設計」の「Rails現行の挙動を維持するもの」）。
+Titleの長さは`Validate()`で検証する。`draft_tasks.title`は`string(100)`であり（①「6. データモデル」）、100文字を超える場合は`ErrTitleTooLong`を返し422へ変換する。
 
 Model単体では完結しない検証は、Handlerが他Contextの参照手段を呼び出して行う。
 
@@ -741,15 +740,11 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 |条件|HTTP Status|ボディ|
 |-|-|-|
 |入力・業務検証の失敗|422|`{"errors": ["メッセージ", ...]}`。エラーが1件でも配列で返す（アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）|
-|`ErrDraftTaskNotFound`|404|`{"message": "Draft taskが見つかりません"}`。`message`の単一文字列であり、`errors`の配列ではない|
-|`ErrInvalidPriority`・その他の未分類のエラー|500|`{"errors": [...]}`|
+|`ErrDraftTaskNotFound`|404|`{"errors": ["下書きタスクが見つかりません"]}`|
+|その他の未分類のエラー|500|`{"errors": [...]}`|
 |認証・認可・CSRF|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
 
-404のみ本文の形が異なるため、ミドルウェアは`AppError`から得たステータスが404の場合に`message`キーの本文を組み立てる。この分岐は`internal/shared/middleware`のエラーハンドラに1箇所だけ置き、Handler側に持たせない。
-
-**②からの補足**: 404の本文の形はRails現行の`ApplicationController#not_found`が決めており、全機能に共通する。ミドルウェア側の分岐も全機能で共通になるため、実装時は本機能に固有の処理として書かない。
-
-一方、**本文に入る名称が`Draft task`と英語になるのは本機能固有である**。Railsは`DraftTask`のモデル名の日本語訳を持たないため、`〇〇が見つかりません`の`〇〇`が英語のまま出る（①「5. API / 処理詳細」`#show`）。目標管理機能（`目標が見つかりません`）・タスク管理機能（`タスクが見つかりません`）とは異なる。ミドルウェアが共通であっても、本機能が渡す名称は`Draft task`である必要がある。
+いずれのステータスでもボディの形は同じ（`{"errors": [...]}`）であり、ステータスごとの分岐はミドルウェア側に持たせない。
 
 ## Infrastructure Errorのハンドリング方針
 
@@ -759,19 +754,16 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |-|-|-|
 |`ErrDraftTaskNotFound`（他の生徒のものを含む）|Store → Application（変換）|404|
 |バリデーションエラー（Presentation: 型・必須）|Presentation（Request DTOバインド）|422|
-|`ErrGoalRequired` / `ErrTitleRequired` / `ErrContentRequired` / `ErrPriorityRequired` / `ErrDueDateRequired`|Presentation / Model|422|
+|`ErrGoalRequired` / `ErrTitleRequired` / `ErrTitleTooLong` / `ErrContentRequired` / `ErrPriorityRequired` / `ErrDueDateRequired`|Presentation / Model|422|
 |`ErrInvalidDueDate`|Model|422|
 |`ErrGoalNotOwned`|Handler（`GoalDirectory`経由）|422|
 |`ErrUnitNotFound`|Handler（`UnitDirectory`経由）|422（1件）|
-|`ErrInvalidPriority`（`0`・範囲外の整数・優先度名）|Model|**500**（Rails現行の挙動を維持する）|
+|`ErrInvalidPriority`（`0`・範囲外の整数・優先度名）|Model|422|
 |`ErrInvalidDraftTaskStatus`|Model|500（APIの入力で状態を受け取らないため、通常は発生しない）|
-|`title`が100文字を超えた（DBの制約違反）|Store（Infrastructure相当）|**500**（Rails現行の挙動を維持する）|
 |認証エラー|Middleware|401|
 |認可エラー（役割不一致）|Middleware|403|
 |CSRFトークン不正（`POST`）|Middleware|403|
 |DB接続失敗・永続化失敗|Store（Infrastructure相当）|500|
-
-`ErrInvalidPriority`を500とするのは、Rails現行が許容値外の優先度を必須チェックで弾かず、保存時の例外がそのまま500になるためである（①「5. API / 処理詳細」`#create`、②「17. Error設計」の「Rails現行の挙動を維持するもの」）。業務ルール違反としては422が自然だが、フロントエンドを変更しない方針を優先する。
 
 ---
 
@@ -859,14 +851,14 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`DraftTaskHandler.ShowDraftTask`|正常系: `status`・`priority`が文字列で返ること|
 |`DraftTaskHandler.ShowDraftTask`|正常系: 単元に`started`が含まれないこと（タスク管理機能との違い）|
 |`DraftTaskHandler.ShowDraftTask`|正常系: 論理削除済みの下書きタスクが200で返ること|
-|`DraftTaskHandler.ShowDraftTask`|異常系: 存在しない・他の生徒のものを指定した場合に404と`{"message": "Draft taskが見つかりません"}`が返ること|
+|`DraftTaskHandler.ShowDraftTask`|異常系: 存在しない・他の生徒のものを指定した場合に404と`{"errors": ["下書きタスクが見つかりません"]}`が返ること|
 |`DraftTaskHandler.CreateDraftTask`|正常系: 201で識別子が返ること|
 |`DraftTaskHandler.CreateDraftTask`|正常系: `unit_ids`を指定しない場合も作成できること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: 必須項目の未入力時に422と`{"errors": [...]}`が返ること|
-|`DraftTaskHandler.CreateDraftTask`|異常系: `priority`未入力で422、`0`・`9`・優先度名で500が返ること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: `priority`未入力、`0`・`9`・優先度名のいずれも422が返ること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: 他の生徒の目標を指定した場合に422が返ること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: 存在しない単元を指定した場合に422が返り、メッセージが**1件**であること|
-|`DraftTaskHandler.CreateDraftTask`|異常系: `title`が100文字を超えた場合に500が返ること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: `title`が100文字を超えた場合に422が返ること|
 |エラーハンドラ|404のみ`message`キー、それ以外は`errors`キーの本文になること|
 
 ## Integration Test
@@ -893,8 +885,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`UnitIDSet`（単元の識別子の集合）という型を本Contextに定義した|存在確認と関連付けの対象が識別子の集合であり、単元の実体を扱う必要がないため。タスク管理機能③と同じ型名を用いるが、Contextごとに定義する（規約「5. Context間連携ルール」）|補足|
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#show`のレスポンスに合わせた|補足|
 |`GoalDirectory` / `UnitDirectory`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。タスク管理機能③と同じ操作を呼ぶため、シグネチャを合わせた|要確認（`goal-management`・`curriculum`の③の追随時にシグネチャを合わせる）|
-|`CreateDraftTaskBody.Priority`を`*int`とした|`0`が渡された場合（500）と未入力の場合（422）を区別する必要があるため。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない|補足（①の実体に基づく）|
-|Titleの長さをドメインで検証しないことにした|`draft_tasks.title`が`string(100)`であり超過するとDBの制約で失敗して500になるが、Rails現行も長さを検証しておらず同じく500になる（①「6. データモデル」）。検証を加えるとステータスコードが422へ変わる|補足（②「17. Error設計」の決定に従う）|
+|`CreateDraftTaskBody.Priority`を`*int`とした|`0`が渡された場合（`ErrInvalidPriority`）と未入力の場合（`ErrPriorityRequired`）を区別する必要があるため。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない|補足（①の実体に基づく）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
 |`DraftTaskPriority`を`iota + 1`で宣言した|`draft_tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
 |`EstimatedTime`を`*int`、`CourseID`を`*uint`とした|いずれもカラムがNULL可であり既存データにNULLが存在し得るため。`EstimatedTime`は作成時に`0`を設定し、`CourseID`は設定しない（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
@@ -902,6 +893,5 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`DueDate`に比較用のメソッドを設けない|本機能に期限の前後を比較する業務要件がないため。目標管理機能・タスク管理機能の`DueDate`は比較用メソッドを持つが、本機能では不要である|補足|
 |`draft_task_courses`に対応するモデルを定義しない|現行実装に書き込む処理が存在せず、本Contextで扱う必要がないため（①「6. データモデル」、②「21. DB操作仕様」）|補足（①の実体に基づく）|
 |一覧取得・更新・削除の経路・Storeメソッドを設けない|Rails現行は`resources :draft_tasks`により経路だけが存在するが、対応するアクションが実装されていない（①「4. API一覧」）。使えない経路を移植する理由がない|補足（②「19. API仕様」の「Railsとの差分」に従う）|
-|404の本文に入る名称が`Draft task`と英語になる点|Railsは`DraftTask`のモデル名の日本語訳を持たないため（①「5. API / 処理詳細」`#show`）。目標管理機能・タスク管理機能とは異なり、本機能固有の事象である|補足（①の実体に基づく）|
 
 ディレクトリ名・package名（`internal/drafttask/`）、レスポンスの形状、HTTPステータス、`due_date`の入力の扱い、`draft_tasks.status`・`draft_tasks.priority`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

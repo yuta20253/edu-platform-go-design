@@ -185,14 +185,14 @@ DBにも他Contextの呼び出しにも依存せず、与えられた状態の�
 
 |エラー|発生条件|メッセージ|
 |-|-|-|
-|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`Title を入力してください`（①「5. API / 処理詳細」の`validates :title, presence: true`に対応）|
-|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`Due date は正しい日付を入力してください`|
-|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`Due date を入力してください`|
+|`ErrTitleRequired`|`Validate()`時にTitleが空の場合|`タイトルを入力してください`（①「5. API / 処理詳細」の`validates :title, presence: true`に対応）|
+|`ErrInvalidDueDate`|DueDateの生成・`Validate()`時に、日付として解釈できない値が渡された場合|`期限は正しい日付を入力してください`|
+|`ErrDueDateRequired`|`Validate()`時にDueDateが未設定の場合|`期限を入力してください`|
 |`ErrInvalidGoalStatus`|`Validate()`・`ParseGoalStatus`時に、GoalStatusが許容値外の場合|—（内部エラー。APIの入力でStatusを受け取らないため、通常は発生しない）|
 |`ErrGoalNotFound`|`GoalStore`が指定ID・所有者に一致するGoalを取得できなかった場合（他ユーザーの目標を指定した場合を含む）|—（「14. Error実装方針」で404へ変換する）|
 |`ErrGoalHasActiveTasks`|`CanDelete`時に、`not_started`以外のタスクが1件以上紐づいていた場合|`進行中または完了のタスクがあるため削除できません`（①「5. API / 処理詳細」`#destroy`。例外のメッセージであり項目名は付かない）|
 
-メッセージの文言は①のとおり項目名が英語のまま出る形を維持する。フロントエンドを変更しない方針のためである（②「17. Error設計」の「エラーレスポンスの本文」）。
+メッセージの項目名は①のとおり日本語訳が定義されている（②「17. Error設計」の「エラーレスポンスの本文」）。
 
 ---
 
@@ -644,7 +644,7 @@ flowchart TD
 - **削除**: 本文を返さない（204 No Content）
 - `GoalResponse.Status`は`own`ではなく`not_started` / `in_progress` / `completed`の文字列を入れる。Modelの`GoalStatus`は整数の列挙型であるため、`String()`で変換してから設定する（「3. Domain層設計」）
 - `TaskRefResponse`の項目は①「5. API / 処理詳細」`#index`のとおり、Rails現行の`TaskSerializer`に合わせる
-- エラーレスポンスは専用structを本書で定義しない。形式は422等が`{"errors": [...]}`、404のみ`{"message": ...}`であり、いずれも集中エラーハンドリングミドルウェアが組み立てる（「14. Error実装方針」、Gin規約「8. エラーハンドリングミドルウェア」）
+- エラーレスポンスは専用structを本書で定義しない。形式はいずれも`{"errors": [...]}`であり、集中エラーハンドリングミドルウェアが組み立てる（「14. Error実装方針」、Gin規約「8. エラーハンドリングミドルウェア」）
 
 **②からの補足**: `UnitRefResponse`（タスクに紐づく単元）の項目は、`curriculum` Context（コース参照機能・単元参照機能が共有する）が扱う単元の表現であり、本機能では`task-management` Contextから受け取った値をそのまま入れる。項目の確定は単元参照機能の③に委ねる（バッチ3の対象外）。
 
@@ -676,7 +676,7 @@ flowchart TD
 
 作成が201、更新が200であるのは、①「5. API / 処理詳細」のとおり`#create`が`status: :created`、`#update`が`status: :ok`を返しているためである。削除が204であるのは同`#destroy`のとおりである。
 
-エラーレスポンスの本文は422等が`{"errors": ["メッセージ", ...]}`、404のみ`{"message": "目標が見つかりません"}`である（「14. Error実装方針」）。
+エラーレスポンスの本文は422・404いずれも`{"errors": ["メッセージ", ...]}`である（「14. Error実装方針」）。
 
 各Endpointのエラーケース:
 
@@ -800,13 +800,11 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 |条件|HTTP Status|ボディ|
 |-|-|-|
 |入力・業務検証の失敗|422|`{"errors": ["メッセージ", ...]}`。エラーが1件でも配列で返す（アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」）|
-|`ErrGoalNotFound`|404|`{"message": "目標が見つかりません"}`。`message`の単一文字列であり、`errors`の配列ではない|
+|`ErrGoalNotFound`|404|`{"errors": ["目標が見つかりません"]}`|
 |その他の未分類のエラー|500|`{"errors": [...]}`|
 |認証・認可・CSRF|401 / 403|`{"errors": [...]}`。該当Middlewareが組み立てる|
 
-404のみ本文の形が異なるため、ミドルウェアは`AppError`から得たステータスが404の場合に`message`キーの本文を組み立てる。この分岐は`internal/shared/middleware`のエラーハンドラに1箇所だけ置き、Handler側に持たせない（Gin規約「8. エラーハンドリングミドルウェア」）。
-
-**②からの補足**: 404の本文の形はRails現行の`ApplicationController#not_found`が決めており、全機能に共通する。ミドルウェア側の分岐も全機能で共通になるため、実装時は本機能に固有の処理として書かない。
+いずれのステータスでもボディの形は同じ（`{"errors": [...]}`）であり、ステータスごとの分岐はミドルウェア側に持たせない。
 
 ## Infrastructure Errorのハンドリング方針
 
@@ -936,7 +934,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`GoalHandler.ListGoals`|正常系: 目標が0件のとき`goals`が空配列で200が返ること|
 |`GoalHandler.ListGoals`|正常系: 各要素の`status`が`not_started`等の文字列で返ること|
 |`GoalHandler.ShowGoal`|正常系: 目標とタスク一覧が200で返ること|
-|`GoalHandler.ShowGoal`|異常系: 存在しない・他ユーザーのGoalを指定した場合に404と`{"message": "目標が見つかりません"}`が返ること|
+|`GoalHandler.ShowGoal`|異常系: 存在しない・他ユーザーのGoalを指定した場合に404と`{"errors": ["目標が見つかりません"]}`が返ること|
 |`GoalHandler.CreateGoal`|正常系: 目標が作成され識別子が201で返ること|
 |`GoalHandler.CreateGoal`|正常系: 作成された目標の`status`が`not_started`であること|
 |`GoalHandler.CreateGoal`|異常系: `title` / `due_date`未入力時に422と`{"errors": [...]}`が返ること|
@@ -976,7 +974,6 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |論理削除を`Delete`ではなく`deleted_at`・`updated_at`の2列更新として行う|Gorm規約の論理削除は`gorm.DeletedAt`型の使用を定めているが、GORMの`Delete`は`updated_at`を更新しない。Rails現行は`update_columns`で両列を更新している（①「5. API / 処理詳細」`#destroy`）ため、現行の挙動に合わせた|補足（①の実体に基づく）|
 |`DeleteGoal`の削除可否判定をトランザクションの外に置いた（②「14. Transaction設計」のとおりトランザクションは`SoftDelete`の内側のみ）|②が`DeleteGoal`も「Handlerの処理単位に対応するStoreメソッド内で開始する」としており、Rails現行の`Goal#soft_delete!`も判定と`update_columns`を囲んでいないため、現行の挙動に合わせた。ただし判定と削除の間に別のタスクが着手されると、`not_started`以外のタスクが紐づいた目標が削除され得る（Rails現行にも同じ競合がある）|要確認（現行踏襲とするか、判定を含めて囲むかは②側で決める事項。囲む場合は②「14. Transaction設計」の変更が必要）|
 |②「3. Bounded Context」の`draft-task` Context（下書きタスク）への参照依存を、具体的な参照手段・Response DTOとしては実装対象に含めなかった|②は参照依存を概念レベルで記載しているが、②「12. UseCase設計」ShowGoalの出力定義（目標とタスク一覧）に下書きタスクが含まれておらず、`TaskDirectory`に相当する参照手段も②「11. Repository設計」に存在しない。②に記載のない出力項目を本書側で新設しないため見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|
-|404の本文をRails現行のまま`{"message": ...}`で維持し、エラーハンドラに404だけの分岐を置いた|フロントエンドを変更しない方針のため。②「17. Error設計」で明記済み。アーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」は`errors`形式を定めており、本件はその例外にあたる|補足（規約側に本文の形の例外を明記すべきかは規約で決める事項）|
 |`TaskRefResponse`に含める`units`（`UnitRefResponse`）の項目を確定しなかった|単元の表現は`curriculum` Context（コース参照機能・単元参照機能が共有する）が所有する。本機能は`task-management`から受け取った値をそのまま返すため、項目の確定は単元参照機能の③に委ねる|要確認（単元参照機能の③で確定する。バッチ3の対象外）|
 
 上記以外の項目（Bounded Context・Aggregate・Entity/Model構成・Repository（Store）責務・Handler処理の内容・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の大枠）は②の記載内容をそのまま実装レベルに落とし込んだものであり、追加の判断は行っていない。
