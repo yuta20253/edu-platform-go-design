@@ -225,7 +225,7 @@ classDiagram
   - `sort`（`level_name`/`created_at`/`id`、許可値以外は`created_at`）・`order`（`asc`/`desc`、既定は`desc`）による並び替え
   - ページング（`per_page`上限100件）
 - 保持しない責務: コースの作成・更新・削除
-- 判断根拠: コース一覧・詳細は`curriculum`が所有するデータであり、本Contextは管理者向けの検索・集計の条件を渡すだけに留める。生徒向けの既存公開操作（`FindCourseSubjects`等。コース参照機能③「6. Application層設計」）は検索・ページング・集計を持たないため、本機能専用の新しい参照操作が`curriculum`側に必要になる（**要確認**。コース参照機能の追随時に、本機能が必要とする検索・集計付きの参照操作を追加する必要がある）
+- 判断根拠: コース一覧・詳細は`curriculum`が所有するデータであり、本Contextは管理者向けの検索・集計の条件を渡すだけに留める。生徒向けの既存公開操作（`FindCourseSubjects`等。コース参照機能③「6. Application層設計」）は検索・ページング・集計を持たないため、本機能専用の参照操作が`curriculum`側に必要である。コース参照機能②「11. Repository設計」「他Contextへ公開する参照手段」に、`SearchCourses`・`FindCourseDetail`として追加され、確定済みである
 
 ## UnitRepository（`curriculum` Context提供、外部依存として利用）
 
@@ -235,7 +235,7 @@ classDiagram
 - 保持する検索機能:
   - `course_id` + `id`の組み合わせによるスコープ確認検索（異なるコースの単元IDを指定した場合は取得できない）
 - 保持しない責務: 単元・問題の作成・更新・削除
-- 判断根拠: 単元詳細表示に必要な全データ（問題・選択肢・ヒント・解説の全件）を1回の呼び出しで取得する。既存の生徒向け公開操作（`FindUnitQuestions`。コース参照機能③「6. Application層設計」）は選択肢・ヒントの部分的な情報しか返さず、かつ`in_active_units`等の絞り込みを前提としているため、管理者が全件を確認する用途には使えない（**要確認**。コース参照機能の追随時に、管理者向けの全件参照操作を追加する必要がある）
+- 判断根拠: 単元詳細表示に必要な全データ（問題・選択肢・ヒント・解説の全件）を1回の呼び出しで取得する。既存の生徒向け公開操作（`FindUnitQuestions`。コース参照機能③「6. Application層設計」）は選択肢・ヒントの部分的な情報しか返さず、かつ`in_active_units`等の絞り込みを前提としているため、管理者が全件を確認する用途には使えない。コース参照機能②「11. Repository設計」「他Contextへ公開する参照手段」に、`FindUnitDetail`として追加され、確定済みである
 
 ## ImportHistoryRepository（`question-import` Context提供、外部依存として利用）
 

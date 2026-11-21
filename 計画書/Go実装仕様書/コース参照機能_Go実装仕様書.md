@@ -322,7 +322,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 - `FindCourseAndUnitIDsBySubject`は、指定した教科に属するコースがない場合、空の`CourseIDs`・`UnitIDs`を返す。エラーにしない
 - `FindContentInventory`は絞り込み条件を取らない。管理者分析機能①「5. API / 処理詳細」の「コンテンツ網羅率は、高校・教科による絞り込みの影響を受けない、コンテンツ全体に対する指標である」という業務ルールに対応する
 
-**②からの補足（要確認）**: `FindQuestionLocations`・`FindCourseAndUnitIDsBySubject`・`FindContentInventory`の関数名・型名（`QuestionLocationInfo`・`SubjectCurriculumIDs`・`ContentInventory`）は②に明記がない。②「11. Repository設計」が示す概要（「設問IDから設問テキスト・所属する単元の識別子・単元名・所属するコースの識別子を返す」「指定した教科の識別子に属するコースの識別子の集合、およびそれらのコースに属する単元の識別子の集合を返す」「有効な単元の総数、問題を1件以上持つ単元の識別子の集合を返す」）を、既存の公開操作（`UnitInfo`・`CourseSubjectInfo`）と同じ命名方針で型に落としたものである。具体的な関数名・シグネチャ・戻り値の型は管理者分析機能③で確定する事項であり（②「11. Repository設計」「他Context側への追加が必要な公開操作」）、同③の確定時にコーディング規約「7. インターフェース」の「利用側でインターフェースを定義する」に従って合わせる必要がある（「17. ②からの補足事項」）。
+`FindQuestionLocations`・`FindCourseAndUnitIDsBySubject`・`FindContentInventory`の関数名・型名（`QuestionLocationInfo`・`SubjectCurriculumIDs`・`ContentInventory`）は②に明記がなく、本書が既存の公開操作（`UnitInfo`・`CourseSubjectInfo`）と同じ命名方針で型に落としたものである。管理者分析機能③で呼び出し元のアダプタと突き合わせ、本書側の型・フィールド名の調整が不要であることを確認済みである（「11. Repository設計」「②からの補足」、「17. ②からの補足事項」参照）。
 
 **②からの補足**: 型名`CourseSubjectInfo`とフィールドは②に明記がない。②が定める「コースの識別子から所属する教科の識別子と教科名を返す」を、他の公開操作（`UnitInfo`・`QuestionInfo`）と同じ命名で型に落としたものである。分析機能③基盤編「8. Infrastructure層設計」の`CurriculumDirectory.FindCourseSubjects`が受け取る形へは、呼び出し元のアダプタが変換する。
 
@@ -1114,6 +1114,6 @@ application層の関数のテストである。検索関数を差し替えて検
 |`FindUnitDetail`の論理削除の扱いを確定させず、未確定のまま残した|②「11. Repository設計」が「①に論理削除の扱いの記載がなく未確定である」「本機能の③で確定する事項として残す」と明記している。①「5. API / 処理詳細」`Api::V1::Admin::UnitsController#show`にも論理削除の除外に関する記載がない|**要確認（未確定）**。実装着手前に、論理削除済みの問題・選択肢・ヒント・解説を除外するかどうかを確定する必要がある|
 |`question_explanations`を本Contextが所有するテーブルとして扱った|コース参照機能②「11. Repository設計」の所有テーブル一覧に`question_explanations`が加わり確定した（管理者コース・単元参照機能②「21. DB操作仕様」「3. Bounded Context」の記載とも一致する）|確定済み（推測ではない）|
 |`SearchCourses`で`PerPage`が0以下のとき20を既定値とした|①「5. API / 処理詳細」`Api::V1::Admin::CoursesController#index`は上限100件のみを明記し、既定値は明記していない。本プロジェクトの他機能③（教師教員管理機能③「16. API互換方針」等）が参照するRails `ApplicationController`共通設定の`DEFAULT_PER_PAGE`相当（20件）に合わせた|**推測**（①に既定値の明記がないため。Rails実体の確認が必要）|
-|コース参照②と管理者コース・単元参照機能②の間で、単元詳細取得の論理削除の扱いに記載の齟齬がある|管理者コース・単元参照機能②「21. DB操作仕様」（旧）が単元詳細の参照手段を「論理削除除外」と記す一方、コース参照②「11. Repository設計」（最新）は同操作を「未確定」としている。本書はコース参照②を正本として扱い、未確定のまま残した（CLAUDE.md「規約が正本」と同様に、同一事項を扱う文書間では該当機能が所有するContext側の②を優先する）|**要確認**（管理者コース・単元参照機能②側の記載更新の要否を含め、確認が必要）|
+|コース参照②と管理者コース・単元参照機能②の間にあった、単元詳細取得の論理削除の扱いの記載の齟齬|管理者コース・単元参照機能②「21. DB操作仕様」（旧）が単元詳細の参照手段を「論理削除除外」と記していたが、①に根拠がないことを確認し、コース参照②「11. Repository設計」と同じ「未確定」に訂正した|解消済み（管理者コース・単元参照機能②「21. DB操作仕様」を訂正した）|
 
-ディレクトリ名・package名（`internal/curriculum/`）、レスポンスの形状（最上位が配列・全カラムを含む・`meta`なし・科目を含まない）、ステータスコード、論理削除を除外しない扱い、既存6個の公開操作のシグネチャは、いずれも規約・①・②に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。新規6個のうち`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`のシグネチャも②に根拠があり確定済みである。`FindQuestionLocations`・`FindCourseAndUnitIDsBySubject`・`FindContentInventory`のシグネチャ、および`FindUnitDetail`の論理削除の扱いは、上記のとおり未確定・要確認として残っている。
+ディレクトリ名・package名（`internal/curriculum/`）、レスポンスの形状（最上位が配列・全カラムを含む・`meta`なし・科目を含まない）、ステータスコード、論理削除を除外しない扱い、既存6個の公開操作のシグネチャは、いずれも規約・①・②に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。新規6個のシグネチャはいずれも②に根拠があり確定済みである（`FindQuestionLocations`・`FindCourseAndUnitIDsBySubject`・`FindContentInventory`は本書側の暫定型だが、管理者分析機能③との突き合わせにより調整不要と確認済み）。`FindUnitDetail`の論理削除の扱いのみ、①に記載がなく未確定のまま残っている。
