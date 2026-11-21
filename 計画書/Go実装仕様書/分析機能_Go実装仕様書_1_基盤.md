@@ -445,10 +445,10 @@ GORMを用いる実装を一切持たないため、`*gorm.DB`を受け取る構
 |インターフェース|メソッド|責務|
 |-|-|-|
 |`UserGradeDirectory`|`FindGradeID(ctx context.Context, userID uint) (*uint, error)`|その生徒が属する学年の識別子を返す。学年が設定されていない場合は`nil`を返す（同 `grade_average`）|
-||`FindUserIDsByGradeIDs(ctx context.Context, gradeIDs []uint) ([]uint, error)`|指定された学年に属するユーザーIDを返す。在籍中かどうかで絞り込まない（同）|
+||`FindUserIDsByGradeIDs(ctx context.Context, gradeIDs []uint) ([]uint, error)`|指定された学年に属する、生徒ロールかつ在籍中（論理削除されていない）のユーザーIDを返す（同）|
 |`ActiveUserDirectory`|`FilterActiveUserIDs(ctx context.Context, userIDs []uint) ([]uint, error)`|渡されたユーザーIDのうち、在籍中（論理削除されていない）のものを返す（同 `course_rank` / `unit_rank`）|
 
-`FindUserIDsByGradeIDs`が在籍中で絞り込まず、`FilterActiveUserIDs`を別のインターフェースにしているのは、学年平均の母集団が論理削除済みユーザーを含み、順位の母集団は含まないというRails現行の非対称を、呼び出し側で明示できるようにするためである（②「11. Repository設計」`user`への参照）。
+`FindUserIDsByGradeIDs`と`FilterActiveUserIDs`を別のインターフェースにしているのは、前者が学年という所属からユーザーIDを導く操作、後者が任意のユーザーID集合を在籍状態で絞り込む操作であり、起点となる情報が異なるためである（②「11. Repository設計」`user`への参照）。学年平均の母集団・順位の母集団はいずれも生徒ロールかつ在籍中のユーザーに揃っている。
 
 学年の識別子の集合を受け取る形にしているのは、学年が学校ごとに独立しており、同じ年次の学年が学校の数だけ存在するためである。学校をまたいで年次だけで集めるのがRails現行の振る舞いである（②「19. API仕様」の「変更しないもの」）。
 

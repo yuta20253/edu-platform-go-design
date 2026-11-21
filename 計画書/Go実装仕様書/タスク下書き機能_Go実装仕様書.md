@@ -97,8 +97,7 @@ internal/drafttask/presentation/routes.go
 |-|-|-|
 |ID|uint|下書きタスクの識別子|
 |UserID|uint|所有者（生徒）のユーザーID。②「16. Authorization設計」の所有権確認の材料|
-|GoalID|uint|紐づく目標の識別子。`draft_tasks.goal_id`はNULL可だが、Railsの`belongs_to :goal`により登録時は必須である（①「6. データモデル」）。本書でも必須として扱い、`*uint`にしない|
-|CourseID|`*uint`|コースの識別子。APIからは入力を受け取らず、現行実装に値を設定する処理が存在しない。カラムがNULL可であるためポインタとする（①「6. データモデル」）|
+|GoalID|uint|紐づく目標の識別子。`draft_tasks.goal_id`はNULL可だが、Railsの`belongs_to :goal`により登録時は必須である(①「6. データモデル」)。本書でも必須として扱い、`*uint`にしない|
 |Title|string|タイトル。必須項目。`draft_tasks.title`は`string(100)`である|
 |Content|string|内容。必須項目。`draft_tasks.content`はNOT NULLである|
 |Priority|DraftTaskPriority|優先度。②「7. Value Object設計」のDraftTaskPriorityを型として保持|
@@ -119,7 +118,7 @@ internal/drafttask/presentation/routes.go
 
 不変条件: Title・Contentが空でないこと、DueDateが設定済みかつ妥当な値であること、Priority・Statusが許容値の範囲内であること。
 
-`Status`・`CompletedAt`・`EstimatedTime`・`CourseID`はAPIの入力に含めない。作成時は`Status`を`not_started`（①「6. データモデル」のとおりカラムの既定値が`0`）、`CompletedAt`を`nil`、`EstimatedTime`を`0`、`CourseID`を`nil`とする。状態を変える操作は本機能に存在しないため、状態を反映するメソッドも設けない。
+`Status`・`CompletedAt`・`EstimatedTime`はAPIの入力に含めない。作成時は`Status`を`not_started`（①「6. データモデル」のとおりカラムの既定値が`0`）、`CompletedAt`を`nil`、`EstimatedTime`を`0`とする。状態を変える操作は本機能に存在しないため、状態を反映するメソッドも設けない。
 
 `DeletedAt`は`gorm.DeletedAt`ではなく`*time.Time`としてマッピングする。Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは**削除操作を実装する場合の規定**である。本機能には削除操作が存在せず、`gorm.DeletedAt`を使うと`Find`系が`deleted_at IS NULL`を自動付与してしまう。`DraftTask`は`default_scope`を持たず、Rails現行は論理削除済みのレコードも返すため（①「6. データモデル」）、自動付与が入ると外部仕様が変わる。フロントエンドを変更しない方針により、絞り込みが入らない型を選ぶ（「15. GORM / DBクエリ設計」）。
 
@@ -193,8 +192,6 @@ internal/drafttask/presentation/routes.go
 
 テーブル名は`draft_task_units`であり、struct名`DraftTaskUnit`の既定の複数形と一致するため、`TableName()`のオーバーライドは不要である。
 
-`draft_task_courses`に対応するモデルは定義しない。現行実装に書き込む処理が存在せず、本Contextで扱う必要がないためである（①「6. データモデル」、②「21. DB操作仕様」）。
-
 ## Value Object
 
 対象外（Active Record採用のため独立したValue Object層は設けない）。②が設計したDraftTaskPriority・DueDate・DraftTaskStatusは、上記のとおりDraftTaskと同一package内の付随型として扱う。②「7. Value Object設計」の「Value Objectを採用しないもの」（タイトル・内容・メモ）は単純な`string`フィールドとする。
@@ -246,7 +243,6 @@ classDiagram
         +uint ID
         +uint UserID
         +uint GoalID
-        +*uint CourseID
         +string Title
         +string Content
         +DraftTaskPriority Priority
@@ -450,7 +446,7 @@ flowchart TD
 |メソッド|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
 |`FindByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*DraftTaskWithUnits, error)`|id・user_idの両方に一致する1件取得。紐づく単元の識別子も一括取得する。一致しない場合は`ErrDraftTaskNotFound`（他の生徒のものを含む404相当。②「16. Authorization設計」の所有権確認をクエリ条件として実現する）|
-|`Create`|`ctx context.Context, draftTask *DraftTask`|`error`|DraftTaskレコードの新規作成。`status`は`DraftTaskStatusNotStarted`（0）、`estimated_time`は`0`、`completed_at`・`course_id`は未設定で作成する（①「5. API / 処理詳細」`#create`）|
+|`Create`|`ctx context.Context, draftTask *DraftTask`|`error`|DraftTaskレコードの新規作成。`status`は`DraftTaskStatusNotStarted`（0）、`estimated_time`は`0`、`completed_at`は未設定で作成する（①「5. API / 処理詳細」`#create`）|
 
 **`deleted_at`による絞り込みを行わない。** `DraftTask`は`default_scope`を持たず、Rails現行は論理削除済みのレコードも返すためである（①「6. データモデル」、②「11. Repository設計」）。`Goal`・`Task`のStoreとは異なる点であり、実装時に他機能のStoreから条件をコピーしないよう注意する。
 
@@ -544,7 +540,7 @@ flowchart TD
 3. `NewDraftTaskPriority`で優先度を変換する。未入力なら`ErrPriorityRequired`（422）、`1`〜`5`以外なら`ErrInvalidPriority`（422）
 4. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`（①「5. API / 処理詳細」`#create`）
 5. `unit_ids`が指定されている場合、`unitDirectory.ExistsAll`で存在確認する。偽なら`ErrUnitNotFound`（1件）
-6. Request DTOからDraftTaskを組み立てる。`UserID`はcurrent userのID、`Status`は`DraftTaskStatusNotStarted`、`EstimatedTime`は`0`、`CompletedAt`・`CourseID`は未設定とする
+6. Request DTOからDraftTaskを組み立てる。`UserID`はcurrent userのID、`Status`は`DraftTaskStatusNotStarted`、`EstimatedTime`は`0`、`CompletedAt`は未設定とする
 7. `draftTask.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
 8. `gormtx.RunInTx`でトランザクションを開始し、`store.Create`と`unitStore.Add`を順に呼ぶ（②「14. Transaction設計」）
 9. 作成された下書きタスクの識別子を**201 Created**で返す（①「5. API / 処理詳細」`#create`）
@@ -564,7 +560,7 @@ flowchart TD
 ||Memo|string|`json:"memo"`。任意|
 ||UnitIDs|`[]uint`|`json:"unit_ids"`。任意。空文字を除いて整数として扱う（①「5. API / 処理詳細」`#create`）|
 
-`status`・`completed_at`・`estimated_time`・`course_id`は入力として受け取らない。
+`status`・`completed_at`・`estimated_time`は入力として受け取らない。
 
 `Priority`を`*int`とするのは、`0`が渡された場合（`ErrInvalidPriority`）と未入力の場合（`ErrPriorityRequired`）を区別する必要があるためである。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない。優先度名のような整数として解釈できない文字列が渡された場合は`0`として扱い、`ErrInvalidPriority`とする（Rails現行がForm属性のinteger型変換で同じ結果になるため。「3. Domain層設計」）。いずれも最終的なステータスは422である。
 
@@ -779,11 +775,10 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`DraftTaskUnit`|`draft_task_units`|同じく既定命名規則で一致するため、オーバーライドは不要|
 
 - `DraftTask`struct自体をGORMモデルとして扱う（Active Record方針上、Entity相当のstructとGORMモデルを分離しない）
-- カラム対応はGorm規約の既定命名規則（フィールド名のsnake_case）に従う。`ID`→`id`、`UserID`→`user_id`、`GoalID`→`goal_id`、`CourseID`→`course_id`、`EstimatedTime`→`estimated_time`、`CompletedAt`→`completed_at`等
+- カラム対応はGorm規約の既定命名規則（フィールド名のsnake_case）に従う。`ID`→`id`、`UserID`→`user_id`、`GoalID`→`goal_id`、`EstimatedTime`→`estimated_time`、`CompletedAt`→`completed_at`等
 - **`DeletedAt`は`*time.Time`としてマッピングし、`gorm.DeletedAt`を使わない。** Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本機能に削除操作は存在せず、`gorm.DeletedAt`を使うと`Find`系が`deleted_at IS NULL`を自動付与する。`DraftTask`は`default_scope`を持たず、Rails現行は論理削除済みのレコードも返すため（①「6. データモデル」）、自動付与が入ると外部仕様が変わる。フロントエンドを変更しない方針により、絞り込みが入らない型を選ぶ
 - `DraftTaskStatus`・`DraftTaskPriority`は`int`を基底型とする型であるため、GORMは追加実装なしに整数カラムとして扱える（①「6. データモデル」のとおり`draft_tasks.status`・`draft_tasks.priority`は整数）
 - `DueDate`は内部に`*time.Time`を保持する独自structであるため、`database/sql`の`Scanner`／`driver.Valuer`を実装して`date`カラムに対応させる。`Scan`はカラムの値（NULLを含む）を受け取って内部値に設定し、`Value`は内部値（または`nil`）を返す
-- `draft_task_courses`に対応するモデルは定義しない（①「6. データモデル」）
 
 **②からの補足**: Value Objectを独自の型のままGORMで永続化する方式について、②にもGorm規約にも定めがない。本書では`Scanner`／`driver.Valuer`の実装を採る。Storeの各メソッドに`time.Time`⇔`DueDate`の変換を書く方式では、列を読み書きするすべての箇所に同じ変換が散るためである。この方式はValue Objectを持つ他機能にも共通して必要になるため、規約側に定めるべき事項と考えられる（「17. ②からの補足事項」参照）。
 
@@ -791,14 +786,14 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 - `DraftTaskStore.FindByIDAndUserID`: `id`・`user_id`に一致する1件を取得する。**`deleted_at`を条件に含めない**（上記）
 - 紐づく単元の識別子は`Preload`で一括取得する。単元を個別に問い合わせるN+1を避けるためである（Railsも`includes(units: :course)`で一括取得している。①「5. API / 処理詳細」`#show`）
-- `DraftTaskStore.Create`: 全列を挿入する。`status`は0、`estimated_time`は0、`completed_at`・`course_id`・`deleted_at`はNULLで作成する
+- `DraftTaskStore.Create`: 全列を挿入する。`status`は0、`estimated_time`は0、`completed_at`・`deleted_at`はNULLで作成する
 - `DraftTaskUnitStore.Add`: `draft_task_id`と`unit_id`の組で一括作成する。空の集合ではクエリを発行しない
 - ページネーション・ソートは不要である。取得は単一の下書きタスク単位であり、一覧取得が存在しない（②「21. DB操作仕様」）
 - 単元の表示用の情報（単元名・所属コース）は`units`・`courses`への直接クエリではなく`UnitDirectory`経由で取得する（②「21. DB操作仕様」）
 
 ## 既存Schemaへの変更
 
-②「20. DB設計方針」のとおり、スキーマ変更は提案されていない。本書でも既存`draft_tasks`・`draft_task_units`テーブルをそのまま利用する前提とする。`draft_task_courses`は現行実装で書き込まれないが、スキーマとしては残す。
+②「20. DB設計方針」のとおり、スキーマ変更は提案されていない。本書でも既存`draft_tasks`・`draft_task_units`テーブルをそのまま利用する前提とする。
 
 ---
 
@@ -836,7 +831,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`DraftTaskStore.FindByIDAndUserID`|他の生徒の下書きタスクを指定した場合に`ErrDraftTaskNotFound`が返ること|
 |`DraftTaskStore.FindByIDAndUserID`|**論理削除済み（`deleted_at`が設定済み）の下書きタスクも取得できること**（`Goal`・`Task`と異なる点）|
 |`DraftTaskStore.FindByIDAndUserID`|紐づく単元の識別子が一括取得されること（単元が複数件でも関連付けのクエリが1回であること）|
-|`DraftTaskStore.Create`|レコードが作成され、`status`が0、`estimated_time`が0、`completed_at`・`course_id`がNULLで保存されること|
+|`DraftTaskStore.Create`|レコードが作成され、`status`が0、`estimated_time`が0、`completed_at`がNULLで保存されること|
 |`DraftTaskStore.Create`|`priority`が指定した整数で保存されること|
 |`DraftTaskUnitStore.Add`|指定された単元分のレコードが作成されること|
 |`DraftTaskUnitStore.Add`|空の集合でクエリを発行しないこと|
@@ -888,10 +883,9 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`CreateDraftTaskBody.Priority`を`*int`とした|`0`が渡された場合（`ErrInvalidPriority`）と未入力の場合（`ErrPriorityRequired`）を区別する必要があるため。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない|補足（①の実体に基づく）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
 |`DraftTaskPriority`を`iota + 1`で宣言した|`draft_tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
-|`EstimatedTime`を`*int`、`CourseID`を`*uint`とした|いずれもカラムがNULL可であり既存データにNULLが存在し得るため。`EstimatedTime`は作成時に`0`を設定し、`CourseID`は設定しない（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
+|`EstimatedTime`を`*int`とした|カラムがNULL可であり既存データにNULLが存在し得るため。作成時に`0`を設定する（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
 |`GoalID`を`uint`（非ポインタ）とし、Response DTOでは`*uint`とした|カラムはNULL可だがRailsの`belongs_to :goal`により登録時は必須である。一方、既存データにNULLが存在し得るため出力では`null`を返しうる（①「6. データモデル」）|補足（①の実体に基づく）|
 |`DueDate`に比較用のメソッドを設けない|本機能に期限の前後を比較する業務要件がないため。目標管理機能・タスク管理機能の`DueDate`は比較用メソッドを持つが、本機能では不要である|補足|
-|`draft_task_courses`に対応するモデルを定義しない|現行実装に書き込む処理が存在せず、本Contextで扱う必要がないため（①「6. データモデル」、②「21. DB操作仕様」）|補足（①の実体に基づく）|
 |一覧取得・更新・削除の経路・Storeメソッドを設けない|Rails現行は`resources :draft_tasks`により経路だけが存在するが、対応するアクションが実装されていない（①「4. API一覧」）。使えない経路を移植する理由がない|補足（②「19. API仕様」の「Railsとの差分」に従う）|
 
 ディレクトリ名・package名（`internal/drafttask/`）、レスポンスの形状、HTTPステータス、`due_date`の入力の扱い、`draft_tasks.status`・`draft_tasks.priority`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
