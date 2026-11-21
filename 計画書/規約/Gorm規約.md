@@ -29,6 +29,8 @@ type Teacher struct {
 
 `gorm.DeletedAt`型を使うことで、`Delete`実行時に`deleted_at`が自動的に現在時刻へ設定され、`Find`系メソッドは標準で`deleted_at IS NULL`を自動的に条件へ付与する。物理削除が必要な場合のみ`Unscoped()`を明示的に呼び出す。
 
+**この規定は、本Contextが削除操作を実装する場合に適用する。** `deleted_at`カラムを持つが、本Context自身は削除操作を持たず、既存データに論理削除済みの行が含まれうる場合（Rails現行の`User`や`Question`等がそうであるように、他の経路で論理削除された行を、削除操作を持たないContextが参照する場合）は、`gorm.DeletedAt`を使わず`*time.Time`等の通常の型を使う。`gorm.DeletedAt`を使うと`Find`系メソッドが`deleted_at IS NULL`を自動的に付与してしまい、Rails現行が論理削除済みの行を除外せずに返す箇所（`default_scope`を持たないモデル）との間で、意図しない挙動の差が生じるためである。②③は、対象テーブルに対して本Contextが削除操作を持つかどうかを「3. Bounded Context」「11. Repository設計」等で明示し、持たない場合は`gorm.DeletedAt`を使わない理由をGORMモデル定義のそばに一言添える。
+
 ### カラム名の例外（連続大文字・略語）
 
 `JTI`のような連続大文字を含む略語など、GORMの標準snake_case変換では意図が曖昧になりうるフィールド名は、`column`タグで明示的にカラム名を指定する。
@@ -586,3 +588,61 @@ Active Record採用機能では、Entity相当のstructとGORMモデルが同一
 ### リトライ方針
 
 競合発生時、アプリケーション側での自動リトライは行わない。409をそのままクライアントへ返し、最新データの再取得・再送信をクライアント側に委ねる。UseCase内での自動リトライが必要な機能がある場合は、その機能のGo実装仕様書で理由とともに個別に定める。
+
+## 13. Value Objectの永続化（Scanner/Valuer）
+
+Value Objectを持つ列（例：目標管理機能・タスク管理機能の`DueDate`）を読み書きする際、Store/Repository側に`time.Time`⇔Value Objectの変換処理を個別に書かない。列を読み書きする箇所が複数あると、同じ変換ロジックが散り、変換漏れ・変換方法の食い違いが起こりうる。
+
+### 実装方法
+
+Value Object自身に`database/sql`パッケージの`Scanner`（読み込み時）・`driver.Valuer`（書き込み時）を実装し、GORMモデルのフィールド型として直接そのValue Objectを使う。GORMはこれらのインターフェースを標準でサポートしており、変換をモデル定義の外に出す必要がない。
+
+```go
+// Good
+// domain/valueobject/due_date.go
+type DueDate struct {
+    value time.Time
+}
+
+func (d DueDate) Value() (driver.Value, error) {
+    return d.value, nil
+}
+
+func (d *DueDate) Scan(src any) error {
+    t, ok := src.(time.Time)
+    if !ok {
+        return fmt.Errorf("DueDateの変換に失敗しました: %T", src)
+    }
+    d.value = t
+    return nil
+}
+```
+
+```go
+// Good
+// infrastructure/gormrepo/task_model.go
+type taskModel struct {
+    ID      uint
+    DueDate valueobject.DueDate // GORMがScanner/Valuer経由で直接読み書きする
+}
+```
+
+```go
+// Bad
+// Store/Repositoryの各メソッドでtime.Time⇔DueDateの変換を個別に書く。
+// 変換箇所が増えるたびに同じロジックが重複し、変換方法が食い違う余地が生まれる
+func (r *taskRepository) FindByID(ctx context.Context, id uint) (*domain.Task, error) {
+    var m taskModel // DueDateをtime.Time型で保持
+    // ...
+    dueDate, err := valueobject.NewDueDate(m.DueDate) // ここで変換
+    // ...
+}
+```
+
+### 適用範囲
+
+Value Objectが単一の列にそのまま対応する場合（`DueDate`のように、DBの型とGoの型が1対1に近い場合）に適用する。複数の列を組み合わせて1つのValue Objectを構成する場合（例：住所の複数カラム）は、GORMモデル側で複数フィールドのまま保持し、Entity/Value Objectへの変換はRepository層の変換関数（`toDomain`/`fromDomain`）に任せる。Scanner/Valuerは単一カラムの変換に限定して使う。
+
+### バリデーションとの関係
+
+`Scan`は、DBから読み込んだ既存データの変換であるため、新規入力のバリデーション（空文字・範囲外の値の拒否等）とは責務が異なる。`Scan`はDBの値を素直にGoの型へ変換することに限り、入力値の妥当性検証はApplication層・Domain層の責務のまま変えない。
