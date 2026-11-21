@@ -329,6 +329,16 @@ ProfileAccount・PersonalInfo自体は、値の更新以外に明示的な状態
 - 住所ID（`address_id`）の実在確認は、master-data Contextが公開する参照手段（規約「5. Context間連携ルール」）を呼び出す形で行う
 - 判断根拠: 住所マスタの真正な所有者はmaster-data Contextであり、本Contextが独自のAddress Repositoryを持つと、住所データの参照経路が重複するため
 
+## 他Contextへ公開する参照手段
+
+|公開する操作|呼び出し元|内容|
+|-|-|-|
+|プロフィール概要の参照|`authentication`|指定したユーザーIDについて、本Contextが管理する氏名・氏名カナ・個人情報（電話番号・生年月日・性別）・住所・プロフィール完成状況（`profile_completed`）を返す（認証機能_Go実装仕様書_1_基盤「他Contextへの依存（`dependency.go`）」の`ProfileReader.FindProfileSummary`）|
+
+authentication Contextが`GET /api/v1/me`等のレスポンスを組み立てる際、authentication Context自身が所有するユーザーの基本属性（メールアドレス・ロール・所属高校・学年等）に、本Contextが所有する氏名・個人情報・住所を合成するために用いる。
+
+**②からの補足**: 認証機能_Go実装仕様書_1_基盤は、この参照手段を`ProfileReader`インターフェースの`FindProfileSummary(ctx context.Context, userID uint) (ProfileSummary, error)`として暫定に定義し、「メソッド名・シグネチャと受け渡し用の型は②に明記がないため…実装のために補った」と注記していた。本節で公開操作を定めたことにより、同書が前提としていた参照手段は本Contextの②として正式なものになる。呼び出し元との不整合を避けるため、本節の内容（氏名・氏名カナ・個人情報・住所・`profile_completed`）は同書がすでに前提としている返り値と一致させている。具体的な関数シグネチャ・型（`ProfileSummary`等）は、②が実装の詳細を断定しない方針のとおり③で確定する事項であり、本書では扱わない。
+
 ---
 
 # 12. UseCase設計

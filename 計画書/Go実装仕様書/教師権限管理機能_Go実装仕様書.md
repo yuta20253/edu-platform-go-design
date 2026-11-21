@@ -30,6 +30,8 @@ Transaction Script・Active Record・Event Sourcingは、②「4. 設計パタ�
 
 `UpdateTeacherPermissionUseCase`は管理者教員管理機能からも呼ばれるが、その呼び出し側のHandler・Middlewareは本書の対象外であり、`管理者教員管理機能_Go実装仕様書.md`で規定する。
 
+本書は、本Contextが他Contextへ公開する2つの参照手段（`FindGradeRestriction`・`HasManageOtherTeachersPermission`。8章「他Contextへ公開する参照手段」）の実装単位も対象とする（②「11. Repository設計」の「他Contextへ公開する参照手段」）。
+
 規約`アーキテクチャ規約.md`「3. 設計パターンごとの構造適用方針」の「Domain Model」節に従い、`{context}/domain`・`application`・`infrastructure`・`presentation`のフルレイヤー構成を適用する。
 
 ---
@@ -181,6 +183,8 @@ internal/teacherpermission/presentation/routes.go
 |`ListBySchool`|`(ctx context.Context, highSchoolID uint, page int, perPage int)`|`(records []TeacherPermissionRecord, totalCount int, err error)`|同校教員の権限一覧取得（氏名カナ順、ページネーション）|
 |`FindByTeacherID`|`(ctx context.Context, highSchoolID uint, teacherID uint)`|`(*TeacherPermissionRecord, error)`|指定教員（同校スコープ）の権限詳細取得|
 |`Update`|`(ctx context.Context, permission *entity.TeacherPermission)`|`error`|権限の更新|
+|`FindGradeScopeByTeacherID`|`(ctx context.Context, teacherID uint)`|`(*valueobject.GradeScope, error)`|他Contextへ公開する参照手段（`FindGradeRestriction`）のための、所属校を問わない`grade_scope`単独の取得。レコードが存在しない場合は`nil, nil`|
+|`FindManageOtherTeachersByTeacherID`|`(ctx context.Context, teacherID uint)`|`(bool, error)`|他Contextへ公開する参照手段（`HasManageOtherTeachersPermission`）のための、所属校を問わない`manage_other_teachers`単独の取得。レコードが存在しない場合は`false, nil`|
 
 `TeacherPermissionRecord`（同ファイル内で定義する、Entity + 付帯情報の複合型）:
 
@@ -195,6 +199,8 @@ internal/teacherpermission/presentation/routes.go
 校内の有効教員の存在確認は本Contextの Repository では行わない。教員の有効状態・ロール・所属校は`user` Contextが正として管理するため、`dependency.go`に宣言するインターフェース経由で`user` Contextの公開参照を呼び出す（②「3. Bounded Context」「11. Repository設計」）。
 
 Repositoryは、保護ルールの判断そのもの（更新可否）は行わない。判断は`TeacherPermissionUpdateGuard`（Domain Service）の責務とする（②「11. Repository設計」の「保持しない責務」）。
+
+`FindGradeScopeByTeacherID` / `FindManageOtherTeachersByTeacherID`は、②「11. Repository設計」の「他Contextへ公開する参照手段」が定める2つの公開操作（`FindGradeRestriction` / `HasManageOtherTeachersPermission`、8章「他Contextへ公開する参照手段」）のために設けるメソッドである。他の3メソッドと異なり、呼び出し元が自身の所属校を持たない（または同校スコープを必要としない）ため、`highSchoolID`を引数に取らず`users`との結合も行わない。
 
 **`LockVersion`に対する判定メソッドをEntityに持たせない。** 版の一致判定は永続化の関心であり、権限そのものの業務ルールではない（②「6. Entity設計」）。Entityは版を運ぶだけで、判定はRepositoryの更新条件が行う（「8. Infrastructure層設計」）。`valueobject`として切り出すこともしない。許容値・不変条件を持たない整数であり、型として表現する利点がない（「17. ②からの補足事項」参照）。
 
@@ -221,10 +227,16 @@ type UserAttributes struct {
     HighSchoolID uint
     Role         string
     Disabled     bool
+    // GradeID は対象ユーザーの学年識別子である（学年が未設定の場合はnil）。
+    // 本Contextが公開する FindGradeRestriction（8章「他Contextへ公開する参照手段」）が、
+    // grade_scope が own_grade の対象教員自身の担当学年を返すために用いる。
+    GradeID *uint
 }
 ```
 
 `CountActiveTeachers`は、②「11. Repository設計」の「指定教員を除いた、校内の有効教員が他に存在するかどうかを確認する」に対応する。人数が0より大きいかどうかで存在確認を兼ねる（`user`②「CountUsers」）。
+
+`GradeID`は、`user`③（`ユーザー基盤機能_Go実装仕様書.md`「6. Application層設計」）の`UserAttributes`が既に持つ`GradeID *uint`に対応する。`UserDirectoryAdapter`（8章）は、`user` Contextの`GetUserAttributes`が返す値をこのフィールドへそのまま引き渡す。
 
 ## Domain Service
 
@@ -555,6 +567,32 @@ flowchart TD
 
 > **②からの補足**: 「教員ロールである」という条件は②「11. Repository設計」の「同校の有効教員集合」という記載から導出した（推測）。`user`②「CountUsers」は役割による絞り込みと除外IDの指定を入力に持つため、本Contextで`user_roles`を結合する必要はない。
 
+## 他Contextへ公開する参照手段
+
+②「11. Repository設計」の「他Contextへ公開する参照手段」が定める2つの操作である。いずれも読み取りのみで、状態を変える操作は公開しない。本Contextの`context.go`が返す`Context`のメソッドとして公開する（アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」）。
+
+|公開する操作|呼び出し元|内容|
+|-|-|-|
+|`FindGradeRestriction(ctx context.Context, userID uint) (*uint, error)`|`student-directory`（教師生徒参照機能）・`announcement`（教師お知らせ機能）|指定した教員の`grade_scope`が`own_grade`であれば、その教員自身の担当学年の識別子を返す。`all_grades`、または権限レコードが存在しない場合は`nil`を返す|
+|`HasManageOtherTeachersPermission(ctx context.Context, teacherID uint) (bool, error)`|`school-class`（クラス編成機能）|指定した教員が`manage_other_teachers`を保持するかどうかを返す。対象教員に権限レコードが存在しない場合は`false`を返す|
+
+名称・引数・戻り方は、②「11. Repository設計」が「呼び出し元の両③で既に確定している」ものに揃えると定めたとおりであり、教師生徒参照機能③「Context間連携（GradeDirectory / SchoolClassDirectory / GradeRestrictionDirectory）」・教師お知らせ機能③_1「8. Infrastructure層設計」・クラス編成機能③_3「17. ②からの補足事項」が前提としていた名称と一致する。
+
+### FindGradeRestriction
+
+1. `TeacherPermissionRepository.FindGradeScopeByTeacherID(ctx, userID)`で対象教員の`grade_scope`を取得する。レコードが存在しない場合は`nil`を返す
+2. 取得した`grade_scope`が`all_grades`（`GradeScope.IsAllGrades()`が`true`）の場合は`nil`を返す
+3. `own_grade`の場合、`UserDirectory.GetUserAttributes(ctx, []uint{userID})`で対象教員自身の`GradeID`（本章「他Contextへの依存（dependency.go）」）を取得し、その値を返す
+
+担当学年の識別子を`teacher_permissions`自体からではなく`user` Contextから取得するのは、②「11. Repository設計」の「他Contextへ公開する参照手段」が「本Contextが既に依存している`user` Contextの`GetUserAttributes`から取得した対象教員自身の学年識別子を...用いて返す」と定めているためである（3章「Repository Interface」参照）。
+
+### HasManageOtherTeachersPermission
+
+1. `TeacherPermissionRepository.FindManageOtherTeachersByTeacherID(ctx, teacherID)`で対象教員の`manage_other_teachers`を取得する
+2. レコードが存在しない場合は`false`を返す。存在する場合は取得した値をそのまま返す
+
+いずれの操作も業務ルールの判定を含まない。`TeacherPermissionUpdateGuard`（Domain Service）には委譲しない。判定ではなく値の参照のみであり、判断の対象（更新可否）を持たないためである。
+
 ## 外部連携実装
 
 対象外。本機能はMail・Cache・Queue等の外部連携を必要としない（②に記載なし）。
@@ -844,6 +882,7 @@ DB接続失敗等のInfrastructure Errorは、Repository実装から`fmt.Errorf`
 - `FindByTeacherID`: `teacher_permissions`の対象教員ID一致 AND `users.high_school_id`一致 AND `users.deleted_at IS NULL`
 - `Update`: 対象レコードの`grade_scope`・`manage_other_teachers`列を更新。**`lock_version`との一致条件がGORMにより自動付与され、成功時に版が1つ進む。`RowsAffected == 0`なら`domainerror.ErrOptimisticLockConflict`を返す**（Gorm規約「12. 楽観ロック（Optimistic Locking）」）
 - `ListBySchool`・`FindByTeacherID`は`lock_version`列も読み取る（レスポンスに含めるため。②「19. API仕様」）
+- `FindGradeScopeByTeacherID` / `FindManageOtherTeachersByTeacherID`: `teacher_permissions`の`user_id`一致のみで1件取得する。`users`との結合は行わず、所属校・有効性を問わず値を返す（8章「他Contextへ公開する参照手段」）
 
 校内の有効教員の人数確認は本Contextでクエリを発行しない。`user` Contextの`CountUsers`に委ねる（8章「UserDirectoryAdapter」）。
 
@@ -911,6 +950,21 @@ Domain Model採用のため、②「22. テスト戦略」の区分をそのま�
 |`TeacherPermissionRepository実装の変換`|`grade_scope`列の整数0 / 1が`own_grade` / `all_grades`へ、またその逆へ正しく対応付けられること（①「6. データモデル」のRailsの`enum`と一致すること）|
 |`UserDirectoryAdapter.CountActiveTeachers`|対象教員以外に同校の有効教員が存在する場合、1以上が返ること|
 |`UserDirectoryAdapter.CountActiveTeachers`|対象教員が校内で最後の有効教員である場合、0が返ること|
+|`TeacherPermissionRepository実装のFindGradeScopeByTeacherID`|対象教員の`grade_scope`が所属校を問わず取得できること|
+|`TeacherPermissionRepository実装のFindGradeScopeByTeacherID`|権限レコードが存在しない場合、`nil, nil`が返ること|
+|`TeacherPermissionRepository実装のFindManageOtherTeachersByTeacherID`|対象教員の`manage_other_teachers`が所属校を問わず取得できること|
+|`TeacherPermissionRepository実装のFindManageOtherTeachersByTeacherID`|権限レコードが存在しない場合、`false, nil`が返ること|
+
+## 他Contextへ公開する参照手段のテスト
+
+|対象|テストケース|
+|-|-|
+|`Context.FindGradeRestriction`|`grade_scope`が`own_grade`の場合、`UserDirectory.GetUserAttributes`から取得した対象教員の`GradeID`が返ること|
+|`Context.FindGradeRestriction`|`grade_scope`が`all_grades`の場合、`nil`が返ること|
+|`Context.FindGradeRestriction`|権限レコードが存在しない場合、`nil`が返ること|
+|`Context.HasManageOtherTeachersPermission`|`manage_other_teachers`が`true`の場合、`true`が返ること|
+|`Context.HasManageOtherTeachersPermission`|`manage_other_teachers`が`false`の場合、`false`が返ること|
+|`Context.HasManageOtherTeachersPermission`|権限レコードが存在しない場合、`false`が返ること|
 
 ## Handler Test
 
@@ -975,3 +1029,5 @@ Domain Model採用のため、②「22. テスト戦略」の区分をそのま�
 |18|`LockVersion`をEntityのフィールドとして持たせ、`valueobject`に切り出さず、一致判定もEntityに持たせない|版は許容値・不変条件を持たない整数であり、型として表現する利点がない。一致判定は永続化の整合性の確認であって権限の業務ルールではないため、Repositoryの更新条件に任せる（②「6. Entity設計」「11. Repository設計」、Gorm規約「12. 楽観ロック（Optimistic Locking）」）|②の方針に従う（推測ではない）|
 |19|`Update`で、取得した`target.LockVersion`を入力の`cmd.LockVersion`で上書きしてから永続化する|楽観ロックは「クライアントが見ていた版」との一致を確かめる仕組みである。取得時の版をそのまま使うと、取得と更新がトランザクション内で連続するため常に一致し、競合を検出できない（Gorm規約「12. 楽観ロック（Optimistic Locking）」）|補足（規約の仕組みから決まる）|
 |20|`lock_version`をレスポンスに含めるのは`teachers`の各要素と詳細のみとし、`current_user.teacher_permission`には含めない|操作者自身は更新できないため版が不要である。Rails現行も`Teacher::TeacherPermissionManagementSerializer`と`TeacherSerializer`で別のシリアライザを使い分けている（①「5. API / 処理詳細」`#index`、①「10. Rails実装対応表」）|①の実体に基づく|
+|21|`FindGradeScopeByTeacherID` / `FindManageOtherTeachersByTeacherID`という2つのRepositoryメソッド名を新設した|②「11. Repository設計」の「他Contextへ公開する参照手段」は`FindGradeRestriction` / `HasManageOtherTeachersPermission`という公開操作（Context単位）の名称・戻り方のみを定め、その内部でRepositoryをどう分割するかは定めていない。既存の`FindByTeacherID`が`highSchoolID`での同校スコープを前提とする点と役割が異なるため、別メソッドとした|推測（実装判断）|
+|22|`UserDirectory.GetUserAttributes`が受け渡す`UserAttributes`に`GradeID *uint`フィールドを追加した|②「11. Repository設計」の「他Contextへ公開する参照手段」が、担当学年の識別子を`user` Contextの`GetUserAttributes`から取得すると明記している。`user`③（`ユーザー基盤機能_Go実装仕様書.md`「6. Application層設計」）の`UserAttributes`は既に`GradeID *uint`を公開しており、本Contextの`UserAttributes`（`dependency.go`）にはこれまで取り込んでいなかった項目を追加した|②・`user`③に基づく（推測ではない）|

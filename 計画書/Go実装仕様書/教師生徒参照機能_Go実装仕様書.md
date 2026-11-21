@@ -485,7 +485,7 @@ flowchart TD
 - 実装: `teacher-permission` Contextが公開する参照操作へ委譲する薄い実装。権限区分が担当学年のみであれば操作者の学年の識別子を返し、そうでなければ`nil`を返す
 - **判定そのものを本Contextで行わない。** 「担当学年のみの権限区分とは何か」を定義しているのは`teacher-permission`である（規約「5. Context間連携ルール」）
 
-**②からの補足**: `teacher-permission` Contextの②（`教師権限管理機能_Go移行・設計仕様書.md`）には、担当学年の制限を他Contextへ公開する操作が定義されていない。本書では`FindGradeRestriction`相当の公開操作が同Contextに追加されることを前提とする（②「19. API仕様」の「設計上の前提として他Contextに必要となるもの」）。教師お知らせ機能③_1も同じ前提に立っている（同③_1「8. Infrastructure層設計」）。
+`teacher-permission` Contextの②（`教師権限管理機能_Go移行・設計仕様書.md`「11. Repository設計」の「他Contextへ公開する参照手段」）は、担当学年の制限を他Contextへ公開する参照手段として、`FindGradeRestriction`と同じ名称・戻り方（制限がなければ該当なしを返す）の操作を定めている。同Contextの③（`教師権限管理機能_Go実装仕様書.md`「8. Infrastructure層設計」の「他Contextへ公開する参照手段」）も同じシグネチャでこれを実装する。教師お知らせ機能③_1も同じ参照手段を用いる（同③_1「8. Infrastructure層設計」）。
 
 ### schoolClassDirectory（`infrastructure/contextadapter/school_class_directory.go`）
 
@@ -496,7 +496,7 @@ flowchart TD
 
 **`school_classes`テーブルを直接読まない。** クラスを所有するのは`school-class`である（②「3. Bounded Context」）。
 
-**②からの補足**: `school-class` Contextの②（`クラス編成機能_Go移行・設計仕様書.md`）には、クラスの属性を他Contextへ公開する操作が定義されていない。本書では`FindSchoolClass`相当の公開操作が同Contextに追加されることを前提とし、シグネチャは同機能の③が確定するまで本書の形を仮とする（②「19. API仕様」の「設計上の前提として他Contextに必要となるもの」）。`master-data`側は確定済みである。
+`school-class` Contextの`FindSchoolClass`は、クラス編成機能②「11. Repository設計」「他Contextへ公開する参照手段」、同③「6. Application層設計」「他Contextへ公開する参照手段」で確定している。`master-data`側も確定済みである。
 
 ### StudentSearchCondition（infrastructure内の検索条件型）
 
@@ -885,7 +885,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 | 4 | `page`・`per_page`パラメータが不正な形式の場合の挙動（400を返す想定） | ②「15. Validation設計」では「型チェック」を行うことのみ記載され、具体的な失敗時挙動の記載がない | 推測 |
 | 5 | `per_page`のデフォルト値10・上限100件への正規化処理をApplication層（`ListStudents`関数内）に置いた | ②「19. API仕様」に数値自体は明記されているが、正規化を行う層はPresentation/Applicationのいずれかが②に明記されていない。業務ルール（デフォルト値・上限）に近いためApplication層に置いた | 推測 |
 | 6 | 生徒詳細レスポンス（`StudentDetailResponse`）の関連情報フィールドの具体的な内容を確定していない | ②「19. API仕様」は「生徒の基本情報と関連情報を維持する」とのみ記載し、具体的なフィールドはRails実装（①）に依存する。①は本書作成時点で未提供のため参照不可 | ①未提供のため参照不可 |
-| 7 | 学年は`master-data`の公開操作（`FindGrades`）、クラスは`school-class`の公開操作、担当学年の制限は`teacher-permission`の公開操作で取得し、`grades` / `school_classes`を本Contextが直接読まない構成とした | アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する手段を呼び出す」「相手Contextのテーブルを直接読まない」に従う。`master-data`の公開操作は共通マスタ参照機能③基盤編「8. Infrastructure層設計」で確定している。`school-class`・`teacher-permission`の公開操作は同機能の②に未定義であり、追加が必要である（②「19. API仕様」の「設計上の前提として他Contextに必要となるもの」） | 規約適用による決定（`school-class`・`teacher-permission`のシグネチャのみ仮） |
+| 7 | 学年は`master-data`の公開操作（`FindGrades`）、クラスは`school-class`の公開操作、担当学年の制限は`teacher-permission`の公開操作で取得し、`grades` / `school_classes`を本Contextが直接読まない構成とした | アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する手段を呼び出す」「相手Contextのテーブルを直接読まない」に従う。`master-data`の公開操作は共通マスタ参照機能③基盤編「8. Infrastructure層設計」で確定している。`teacher-permission`の公開操作は教師権限管理機能②「11. Repository設計」の「他Contextへ公開する参照手段」、同③「8. Infrastructure層設計」の「他Contextへ公開する参照手段」で確定している。`school-class`の公開操作はクラス編成機能②「11. Repository設計」、同③「6. Application層設計」の「他Contextへ公開する参照手段」で確定している | 規約適用による決定 |
 | 8 | 未認証時401・ロール不一致時403というHTTP Statusの割り当て | ②「19. API仕様」のStatus Code一覧に認証・認可失敗時の記載がない | 推測 |
 | 9 | `CreateStudent`は自身でトランザクションを開始せず、アカウントの保存と招待メール送信依頼の登録のトランザクションは`user`の`CreateStudentAccount`に任せ、学年・クラスの参照（事前確認）はそのトランザクションに含めない構成とした | 本Context自身の書き込みがなく、`user`の作成操作が呼び出し側のトランザクションがなければ自身で開始する（`user`②「14. Transaction設計」）ため | 推測 |
 

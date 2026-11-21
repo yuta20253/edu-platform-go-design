@@ -225,7 +225,7 @@ classDiagram
   - `sort`（`level_name`/`created_at`/`id`、許可値以外は`created_at`）・`order`（`asc`/`desc`、既定は`desc`）による並び替え
   - ページング（`per_page`上限100件）
 - 保持しない責務: コースの作成・更新・削除
-- 判断根拠: コース一覧・詳細は`curriculum`が所有するデータであり、本Contextは管理者向けの検索・集計の条件を渡すだけに留める。生徒向けの既存公開操作（`FindCourseSubjects`等。コース参照機能③「6. Application層設計」）は検索・ページング・集計を持たないため、本機能専用の新しい参照操作が`curriculum`側に必要になる（**要確認**。コース参照機能の追随時に、本機能が必要とする検索・集計付きの参照操作を追加する必要がある）
+- 判断根拠: コース一覧・詳細は`curriculum`が所有するデータであり、本Contextは管理者向けの検索・集計の条件を渡すだけに留める。生徒向けの既存公開操作（`FindCourseSubjects`等。コース参照機能③「6. Application層設計」）は検索・ページング・集計を持たないため、本機能専用の参照操作が`curriculum`側に必要である。コース参照機能②「11. Repository設計」「他Contextへ公開する参照手段」に、`SearchCourses`・`FindCourseDetail`として追加され、確定済みである
 
 ## UnitRepository（`curriculum` Context提供、外部依存として利用）
 
@@ -235,7 +235,7 @@ classDiagram
 - 保持する検索機能:
   - `course_id` + `id`の組み合わせによるスコープ確認検索（異なるコースの単元IDを指定した場合は取得できない）
 - 保持しない責務: 単元・問題の作成・更新・削除
-- 判断根拠: 単元詳細表示に必要な全データ（問題・選択肢・ヒント・解説の全件）を1回の呼び出しで取得する。既存の生徒向け公開操作（`FindUnitQuestions`。コース参照機能③「6. Application層設計」）は選択肢・ヒントの部分的な情報しか返さず、かつ`in_active_units`等の絞り込みを前提としているため、管理者が全件を確認する用途には使えない（**要確認**。コース参照機能の追随時に、管理者向けの全件参照操作を追加する必要がある）
+- 判断根拠: 単元詳細表示に必要な全データ（問題・選択肢・ヒント・解説の全件）を1回の呼び出しで取得する。既存の生徒向け公開操作（`FindUnitQuestions`。コース参照機能③「6. Application層設計」）は選択肢・ヒントの部分的な情報しか返さず、かつ`in_active_units`等の絞り込みを前提としているため、管理者が全件を確認する用途には使えない。コース参照機能②「11. Repository設計」「他Contextへ公開する参照手段」に、`FindUnitDetail`として追加され、確定済みである
 
 ## ImportHistoryRepository（`question-import` Context提供、外部依存として利用）
 
@@ -501,8 +501,10 @@ flowchart TD
 |-|-|-|-|-|-|
 |コース一覧の検索|`curriculum`|courses（subjectsとの結合を含む）|論理削除除外、`subject_id`による絞り込み（任意）、`level_name`/`description`への部分一致検索（`q`指定時）|subjectsと結合し科目名を取得|`sort`（`level_name`/`created_at`/`id`、既定`created_at`）・`order`（`asc`/`desc`、既定`desc`）、`per_page`上限100件|
 |コース詳細の取得|`curriculum`|courses・units（単元ごとの問題数集計を含む）|論理削除除外、`id`一致|unitsと結合|単元一覧は`id`昇順|
-|単元詳細のスコープ確認と問題一覧の取得|`curriculum`|units・questions（question_choices・question_hints・question_explanationsとの結合を含む）|論理削除除外、`course_id` + `id`の組み合わせで一致するものだけを対象とする|question_choices（choice_number順）・question_hints（step_number順）・question_explanations（登録順）と結合|問題一覧は`id`順|
+|単元詳細のスコープ確認と問題一覧の取得|`curriculum`|units・questions（question_choices・question_hints・question_explanationsとの結合を含む）|論理削除の扱いは①「5. API / 処理詳細」`Api::V1::Admin::UnitsController#show`に記載がなく未確定である（コース参照機能②「11. Repository設計」も同操作を未確定としている）。`course_id` + `id`の組み合わせで一致するものだけを対象とする|question_choices（choice_number順）・question_hints（step_number順）・question_explanations（登録順）と結合|問題一覧は`id`順|
 |直近のインポート履歴の参照|`question-import`|import_histories|`unit_id`による絞り込み|不要|作成日時の降順、上位5件|
+
+**②からの補足**: 上記の単元詳細の行は、当初「論理削除除外」としていたが、①の該当箇所（`UnitsController#show`の処理内容・業務ルール）に論理削除の除外についての記載がないことを確認したため、未確定として改めた。コース一覧の検索・コース詳細の取得の「論理削除除外」は、①「5. API / 処理詳細」`CoursesController#index`・`#show`の業務ルールに明記があり、そのまま維持する。
 
 ---
 

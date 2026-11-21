@@ -62,13 +62,16 @@ internal/profile/
 
 `dependency.go`で宣言する`master-data` Contextの参照手段の実装は、GORMに依存せず相手Contextの公開操作へ委譲するアダプタであるため`infrastructure/contextadapter/`に置く（同規約。`store.go`には置かない）。
 
+`find_profile_summary.go`は、`model.go`・`store.go`と同じ`internal/profile/`直下に置く。authentication Contextから呼ばれる公開操作であり、Active Record採用のため新たなレイヤーを設けず、既存のStore呼び出し構成をそのまま用いる（学習ログ機能③「2. ディレクトリ構成」の`find_studied_dates.go`と同じ配置方針）。`dependency.go`には、master-data Context参照用の`AddressDirectory`に加え、本Contextが公開する`FindProfileSummary`の戻り値として使う`ProfileSummary`・`AddressView`という「他Contextへ渡す型」も置く（共通マスタ参照機能③_1「依存関係の組み立てと公開操作」と同じ整理）。
+
 ## 作成するファイル一覧
 
 ```
 internal/profile/context.go           # NewContext（依存関係の組み立て）
-internal/profile/dependency.go        # AddressDirectory（master-data Contextの参照用インターフェース）
+internal/profile/dependency.go        # AddressDirectory（master-data Contextの参照用インターフェース）、ProfileSummary/AddressView（authentication Contextへ渡す型）
 internal/profile/model.go
 internal/profile/store.go
+internal/profile/find_profile_summary.go   # FindProfileSummary（authentication Contextから呼ばれる公開操作）
 
 internal/profile/infrastructure/contextadapter/address_directory.go   # AddressDirectoryの実装
 
@@ -324,6 +327,20 @@ flowchart TD
 type AddressDirectory interface {
     // ExistsAddress は指定した住所IDが実在するかを返す。
     ExistsAddress(ctx context.Context, id uint) (bool, error)
+    // FindAddressByID は指定した住所IDの住所情報を返す。存在しない場合は2番目の戻り値がfalseになる。
+    FindAddressByID(ctx context.Context, id uint) (AddressView, bool, error)
+}
+
+// AddressView は住所の属性のうち本Contextが必要とする最小限の範囲であり、
+// master-data Context参照機能③_1がprofile向けに公開するAddressRefに対応する。
+// FindProfileSummary（後述）の戻り値（ProfileSummary.Address）としてauthentication Contextへ
+// そのまま渡す「他Contextへ渡す型」でもある（共通マスタ参照機能③_1「機能全体のファイル一覧と担当文書」の
+// dependency.goの役割と同じ整理）。
+type AddressView struct {
+    ID         uint
+    PostalCode string
+    City       string
+    Town       *string
 }
 ```
 
@@ -331,12 +348,57 @@ type AddressDirectory interface {
 
 - 実装struct名: 非公開struct + コンストラクタ`NewAddressDirectory(masterDataContext *masterdata.Context) profile.AddressDirectory`
 - 委譲先: `master-data`が公開する`FindAddresses(ctx, ids []uint) ([]masterdata.AddressRef, error)`（共通マスタ参照機能③_1「公開する操作」）
-- 実装: `FindAddresses(ctx, []uint{id})`を呼び出し、戻り値が1件以上であれば`true`、0件であれば`false`を返す
+- `ExistsAddress`の実装: `FindAddresses(ctx, []uint{id})`を呼び出し、戻り値が1件以上であれば`true`、0件であれば`false`を返す
+- `FindAddressByID`の実装: 同じ`FindAddresses(ctx, []uint{id})`を呼び出し、戻り値が1件であれば`AddressRef`の`ID`・`PostalCode`・`City`・`Town`を`AddressView`へそのまま転記して`(view, true, nil)`を返す（`PrefectureID`は本Contextが使わないため転記しない）。0件であれば`(AddressView{}, false, nil)`を返す
 - 本アダプタはGORMに依存せず、`addresses`へクエリを発行しない
 
 **②からの補足**: master-data Context（共通マスタ参照機能）の②「11. Repository設計」は「都道府県ID・市区町村・町域による住所検索」のみを定義しており、単一IDによる実在確認専用の関数は公開していない。共通マスタ参照機能③_1が確定した公開操作は`FindHighSchools`・`FindGrades`・`FindGradesByHighSchoolID`・`FindGradeIDsByYear`・`FindAddresses`・`SearchAddressCandidates`の6つであり、単一ID実在確認に特化した関数（`ExistsAddress`）はこのうちに含まれない。既存の`FindAddresses`（識別子の集合から該当する住所を返し、該当しない識別子は結果に含めない。共通マスタ参照機能③_1「6. Application層設計」）で実在確認の要件を満たせるため、新しい公開操作を追加せず、本アダプタが`FindAddresses`の結果件数から判定する構成とした（②からの補足。②の設計判断を変更するものではない）。
 
 `cache/`・`queue/`・`mail/`は対象外（②「18. Domain Event」により、本機能に関連する非同期処理は現行仕様に存在しない）。
+
+## 他Contextへ公開する操作（`find_profile_summary.go`）
+
+②「11. Repository設計」「他Contextへ公開する参照手段」により、本Contextはauthentication Contextへ「プロフィール概要の参照」を公開する。公開する操作はContextのメソッドとして定める（共通マスタ参照機能③_1「依存関係の組み立てと公開操作」と同じ整理）。HTTPエンドポイントを持たず、Goのパッケージとして直接呼ばれる点はmaster-data Contextの5つの公開操作・学習ログ機能③の`FindStudiedDates`/`SumStudyMinutesByDate`と同じ扱いである。
+
+### ProfileSummary（`dependency.go`、「他Contextへ渡す型」）
+
+```go
+// ProfileSummary は本Contextが管理する氏名・氏名カナ・個人情報・住所・プロフィール完成状況を表す。
+// 認証機能_Go実装仕様書_1_基盤「他Contextへの依存（dependency.go）」のProfileReader.FindProfileSummaryの
+// 戻り値として、authentication Contextが前提とする内容と一致させている。
+type ProfileSummary struct {
+    Name             string
+    NameKana         string
+    PhoneNumber      *string
+    Birthday         *time.Time
+    Gender           *string
+    Address          *AddressView
+    ProfileCompleted bool
+}
+```
+
+`AddressView`は前節「master-data Context参照」で定義したものを共用する（`AddressDirectory.FindAddressByID`の戻り値と同じ型）。
+
+### FindProfileSummary（`*Context`のメソッド）
+
+|項目|内容|
+|-|-|
+|メソッド|`func (c *Context) FindProfileSummary(ctx context.Context, userID uint) (ProfileSummary, error)`|
+|受け取る依存|`c.accountStore *ProfileAccountStore`・`c.infoStore *PersonalInfoStore`・`c.addressDirectory AddressDirectory`（いずれも`NewContext`が組み立てる非公開フィールド。次節「依存関係の組み立て（`context.go`）」参照）|
+
+処理ステップ:
+
+1. `ProfileAccountStore.FindByUserID(ctx, userID)`で`ProfileAccount`を取得する
+2. `PersonalInfoStore.FindByUserID(ctx, userID)`で`PersonalInfo`（未登録の場合は`nil`）を取得する
+3. `account.AddressID`が非nilの場合、`AddressDirectory.FindAddressByID(ctx, *account.AddressID)`で住所情報を取得する。見つからない場合（`PATCH /api/v1/profile`のHandler処理が更新時に実在確認済みのため通常は発生しない）は`Address`を`nil`として扱う
+4. `EvaluateProfileCompletion(*account, info)`（3章）で`ProfileCompleted`を判定する
+5. `info`が`nil`の場合は`PhoneNumber`・`Birthday`・`Gender`をすべて`nil`、`info`が存在する場合は`PhoneNumber`が空文字なら`nil`・それ以外は`&info.PhoneNumber`、`Gender`も同様に空文字なら`nil`として、`ProfileSummary`を組み立てて返す
+
+呼び出し元: authentication Context（`infrastructure/contextadapter/profile_reader.go`、認証機能_Go実装仕様書_1_基盤「他Contextへの依存（`dependency.go`）」の`ProfileReader`実装。実装自体はauthentication Context側の担当であり本書の対象外）。
+
+認可は行わない。呼び出し元（authentication）がすでに認証・認可を済ませたユーザーの`userID`を渡す前提であり、本操作は渡された識別子に対応するプロフィール概要を返すだけである（共通マスタ参照機能③_1「12. Validation実装方針」の「公開操作で認可を行わない」と同じ考え方）。参照のみのためトランザクションも使用しない。
+
+**②からの補足**: `FindProfileSummary`のメソッド名・シグネチャ（`func (c *Context) FindProfileSummary(ctx context.Context, userID uint) (ProfileSummary, error)`、委譲先は認証機能_Go実装仕様書_1_基盤「他Contextへの依存（`dependency.go`）」の`ProfileReader.FindProfileSummary`）は、プロフィール管理機能②「11. Repository設計」「他Contextへ公開する参照手段」が氏名・氏名カナ・個人情報・住所・`profile_completed`を返す公開操作として定めた内容と一致する。本書が定義する`ProfileSummary`・`AddressView`のフィールド構成も、authentication Context側が前提とする内容と一致させている。
 
 ## 依存関係の組み立て（`context.go`）
 
@@ -345,12 +407,14 @@ type AddressDirectory interface {
 |項目|内容|
 |-|-|
 |関数|`NewContext(db *gorm.DB, masterDataContext *masterdata.Context) *Context`|
-|組み立てる内容|`ProfileAccountStore`・`PersonalInfoStore`・`AddressDirectory`実装を生成し、`ProfileHandler`へ注入する|
-|公開するもの|ルーティング登録に必要な`ProfileHandler`|
+|組み立てる内容|`ProfileAccountStore`・`PersonalInfoStore`・`AddressDirectory`実装を生成し、`ProfileHandler`と`Context`自身の非公開フィールド（`accountStore`・`infoStore`・`addressDirectory`）へ注入する|
+|公開するもの|ルーティング登録に必要な`ProfileHandler`と、authentication Contextへ公開する`FindProfileSummary`メソッド（前節）|
 
 `*gorm.DB`を受け取るのは、`ProfileAccountStore`・`PersonalInfoStore`が`users`・`user_personal_infos`へ自らクエリを発行するためである（「8. Infrastructure層設計」）。`AddressDirectory`実装には渡さない。
 
-本Contextは他Contextへ操作を公開しない。プロフィール項目の参照・更新は本Context自身のエンドポイント（`PATCH /api/v1/profile`）のみを通じて行われ、他Contextが必要とする事実を所有しない（②「3. Bounded Context」）。
+`Context`は`ProfileHandler`に加えて`accountStore`・`infoStore`・`addressDirectory`を非公開フィールドとして保持する。`FindProfileSummary`（前節）はこれらを直接使用するメソッドであり、`ProfileHandler`を経由しない。
+
+本Contextは、プロフィール項目の参照・更新を自身のエンドポイント（`PATCH /api/v1/profile`）で提供するほか、authentication Contextへ`FindProfileSummary`を公開する（②「11. Repository設計」「他Contextへ公開する参照手段」）。
 
 ---
 
@@ -447,6 +511,10 @@ type AddressDirectory interface {
 
 `UpdateProfile`関数がトランザクション境界を一元管理し、`ProfileAccountStore`・`PersonalInfoStore`の両方を同一の`tx *gorm.DB`に束縛したインスタンスとして生成・呼び出すことで、2テーブルへの書き込みを1トランザクションにまとめる（8章参照）。
 
+## 他Contextへ公開する操作（`FindProfileSummary`）
+
+`FindProfileSummary`（8章）は`ProfileAccountStore.FindByUserID`・`PersonalInfoStore.FindByUserID`・`AddressDirectory.FindAddressByID`を呼び出す参照専用の操作であり、トランザクションを使用しない。
+
 ---
 
 # 12. Validation実装方針
@@ -490,6 +558,10 @@ type AddressDirectory interface {
 
 - `ProfileAccountStore.Update` / `PersonalInfoStore.Update`は、呼び出し元（Handler）が渡した`userID`に紐づく行のみを対象とする（`WHERE id = ?` / `WHERE user_id = ?`）。他ユーザーのレコードを操作できないことはクエリ条件によって保証される
 
+## 他Contextへ公開する操作（`FindProfileSummary`）
+
+認可は行わない。呼び出し元のauthentication Contextが、すでに認証・認可を済ませたユーザーの`userID`を渡す前提であり、本Contextは渡された識別子に対応するプロフィール概要を返すだけである（共通マスタ参照機能③_1「12. Validation実装方針」の「公開操作で認可を行わない」と同じ考え方）。
+
 ## 判断理由
 
 ②「16. Authorization設計」の「判断理由」のとおり、本機能は「本人のみが自分自身のプロフィールを操作できる」という単純な所有権制御であり、ロールによる権限分岐が存在しないため、Middlewareでの本人確認とHandler側でのスコープ限定（`current_user`のUserIDを起点とする）のみで十分である。
@@ -518,6 +590,10 @@ Active Record採用のため、Domain Error相当の層は存在しない（ア�
 
 `store.go`（Store実装）で発生したGORM由来のエラーは`fmt.Errorf`でラップしてHandlerへ伝播させ（コーディング規約「18. エラーハンドリング」）、Presentation層の集中エラーハンドリングミドルウェアで未分類のエラーとして500に変換する。
 
+## 他Contextへ公開する操作（`FindProfileSummary`）のエラー
+
+`FindProfileSummary`はHTTPレスポンスを持たないため、上記のHTTP Statusへの変換表の対象外である。`ProfileAccountStore.FindByUserID`が対象ユーザーを見つけられない場合（通常は発生しない。呼び出し元はすでに存在するユーザーの`userID`を渡す前提である）、GORM由来のエラーをラップしてそのまま呼び出し元（authentication Context）へ返す。HTTPステータスへの変換はauthentication Context側（認証機能_Go実装仕様書）の責務とする。
+
 ---
 
 # 15. GORM / DBクエリ設計
@@ -542,6 +618,8 @@ Active Record採用のため、Domain Error相当の層は存在しない（ア�
 |`PersonalInfoStore`|`Update`|user_personal_infos|`id = ?`（`Select`で`phone_number`/`birthday`/`gender`のみ対象化）|なし|
 
 いずれも一意検索・単一行更新のみであり、ページネーション・ソートは不要。住所（`addresses`）の実在確認はmaster-data Context側のクエリとして扱うため、本ContextのDB操作仕様には含めない。
+
+`FindProfileSummary`は新たなクエリを発行しない。上記の`ProfileAccountStore.FindByUserID`・`PersonalInfoStore.FindByUserID`と、`AddressDirectory.FindAddressByID`（委譲先はmaster-data Context側のクエリ）を組み合わせて使う。
 
 ## 既存Schemaへの変更
 
@@ -576,6 +654,8 @@ Active Record採用のため、Domain Error相当の層は存在しない（ア�
 |`PersonalInfoStore.FindByUserID`|存在しない場合に`(nil, nil)`が返ること|
 |`PersonalInfoStore.Create` / `Update`|個人情報の新規作成・更新が正しく反映されること|
 |`UpdateProfile`（トランザクション関数）|`ProfileAccountStore`・`PersonalInfoStore`双方の更新が完了した時点でCommitされること／いずれかが失敗した場合に両方がRollbackされること|
+|`AddressDirectory.FindAddressByID`（アダプタ）|実在する住所IDで`AddressView`（`ID`・`PostalCode`・`City`・`Town`）が取得できること／存在しない住所IDで`(AddressView{}, false, nil)`が返ること|
+|`FindProfileSummary`|氏名・氏名カナ・個人情報・住所・`ProfileCompleted`が正しく組み立てられること／個人情報が未登録の場合に`PhoneNumber`・`Birthday`・`Gender`がすべて`nil`になること／`AddressID`が未設定の場合に`Address`が`nil`になること|
 
 ## Handler Test
 
@@ -609,5 +689,9 @@ Active Record採用のため、Domain Error相当の層は存在しない（ア�
 |住所ID実在確認を、`dependency.go`の`AddressDirectory`インターフェース経由で`master-data`の既存公開操作`FindAddresses`を呼び、結果件数で判定する構成とした|共通マスタ参照機能③_1が確定した6つの公開操作に単一ID実在確認専用の関数は含まれない。新しい公開操作を追加せず、既存の`FindAddresses`で要件を満たせるため、本アダプタ側で件数判定に変換した|②からの補足（③間の整合を取るための具体化。新しい業務ルールではない）|
 |`ProfileResponse`の`Email`/`UserRole`/`HighSchool`/`Grade`をauthentication Context側の参照手段経由で合成する構成とした（具体的な参照インターフェースは確定させていない）|②「19. API仕様」がログインと同形式のレスポンスを要求する一方、②「5. Aggregate設計」により本Contextはこれらのデータを所有しない。authentication Context側にどのような参照手段を追加公開してもらうかは、認証機能側の③文書と合わせて別途確定する必要がある|推測（要調整事項として明示）|
 |`Birthday`のRequest DTO上の型を`*string`（`YYYY-MM-DD`形式）とし、Handler内で`time.Parse`する構成とした|②はJSON上の型を明記していない。日付のHTTP入出力形式に関する一般的なGo実装慣習として判断した|推測|
+|`FindProfileSummary`を`model.go`/`store.go`と同じ`internal/profile/`直下に置き、`*Context`のメソッドとして実装した|共通マスタ参照機能③_1「依存関係の組み立てと公開操作」が確立した「公開する操作はContextのメソッドとして定める」という本リポジトリ共通の実装パターンに従った。学習ログ機能③の`FindStudiedDates`/`SumStudyMinutesByDate`と同様、HTTPを経由しない公開操作を既存のレイヤー構成（Active Record）に追加レイヤーなく組み込む判断である|推測ではない（既存③文書の確立済みパターンに従った）|
+|`AddressDirectory`に`FindAddressByID`を追加し、`FindProfileSummary`が住所の詳細（`PostalCode`・`City`・`Town`）を取得する手段とした|プロフィール管理機能②「11. Repository設計」「他Contextへ公開する参照手段」が住所を返す内容に含めている一方、既存の`AddressDirectory.ExistsAddress`は実在確認のみで住所の属性を返さない。master-data Context参照機能③_1が`profile`向けに公開している`AddressRef`（`FindAddresses`の戻り値）が必要な属性を保持しているため、既存の`ExistsAddress`と同じ`FindAddresses`呼び出しを使って属性を取得する方式とした|推測（②に明記のない実装手段の具体化）|
+|`AddressDirectory.FindAddressByID`が住所未存在時にエラーではなく`(AddressView{}, false, nil)`を返す設計とし、`FindProfileSummary`はこれを`Address: nil`として扱う|`address_id`は`PATCH /api/v1/profile`のHandler処理が更新時に実在確認済みであり、参照時点で見つからない状況は通常発生しない。発生した場合もプロフィール概要の参照自体を失敗させず、住所情報を欠いたまま返す方が呼び出し元（authentication）の処理を止めない点で安全と判断した|推測|
+|`ProfileSummary`を`dependency.go`に「他Contextへ渡す型」として置いた|共通マスタ参照機能③_1「機能全体のファイル一覧と担当文書」が`dependency.go`の役割を「他Contextへ渡す型」の置き場所としても扱っており、同じ整理に従った。`ProfileSummary`のメソッド名・シグネチャ・フィールド構成自体は、認証機能_Go実装仕様書_1_基盤が前提としていた内容と一致させているため新規の判断ではない|推測ではない（既存③文書の整理に従い、既存の前提と一致させた）|
 
 上記以外の設計判断（Bounded Context・Aggregate・Entity・Value Object・Repository・UseCase・Transaction境界・Validation方針・Authorization方針・Error設計・Domain Event・API互換方針・DB方針・テスト戦略の基本方針）はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。

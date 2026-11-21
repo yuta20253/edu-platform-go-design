@@ -14,7 +14,7 @@
 |採用パターン|Domain Model（②「4. 設計パターン」）|
 |本Contextが所有するテーブル|`imported_students`（専有）、`import_histories`・`import_errors`（管理者問題インポート機能と共有）|
 |`users`テーブルへの直接アクセス|限定された範囲のみ（下記参照）|
-|他Contextへの依存|`user`（新規生徒アカウントの作成・生徒番号の発行）、`master-data`（学年名の解決）、`school-class`（学級名の解決。**要確認**）|
+|他Contextへの依存|`user`（新規生徒アカウントの作成・生徒番号の発行）、`master-data`（学年名の解決）、`school-class`（学級名の解決）|
 
 ## `users`テーブルへの直接アクセスについて
 
@@ -108,12 +108,12 @@ type CreateStudentAccountResult struct {
 |インターフェース|委譲先|所有Context側の定義|
 |-|-|-|
 |`GradeDirectory`|`master-data`の`FindGradesByHighSchoolID`|共通マスタ参照機能③_1「公開する操作」|
-|`SchoolClassDirectory`|`school-class`の学級名による解決|クラス編成機能③で確定する**（要確認）**|
+|`SchoolClassDirectory`|`school-class`の学級名による解決|クラス編成機能③_3「6. Application層設計」「他Contextへ公開する参照手段」の`Context.ResolveClassByName`|
 |`StudentAccountCreator`|`user`の`CreateStudentAccount`・`IssueStudentNumber`|ユーザー基盤機能③「作成操作」|
 
 **②からの補足**: 旧版は`GradeClassResolutionRepository`という1つのRepository Interfaceで、学年名の解決（`ResolveGrade`）と学級名の解決（`ResolveClass`）をまとめて「`master-data` Context提供」としていたが、`school_classes`テーブルを所有するのは`school-class` Context（クラス編成機能）であり、`master-data`ではない（共通マスタ参照機能②「3. Bounded Context」の依存集約表に`school_classes`の記載はなく、クラス編成機能②「3. Bounded Context」が「学級（`school_classes`）の保持・参照」を自身の責務と定めている）。本書ではこの誤りを修正し、`GradeDirectory`（`master-data`）と`SchoolClassDirectory`（`school-class`）の2つのインターフェースに分離した。
 
-**既存のコース参照機能③等と同じ理由で、本Contextからは`grades`・`school_classes`へ直接クエリを発行しない**（アーキテクチャ規約「5. Context間連携ルール」）。`GradeDirectory`は既存の公開操作（`FindGradesByHighSchoolID`。高校配下の学年一覧を表示名付きで返す）で解決できるため、新しい公開操作の追加は不要である（共通マスタ参照機能③_1「他Contextからの依存の集約」が`student-import`を同操作の利用者として既に記載している）。一方`SchoolClassDirectory`は、クラス編成機能③のいずれの文書にも他Context向けの公開操作が定義されていないため、クラス編成機能の追随時に「学年ID・学級名から学級IDを解決する」参照操作を追加する必要がある（**要確認・未着手**）。
+**既存のコース参照機能③等と同じ理由で、本Contextからは`grades`・`school_classes`へ直接クエリを発行しない**（アーキテクチャ規約「5. Context間連携ルール」）。`GradeDirectory`は既存の公開操作（`FindGradesByHighSchoolID`。高校配下の学年一覧を表示名付きで返す）で解決できるため、新しい公開操作の追加は不要である（共通マスタ参照機能③_1「他Contextからの依存の集約」が`student-import`を同操作の利用者として既に記載している）。一方`SchoolClassDirectory`は、クラス編成機能③_3「6. Application層設計」「他Contextへ公開する参照手段」が`Context.ResolveClassByName(ctx context.Context, gradeID uint, className string) (schoolClassID uint, found bool, err error)`を本Contextへ公開する操作として定めており、本インターフェースのシグネチャはこの公開操作と一致する。
 
 `StudentAccountCreator`の`CreateStudentAccount`・`IssueStudentNumber`は、いずれも`user` Contextの既存の公開操作への委譲である（ユーザー基盤機能③「3. 公開操作の定義」）。
 
@@ -693,7 +693,7 @@ stateDiagram-v2
 |-|-|-|
 |ディレクトリ名を`internal/studentimport`とした|アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」が、Context名から`-`を取り除いた連結形と定めている。②に明記がなくても規約から機械的に決まる|推測ではない（規約から機械的に決まる）|
 |`GradeClassResolutionRepository`を`GradeDirectory`（`master-data`）と`SchoolClassDirectory`（`school-class`）に分離し、`dependency.go`に置いた|旧版は学年・学級の解決をいずれも`master-data` Context提供として扱っていたが、`school_classes`を所有するのは`school-class` Context（クラス編成機能）である。アーキテクチャ規約「4. Bounded Context構成」が他Context依存のインターフェースを`dependency.go`に置くと定めているため、所有Contextごとに分離した|推測ではない（規約・所有Contextの誤りの修正）|
-|`SchoolClassDirectory`の委譲先（`school-class`側の公開操作）が未確定である|クラス編成機能③のいずれの文書にも、学級名からの解決を他Contextへ公開する操作が定義されていない。クラス編成機能の追随時に追加が必要である|**要確認**（未着手）|
+|`SchoolClassDirectory`の委譲先を`school-class`が公開する`Context.ResolveClassByName`とした|クラス編成機能③_3「6. Application層設計」「他Contextへ公開する参照手段」が`Context.ResolveClassByName(ctx context.Context, gradeID uint, className string) (schoolClassID uint, found bool, err error)`を公開操作として定めており、本インターフェースのシグネチャはこの公開操作と一致する|推測ではない（クラス編成機能③で確定済みの公開操作に基づく）|
 |`StudentAccountCreator`に`IssueStudentNumber`を含めた（旧版は`StudentAccountCreationRepository.Create`のみ）|`user`②「論点と決定」6が、既存生徒の更新時に生徒番号が空であれば`user`の`IssueStudentNumber`を呼んで発行すると定めている。これも`user` Contextへの依存であるため、`StudentAccountRepository`（本Context所有の`users`直接アクセス）には含めず、`dependency.go`の`StudentAccountCreator`にまとめた|推測ではない（②の決定に基づく整理）|
 |`ImportHistory`に`FileName`・`CreatedAt`フィールドを追加した|②「6. Entity設計」はImportHistoryが「file情報」を保持すると定めており、その一部である元のファイル名を`FileName`とした。`CreatedAt`は、教師インポート履歴管理機能②の一覧・詳細レスポンス（`created_at`）と、並び替え・期間絞り込みの基準として必要と判断した|推測（②の業務ルール自体は変更していない）|
 |`ImportHistory`に`HighSchoolID`フィールドを追加した|②の`entity.ImportHistory`クラス図には`highSchoolId`相当のフィールド記載がないが、②「16. Authorization設計」の「インポート対象・作成対象の生徒アカウントは、常に実行した教師の所属高校に限定される」という業務要件を実装するために必要と判断した|推測（②の業務ルール自体は変更していない）|

@@ -16,7 +16,7 @@
 
 ## 採用設計パターンの理由（②からの要約）
 
-- 業務ルールは「論理削除済みを除外する」「検索・並び替え条件の許可値以外は既定値にフォールバックする」「単元がroute上のコースに属するか確認する」という単純な条件判定にとどまる
+- 業務ルールは「論理削除済みを除外する（単元詳細のスコープ確認と問題一覧の取得を除く。①に記載がなく未確定。「21. DB操作仕様」参照）」「検索・並び替え条件の許可値以外は既定値にフォールバックする」「単元がroute上のコースに属するか確認する」という単純な条件判定にとどまる
 - コース・単元・問題のいずれも、本機能の文脈では状態を変更しない（参照専用）
 - 単元数・問題数の集計は「対象コース・単元に属する有効なレコードをカウントする」という手続きであり、Entityに振る舞いを持たせる意義が薄い
 
@@ -224,10 +224,10 @@ type ImportHistorySummary struct {
 
 |インターフェース|委譲先|所有Context側の定義|
 |-|-|-|
-|`CurriculumDirectory`|`curriculum`の管理者向け参照操作|コース参照機能③で確定する**（要確認）**|
+|`CurriculumDirectory`|`curriculum`の管理者向け参照操作|コース参照機能②「11. Repository設計」、同③「6. Application層設計」「8. Infrastructure層設計」|
 |`ImportHistoryDirectory`|`question-import`の直近インポート履歴参照|管理者インポート履歴管理機能③「4. Application層設計」|
 
-**②からの補足**: `CurriculumDirectory`の3つのメソッドは、②「11. Repository設計」の`CourseRepository`・`UnitRepository`の設計意図を実装レベルの関数として具体化したものである。②本文はこれらを「`curriculum` Context提供、外部依存として利用」と明記するが、具体的な関数名・シグネチャまでは規定していない（②「11. Repository設計」）。**既存のコース参照機能③「6. Application層設計」が公開する操作（`ExistsAllUnits`・`FindUnitsByIDs`・`FindUnitQuestions`・`FindQuestionForAnswer`・`CountQuestions`・`FindCourseSubjects`）は、いずれも生徒向けの存在確認・解答判定向けであり、検索・ページング・集計・問題の全件取得（選択肢・ヒント・解説を含む）を行う本機能の要件を満たさない。コース参照機能の追随時に、管理者向けの検索・集計・全件参照操作を`curriculum`へ追加する必要がある（要確認。推測）。**
+**②からの補足**: `CurriculumDirectory`の3つのメソッド（`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`）は、コース参照機能②「11. Repository設計」の「他Contextへ公開する参照手段」に「コース一覧の検索」「コース詳細の取得」「単元詳細の取得」として追加され、`curriculum`が公開する操作として公式に確定した。本書が暫定で前提としていたシグネチャ・戻り値の型と一致する（同②「11. Repository設計」が「本書が暫定で前提としていた`CurriculumDirectory`...が、本Contextの公開操作として公式なものになる」と明記している）。コース参照機能③「6. Application層設計」「8. Infrastructure層設計」が実装を定める。
 
 `ImportHistoryDirectory`は、既存の管理者インポート履歴管理機能③が定める参照操作（`SearchImportHistoriesUseCase`相当）への委譲として実装する（「8. Infrastructure層設計」）。
 
@@ -459,11 +459,11 @@ flowchart TD
 ### CurriculumDirectory実装（`contextadapter/curriculum_directory.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewCurriculumDirectory`
-- 委譲先: `curriculum`が公開する管理者向けの検索・詳細・単元詳細参照操作（コース参照機能③で確定する**要確認**）
-- 委譲内容: 絞り込み・並び替え・ページングの条件をそのまま渡し、返った値を`CourseSummary`・`CourseDetail`・`UnitDetail`へ移す
+- 委譲先: `curriculum`が公開する管理者向けの検索・詳細・単元詳細参照操作（`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`。コース参照機能③「6. Application層設計」「8. Infrastructure層設計」で確定済み）
+- 委譲内容: 絞り込み・並び替え・ページングの条件をそのまま渡し、返った値を`CourseSummary`・`CourseDetail`・`UnitDetail`へ移す。`curriculum`側の関数シグネチャ・戻り値の型は本書「3. Domain層設計」の`CurriculumDirectory`と同一であるため、型の変換を伴わない委譲となる
 - 本アダプタはGORMに依存せず、`courses`・`units`・`questions`等へクエリを発行しない
 
-**②からの補足**: `curriculum`が公開する操作の具体的な関数名・シグネチャ・戻り値の型は、コース参照機能③で確定する事項である。本書は依存の存在と責務のみを示し、変換内容は`curriculum`③の確定後に合わせる（管理者問題インポート機能③「8. Infrastructure層設計」の`CurriculumDirectory`実装と同じ扱い）。
+**②からの補足**: `curriculum`が公開する`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`の関数名・シグネチャ・戻り値の型は、コース参照機能②「11. Repository設計」への追加により確定し、同③「6. Application層設計」「8. Infrastructure層設計」が実装を定めた。本書が暫定で前提としていた`CurriculumDirectory`の3メソッドが、そのまま`curriculum`の公式な公開操作となっている。
 
 ### ImportHistoryDirectory実装（`contextadapter/import_history_directory.go`）
 
@@ -720,7 +720,7 @@ Handler側で`errors.Is(err, application.ErrCourseNotFound)` / `errors.Is(err, a
 |`CurriculumDirectory`|`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`への引数が正しく渡ること／戻り値が本Contextの型へ正しく移されること|
 |`ImportHistoryDirectory`|`FindRecentByUnit`への呼び出しパラメータ（`UnitID`、件数の上限）が正しいこと／戻り値が`ImportHistorySummary`へ正しく移されること／インポート履歴が0件の場合、空スライスが返ること|
 
-検索・集計・問題の取得自体の正確性（論理削除除外、`course_id`/`unit_id`の組み合わせ一致、選択肢・ヒント・解説の並び順等）は、`curriculum`側（コース参照機能）のテストで検証済みの前提とする。直近5件が`created_at`降順で取得されることは`question-import`側（管理者インポート履歴管理機能）のテストで検証済みの前提とする。本Contextでは上記のとおりアダプタの呼び出しパラメータ・変換ロジックの検証に限定する。
+検索・集計・問題の取得自体の正確性（コース一覧・コース詳細の論理削除除外、単元詳細の`course_id`/`unit_id`の組み合わせ一致、選択肢・ヒント・解説の並び順等。単元詳細の論理削除の扱いは①に記載がなく未確定であり「21. DB操作仕様」参照）は、`curriculum`側（コース参照機能）のテストで検証済みの前提とする。直近5件が`created_at`降順で取得されることは`question-import`側（管理者インポート履歴管理機能）のテストで検証済みの前提とする。本Contextでは上記のとおりアダプタの呼び出しパラメータ・変換ロジックの検証に限定する。
 
 ## Handler Test
 
@@ -749,7 +749,7 @@ Handler側で`errors.Is(err, application.ErrCourseNotFound)` / `errors.Is(err, a
 |-|-|-|
 |ディレクトリ名を`internal/coursecatalog`とした|アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」が、Context名から`-`を取り除いた連結形と定めている。規約は短縮・省略を禁じており、②に明記がなくても機械的に決まる|推測ではない（規約から機械的に決まる）|
 |`CurriculumDirectory`・`ImportHistoryDirectory`を`dependency.go`に置き、本Contextからは`courses`・`units`・`questions`・`import_histories`へ一切クエリを発行しない構成とした|②「3. Bounded Context」は本Contextがこれらを所有しないと明記しており、アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部Entity・Infrastructure実装に直接依存しない」に従った。管理者問題インポート機能③の`CurriculumDirectory`と同じ扱いである|推測ではない（規約・既存③の扱いに合わせた）|
-|`CurriculumDirectory`の3つのメソッド名・シグネチャ・戻り値の型|②「11. Repository設計」は`curriculum`への依存を明記するが、具体的な関数名・シグネチャは規定していない。既存のコース参照機能③が公開する操作（生徒向け）は本機能の検索・集計・全件取得の要件を満たさないため、管理者向けの新しい参照操作が`curriculum`側に必要になる|推測（要確認。コース参照機能の追随時に`curriculum`側の公開操作を確定する必要がある）|
+|`CurriculumDirectory`の3つのメソッド名・シグネチャ・戻り値の型|コース参照機能②「11. Repository設計」に「コース一覧の検索」「コース詳細の取得」「単元詳細の取得」が`curriculum`の公開操作として追加され、本書が暫定で定めた`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`のシグネチャがそのまま公式な公開操作として確定した（同③「6. Application層設計」「8. Infrastructure層設計」が実装を定める）|確定済み（推測ではない）|
 |`presentation/request/`ディレクトリを設けず、クエリ/パスパラメータ用structをHandlerと同一package内に定義する|指示書のTransaction Script構造例に`request/`が含まれておらず、本機能の入力構造が単純なため|推測|
 |`application/dto.go`・`application/errors.go`という補助ファイルへの分割|②・指示書ともにファイル粒度までは規定していないため、責務ごとに集約する分割を採用した|推測|
 |application関数に`current admin`を引数として渡さない|②「16. Authorization設計」の「Handler: パスパラメータを受け渡すのみ」「UseCase: 追加のスコープ制限は行わない（単元詳細のみroute値によるスコープ検証）」という判断に基づき、認可情報はMiddleware/Handlerで完結させ、application関数の入力から除外した|②の判断に基づく具体化（推測ではない）|

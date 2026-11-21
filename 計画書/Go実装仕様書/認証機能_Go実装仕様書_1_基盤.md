@@ -154,7 +154,9 @@ type GradeSummary struct {
 |`HighSchoolDirectory`|`master-data`の`FindHighSchools`相当|共通マスタ参照機能③_1「公開する操作」|登録編|
 |`GradeDirectory`|`master-data`の`FindGrades`相当|共通マスタ参照機能③_1「公開する操作」|登録編|
 
-**②からの補足**: メソッド名・シグネチャと受け渡し用の型は②に明記がないため、コーディング規約「7. インターフェース」（利用側で定義する）・アーキテクチャ規約「5. Context間連携ルール」に従って実装のために補った。他Contextの参照に`Directory`を用いる既存③文書の形に合わせている。`ProfileReader`のみ、プロフィール管理機能側がRepository Interfaceではなく`model.go`/`store.go`（Active Record）で構成されるため、既存の`ProfileReader`という名称をそのまま残した。
+**②からの補足**: `HighSchoolDirectory`・`GradeDirectory`のメソッド名・シグネチャと受け渡し用の型は②に明記がないため、コーディング規約「7. インターフェース」（利用側で定義する）・アーキテクチャ規約「5. Context間連携ルール」に従って実装のために補った。他Contextの参照に`Directory`を用いる既存③文書の形に合わせている。
+
+`ProfileReader.FindProfileSummary(ctx context.Context, userID uint) (ProfileSummary, error)`のメソッド名・シグネチャ、および`ProfileSummary`が保持する内容（氏名・氏名カナ・個人情報・住所・`profile_completed`）は、プロフィール管理機能②「11. Repository設計」「他Contextへ公開する参照手段」が公開操作として定めた内容と一致する。`ProfileReader`のみ、プロフィール管理機能側がRepository Interfaceではなく`model.go`/`store.go`（Active Record）で構成されるため、既存の`ProfileReader`という名称をそのまま残した。
 
 `HighSchoolDirectory`・`GradeDirectory`の`ExistsXxx`・`FindXxxByID`は、`master-data`が公開する`FindHighSchools(ctx, []uint)`・`FindGrades(ctx, []uint)`（単一要素の`[]uint{id}`として呼ぶ）を実装側（`infrastructure/contextadapter/`）が包み、存在確認は結果が1件以上あるかで判定する。共通マスタ参照機能③_1の`FindGrades`等は「該当しない識別子はエラーにせず結果に含めない」方針であるため、この実装で足りる（共通マスタ参照機能③_1「6. Application層設計」）。
 

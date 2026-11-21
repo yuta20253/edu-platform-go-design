@@ -139,9 +139,9 @@ internal/schoolclass/infrastructure/gormrepo/school_class_request_model.go
 internal/schoolclass/infrastructure/gormrepo/school_class_repository.go
 internal/schoolclass/infrastructure/gormrepo/school_class_request_repository.go
 internal/schoolclass/infrastructure/gormrepo/class_occupancy_repository.go
-internal/schoolclass/infrastructure/gormrepo/teacher_permission_repository.go
 
 internal/schoolclass/infrastructure/contextadapter/student_occupancy_directory.go
+internal/schoolclass/infrastructure/contextadapter/teacher_permission_repository.go
 
 internal/schoolclass/infrastructure/queue/school_class_request_event_publisher.go
 
@@ -157,7 +157,9 @@ internal/schoolclass/presentation/routes.go
 
 クラス詳細の表示用の在籍生徒一覧は、並び替えを伴う画面向けの一覧であるため、ユーザー基盤②「3. Bounded Context」の「画面向けの一覧は、一覧を必要とする各Contextが自前の参照モデルとして持つ」に従い、本Contextが`users`の必要列を読む（教師権限管理③「8. Infrastructure層設計」が一覧・詳細の氏名について同じ扱いをしている）。所属教員の確認・一覧は`users`ではなく`teacher_school_classes`が対象であり、このテーブルを所有・管理するContextは現行の②群に定義されていない（書き込む機能が現行の対象範囲に存在しない参照専用の依存。②「3. Bounded Context」）。
 
-`TeacherPermissionRepository`は`teacher-permission` Contextが所有する`teacher_permissions`を対象とするが、同Contextの②「11. Repository設計」は他Contextへ向けた公開操作を定めていない（公開するのは本Contextの更新操作のみで、参照手段は`user`からの取得に限られる）。このため本Contextで参照専用のモデルを定義して読む形を取る（「17. ②からの補足事項」）。
+`TeacherPermissionRepository`は`teacher-permission` Contextが所有する`teacher_permissions`を対象とする。同Contextの②「11. Repository設計」「他Contextへ公開する参照手段」が`HasManageOtherTeachersPermission`を公開操作として定めたため、`dependency.go`に宣言した本インターフェースの実装は`infrastructure/contextadapter/`に置き、`teacher-permission` Contextの公開操作へ委譲する（アーキテクチャ規約「4. Bounded Context構成」「5. Context間連携ルール」。`StudentOccupancyDirectory`と同じ形である）。本Contextが`teacher_permissions`へ直接クエリを発行することはない。
+
+本Contextは、②「11. Repository設計」「他Contextへ公開する参照手段」が定める2つの操作（`FindSchoolClass`・`ResolveClassByName`）を、`context.go`が返す`Context`のメソッドとして公開する（アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」）。いずれも`SchoolClassRepository`（本Contextの既存のRepository Interface）の参照系メソッドへ委譲するだけであり、新しいファイルは追加しない。詳細は`クラス編成機能_Go実装仕様書_3_Application・Presentation.md`「6. Application層設計」の「他Contextへ公開する参照手段」に記載する。
 
 ---
 
@@ -168,7 +170,7 @@ internal/schoolclass/presentation/routes.go
 |文書|担当するファイル|
 |-|-|
 |`_1_Domain.md`|`dependency.go`、`domain/`配下のすべて（entity 3・valueobject 3・repository 3・service 3・event 1・errors 1）|
-|`_2_Infrastructure.md`|`infrastructure/`配下のすべて（gormrepo 8・contextadapter 1・queue 1）|
+|`_2_Infrastructure.md`|`infrastructure/`配下のすべて（gormrepo 7・contextadapter 2・queue 1）|
 |`_3_Application・Presentation.md`|`context.go`、`application/`配下のすべて（dto 3・usecase 9）、`presentation/`配下のすべて（4）|
 
 上の一覧は機能全体のファイルである。本書が担当するのは上記のうち該当する行のみで、他の文書が担当するファイルは本書では定義しない。
@@ -224,6 +226,8 @@ internal/schoolclass/presentation/routes.go
 |`Create`|`school_classes`へ1件INSERT|-|
 |`Update`|`id = ?`条件で`name`を更新|-|
 |`Delete`|`teacher_school_classes`を`school_class_id = ?`条件でDELETEしたうえで、`id = ?`条件でDELETE（②20章：物理削除／論理削除いずれかは推測、17章参照）|同一トランザクション内で実行する|
+|`FindGradeIDBySchoolClassID`|`grade_id`列のみを`id = ?`（`school_classes`）で取得する|他Contextへ公開する操作`FindSchoolClass`が呼び出す。高校スコープの条件を加えない|
+|`FindIDByGradeIDAndName`|`id`列のみを`grade_id = ? AND name = ?`（`school_classes`）で取得する|他Contextへ公開する操作`ResolveClassByName`が呼び出す|
 
 - Entity ⇔ GORMモデルの変換方針: 各モデルから対応Entityへの非公開変換関数（`toEntity`）、逆方向（`fromEntity`）をrepository実装内に用意する
 
@@ -259,11 +263,12 @@ internal/schoolclass/presentation/routes.go
 - 委譲内容: `CountUsers`に「クラス＝対象クラスID、無効化の扱い＝無効化済みを含む、集計の単位＝なし」を指定して呼び出し、人数が0より大きければ真を返す（ユーザー基盤③「3. 公開操作の定義」の`SearchCondition.SchoolClassID`・`DeactivatedScope`・`AggregateNone`）
 - 本アダプタはGORMに依存せず、`users`へクエリを発行しない（アーキテクチャ規約「4. Bounded Context構成」「5. Context間連携ルール」）
 
-### TeacherPermissionRepository実装（`infrastructure/gormrepo/teacher_permission_repository.go`）
+### TeacherPermissionRepository実装（`infrastructure/contextadapter/teacher_permission_repository.go`）
 
-- 実装struct名: 非公開struct + コンストラクタ`NewTeacherPermissionRepository`
-- 対応するGORMモデル: `teacher_permissions`テーブル（参照専用の最小フィールド定義。`teacher-permission` Contextのモデルとは別に本Context用に定義する）
-- クエリ内容: `user_id = ?`で1件取得し、`manage_other_teachers`列を返す。レコードが存在しない場合は`false`を返す（権限なしとして扱う。①「8. 権限制御」）
+- 実装struct名: 非公開struct（例: `teacherPermissionRepository`）+ コンストラクタ`NewTeacherPermissionRepository(teacherPermissionCtx *teacherpermission.Context) dependency.TeacherPermissionRepository`
+- 責務: `dependency.go`の`TeacherPermissionRepository`インターフェースを、`teacher-permission` Contextの公開操作（`HasManageOtherTeachersPermission`。教師権限管理②「11. Repository設計」「他Contextへ公開する参照手段」）の呼び出しへ委譲する
+- `HasManageOtherTeachersPermission`は、`teacherPermissionCtx.HasManageOtherTeachersPermission(ctx, teacherID)`をそのまま呼び出し、結果をそのまま返す。権限レコードが存在しない場合に`false`を返す判断は`teacher-permission` Context側の責務であり、本アダプタは判断を行わない
+- 本アダプタはGORMに依存せず、`teacher_permissions`へクエリを発行しない（アーキテクチャ規約「4. Bounded Context構成」「5. Context間連携ルール」）。`StudentOccupancyDirectory`実装と同じ形である
 
 ## 外部連携実装
 
@@ -368,6 +373,8 @@ Mail・Cacheは対象外。
 |`SchoolClassRepository`|`ListClassesByHighSchool`|`grades`, `school_classes`|`high_school_id = ?`|`grade_id`で結合|
 |`SchoolClassRepository`|`FindByID`|`school_classes`|`id = ?`|同校確認のため`grades`参照|
 |`SchoolClassRepository`|`Delete`|`teacher_school_classes`, `school_classes`|`teacher_school_classes.school_class_id = ?`の削除、続いて`school_classes.id = ?`の削除（同一トランザクション）|不要|
+|`SchoolClassRepository`|`FindGradeIDBySchoolClassID`|`school_classes`|`id = ?`（`grade_id`列のみ取得）|不要|
+|`SchoolClassRepository`|`FindIDByGradeIDAndName`|`school_classes`|`grade_id = ? AND name = ?`（`id`列のみ取得）|不要|
 |`ClassOccupancyRepository`|`HasAssignedTeachers`|`teacher_school_classes`|`school_class_id = ?`（`role`による絞り込みなし）|不要|
 |`ClassOccupancyRepository`|`ListEnrolledStudents`|`users`|`school_class_id = ?`（`deleted_at`による絞り込みなし）。`name_kana`昇順|不要|
 |`SchoolClassRequestRepository`|`FindByID`|`school_class_requests`|`id = ?`|同校確認のため`grades`参照|
@@ -399,8 +406,11 @@ Mail・Cacheは対象外。
 |対象|テストケース|
 |-|-|
 |`SchoolClassRepository`|学年一覧・学年別クラス一覧・クラス詳細が同校スコープで正しく取得されること／承認反映（作成・更新・削除）が正しく実行されること／クラスの削除時に、対象クラスの`teacher_school_classes`の行も同じトランザクションで削除され、他のクラスの行が残ること|
+|`SchoolClassRepository`（他Contextへ公開する参照手段向け）|`FindGradeIDBySchoolClassID`が存在するクラスの学年IDを返すこと／存在しない場合に`nil`を返すこと|
+|`SchoolClassRepository`（他Contextへ公開する参照手段向け）|`FindIDByGradeIDAndName`が指定の学年IDに属する学級の学級IDを返すこと／該当する学級名が存在しない場合、または別の学年に属する場合に`nil`を返すこと|
 |`ClassOccupancyRepository`|`HasAssignedTeachers`は、`teacher_school_classes`に担任・副担任のいずれの行がある場合も真を返し、行がない場合に偽を返すこと|
 |`StudentOccupancyDirectory`|`HasEnrolledStudents`が`CountUsers`へ「クラス指定・無効化済みを含む・集計の単位なし」を渡すこと／無効化済みのユーザーのみが在籍している場合も真を返すこと／人数が0のとき偽を返すこと|
+|`teacherPermissionRepository`（contextadapter）|`HasManageOtherTeachersPermission`が`teacherpermission.Context.HasManageOtherTeachersPermission`へ委譲し、結果をそのまま返すこと|
 |`SchoolClassRequestRepository`|申請の作成・同校スコープでの取得が正しく動作すること／楽観ロック競合時に`ErrOptimisticLockConflict`を返すこと／重複申請の存在確認が正しく動作すること／`Search`が高校・ステータス・申請者で絞り込み、`created_at`降順・`id`降順で並び、ページネーションと総件数が正しいこと／対象クラス・申請者・承認者が未設定の場合に`nil`で返ること|
 |`ClassOccupancyRepository`（表示用）|`ListEnrolledStudents`が氏名カナ昇順で返ること／`ListAssignedTeachers`が`role`を含めて返ること|
 
@@ -422,13 +432,12 @@ Mail・Cacheは対象外。
 |-|-|-|
 |ディレクトリ名・package名を`schoolclass`とした|②のContext名は`school-class`のみで、ディレクトリ名の明記がない。アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」（Context名から`-`を取り除いた連結形）に従って変換した|規約に基づく（推測ではない）|
 |在籍する生徒の人数の確認を`dependency.go`の`StudentOccupancyDirectory`（`user`の`CountUsers`へ委譲）に分け、表示用の在籍生徒一覧・所属教員の参照を`domain/repository/`の`ClassOccupancyRepository`に残した|②「11. Repository設計」は人数の確認を`user`の`CountUsers`で行うと定める一方、表示用の一覧の取得元を定めていない。後者はユーザー基盤②「3. Bounded Context」の「画面向けの一覧は各Contextが自前の参照モデルとして持つ」に従った。インターフェースを分けたのは、規約「4. Bounded Context構成」が`dependency.go`の実装を`infrastructure/contextadapter/`に限り、アダプタがDBへクエリを発行することを禁じているためである|補足（取得元は②・規約に基づく。インターフェースの分割は配置規則から導いた判断）|
-|`TeacherPermissionRepository`を本Contextで定義し、`teacher_permissions`を参照専用のモデルで読む形にした|②「16. Authorization設計」は他職員操作権限の確認を依存として明記しているが、`teacher-permission`②「11. Repository設計」は他Contextへ向けた公開操作を定めていない。所有Context側に公開操作が定まるまでの形である|推測（所有Contextの②に公開操作が加わった時点で、`dependency.go`＋`infrastructure/contextadapter/`の委譲へ改める必要がある）|
 |`teacher_school_classes`を参照専用の依存として扱った|このテーブルを所有・管理するContextは現行の②群のいずれにも定義されていない（教員をクラスへ割り当てる機能が移行対象範囲にない）|推測|
 |クラスの削除の承認時に、対象クラスの`teacher_school_classes`の行を、クラスの削除より前に同一トランザクションで削除する|Rails現行の`SchoolClass`が`has_many :teacher_school_classes, dependent: :destroy`でクラスの削除時に行を連動削除しており、DBの外部キー制約（`teacher_school_classes.school_class_id`→`school_classes`）もあるため。②「3. Bounded Context」に記載した|推測ではない（Rails現行の挙動に基づく）|
 |`SchoolClassRequestEventPublisher`の`announcement` Context呼び出し先の正確なpackage path|②「3. Bounded Context」「18. Domain Event」は`announcement` Contextへの依存を明記するが、当該Contextの②/③文書（お知らせ機能）との具体的な接続方法は本タスクの対象外文書に依存する|推測|
 |`SchoolClass.Delete`（Repository）を物理削除とするか論理削除とするかを確定していない|②20章はスキーマ変更なしとするのみで、削除方式（`deleted_at`利用の有無）を明記していない。Gorm規約「0. 本プロジェクトでの採用方針」は原則論理削除だが、クラス自体に削除申請というワークフローが既にあるため、物理削除の可能性も残る|推測（実装時に①または業務要件を確認する必要がある）|
 |`CancelSchoolClassRequest`で申請者本人でない場合のHTTP Statusを403とした|②「17. Error設計」のエラー仕様表に本ケースの明示的なStatus Code記載がない（承認・却下の自己承認禁止と同様に扱った）|推測|
-|`teacher_permissions`テーブルを本Context用に独立してモデル定義する構成とした（教師教員管理機能側と物理テーブルは共有するが、GORMモデル定義は別途持つ）|アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部実装に直接依存しない」方針、および認証機能等の先例に倣った|推測|
 |`school_class_requests`の`lock_version`列がGorm規約の`optimisticlock.Version`型でそのまま扱える前提とした|②「4. 設計パターン」「17. Validation設計」は楽観ロックの採用のみを明記し、具体的なカラム型までは規定していない。既存Rails実装（`lock_version`という命名自体がRailsの`optimistic_locking`慣習に由来）を踏まえた判断|推測|
+|`SchoolClassRepository`に`FindGradeIDBySchoolClassID`・`FindIDByGradeIDAndName`を追加し、他Contextへ公開する操作`FindSchoolClass`・`ResolveClassByName`（`context.go`）から呼び出す構成とした|②「11. Repository設計」はクラス編成機能自身が持つ公開操作の名称・入出力を定めるが、内部で呼び出すRepositoryのメソッド名までは定めていない。既存の`FindByID`・`FindGradeByID`と同じ命名規則（`Find[対象]By[キー]`）に揃え、高校スコープを引数に取らない点だけを変えた|推測ではない（②が定める公開操作の名称・入出力はそのまま用い、内部実装のメソッド名のみを②の記載と整合する形で補った）|
 
 上記以外の設計判断（Bounded Context・Aggregate・Entity・Value Object・Repository・UseCase・Transaction境界・Validation方針・Authorization方針・Error設計・Domain Event・API互換方針・DB方針・テスト戦略の基本方針）はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。
