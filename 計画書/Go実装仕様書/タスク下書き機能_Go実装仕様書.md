@@ -780,7 +780,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 - `DraftTaskStatus`・`DraftTaskPriority`は`int`を基底型とする型であるため、GORMは追加実装なしに整数カラムとして扱える（①「6. データモデル」のとおり`draft_tasks.status`・`draft_tasks.priority`は整数）
 - `DueDate`は内部に`*time.Time`を保持する独自structであるため、`database/sql`の`Scanner`／`driver.Valuer`を実装して`date`カラムに対応させる。`Scan`はカラムの値（NULLを含む）を受け取って内部値に設定し、`Value`は内部値（または`nil`）を返す
 
-**②からの補足**: Value Objectを独自の型のままGORMで永続化する方式について、②にもGorm規約にも定めがない。本書では`Scanner`／`driver.Valuer`の実装を採る。Storeの各メソッドに`time.Time`⇔`DueDate`の変換を書く方式では、列を読み書きするすべての箇所に同じ変換が散るためである。この方式はValue Objectを持つ他機能にも共通して必要になるため、規約側に定めるべき事項と考えられる（「17. ②からの補足事項」参照）。
+Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が`Scanner`／`driver.Valuer`の実装を標準パターンとして定めている。`DueDate`における上記の実装はこの規約に一致する。Storeの各メソッドに`time.Time`⇔`DueDate`の変換を書く方式は、列を読み書きするすべての箇所に同じ変換が散るため採らない。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -876,12 +876,12 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
 |Active Record構造を`draft_task.go` / `draft_task_status.go` / `draft_task_priority.go` / `due_date.go` / `draft_task_unit.go` / `errors.go` / `draft_task_store.go` / `draft_task_unit_store.go`に分割した|②が扱う対象（DraftTask本体・状態・優先度・期限・関連付け）が複数あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断と矛盾しない）|
-|`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とした|Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本機能に削除操作はなく、`gorm.DeletedAt`を使うと`deleted_at IS NULL`が自動付与され、論理削除済みも返すRails現行の挙動（①「6. データモデル」）が変わる|補足（規約の趣旨に沿った判断。ただし規約に「削除操作を持たないContextでの扱い」の記載はないため、規約側に明記すべきか要確認）|
+|`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とした|Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本機能に削除操作はなく、`gorm.DeletedAt`を使うと`deleted_at IS NULL`が自動付与され、論理削除済みも返すRails現行の挙動（①「6. データモデル」）が変わる|補足（Gorm規約「0. 本プロジェクトでの採用方針」の論理削除に、削除操作を持たないContextでは`gorm.DeletedAt`を使わず`*time.Time`等を使う旨が定められており、本書の判断はこの規約に一致する）|
 |`UnitIDSet`（単元の識別子の集合）という型を本Contextに定義した|存在確認と関連付けの対象が識別子の集合であり、単元の実体を扱う必要がないため。タスク管理機能③と同じ型名を用いるが、Contextごとに定義する（規約「5. Context間連携ルール」）|補足|
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#show`のレスポンスに合わせた|補足|
 |`GoalDirectory` / `UnitDirectory`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。タスク管理機能③と同じ操作を呼ぶため、シグネチャを合わせた|要確認（`goal-management`・`curriculum`の③の追随時にシグネチャを合わせる）|
 |`CreateDraftTaskBody.Priority`を`*int`とした|`0`が渡された場合（`ErrInvalidPriority`）と未入力の場合（`ErrPriorityRequired`）を区別する必要があるため。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない|補足（①の実体に基づく）|
-|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
+|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が標準パターンとして定める方式であるため|補足（Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」に一致）|
 |`DraftTaskPriority`を`iota + 1`で宣言した|`draft_tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
 |`EstimatedTime`を`*int`とした|カラムがNULL可であり既存データにNULLが存在し得るため。作成時に`0`を設定する（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
 |`GoalID`を`uint`（非ポインタ）とし、Response DTOでは`*uint`とした|カラムはNULL可だがRailsの`belongs_to :goal`により登録時は必須である。一方、既存データにNULLが存在し得るため出力では`null`を返しうる（①「6. データモデル」）|補足（①の実体に基づく）|

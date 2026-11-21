@@ -1032,7 +1032,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 - `TaskStatus`・`Priority`は`int`を基底型とする型であるため、GORMは追加実装なしに整数カラムとして扱える（①「6. データモデル」のとおり`tasks.status`・`tasks.priority`は整数）
 - `DueDate`は内部に`*time.Time`を保持する独自structであるため、`database/sql`の`Scanner`／`driver.Valuer`を実装して`date`カラムに対応させる。`Scan`はカラムの値（NULLを含む）を受け取って内部値に設定し、`Value`は内部値（または`nil`）を返す
 
-**②からの補足**: Value Objectを独自の型のままGORMで永続化する方式について、②にもGorm規約にも定めがない。本書では`Scanner`／`driver.Valuer`の実装を採る。Storeの各メソッドに`time.Time`⇔`DueDate`の変換を書く方式では、列を読み書きするすべての箇所に同じ変換が散るためである。この方式はValue Objectを持つ他機能にも共通して必要になるため、規約側に定めるべき事項と考えられる（「17. ②からの補足事項」参照）。
+Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が`Scanner`／`driver.Valuer`の実装を標準パターンとして定めている。`DueDate`における上記の実装はこの規約に一致する。Storeの各メソッドに`time.Time`⇔`DueDate`の変換を書く方式は、列を読み書きするすべての箇所に同じ変換が散るため採らない。
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -1171,7 +1171,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#index`のレスポンスに合わせた|補足|
 |`GoalDirectory` / `UnitDirectory` / `GoalStatusReevaluator`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。コーディング規約「7. インターフェース」のとおり利用側で定め、相手側が別の形を公開している場合はアダプタが差を吸収する|補足（`goal-management`の③は確定済み。`curriculum`の③はバッチ4で作成する）|
 |`StartedUnitDirectory`のシグネチャに`userID`を含めた|解答履歴は生徒ごとに記録されるため、タスクの識別子だけでは対象が決まらない。`question-answering`が公開する`FindStartedUnitIDs(ctx, userID, taskID)`に対応する（問題解答機能③「8. Infrastructure層設計」）|補足（相手Contextの③で確定した形に合わせた）|
-|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
+|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が標準パターンとして定める方式であるため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る|補足（Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」に一致）|
 |`Priority`を`iota + 1`で宣言した|`tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
 |`EstimatedTime`を`*int`とした|カラムがNULL可であり既存データにNULLが存在し得るため。作成時は`0`を設定する（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
 |`GoalID`を`uint`（非ポインタ）とし、Response DTOでは`*uint`とした|カラムはNULL可だがRailsの`belongs_to :goal`により登録・更新時は必須である。一方、既存データにNULLが存在し得るため出力では`null`を返しうる（①「6. データモデル」）|補足（①の実体に基づく）|
