@@ -974,7 +974,7 @@ var _ announcement.ViewerDirectory = (*userDirectory)(nil)
 
 `PublisherRef`に`Deactivated`を含めるのは、管理者お知らせ管理機能の権限の判定に使うためである（管理者お知らせ管理機能②「16. Authorization設計」）。
 
-**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。`user`・`master-data`は確定済みである。`teacher-permission`・`student-directory`は未追随であり、同機能の追随時にシグネチャを合わせる（「17. ②からの補足事項」参照）。
+**②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。`user`・`master-data`・`teacher-permission`は確定済みである。`teacher-permission`の公開操作は教師権限管理機能②「11. Repository設計」の「他Contextへ公開する参照手段」が定め、同③「8. Infrastructure層設計」の「他Contextへ公開する参照手段」が本節と同じ名称・戻り方の`FindGradeRestriction`を実装する。`student-directory`は未追随であり、同機能の追随時にシグネチャを合わせる（「17. ②からの補足事項」参照）。
 
 ## 依存関係の組み立て（`context.go`）
 
@@ -1562,8 +1562,8 @@ Repository実装・アダプタは、DBや相手Contextが返したエラーを�
 - 判断理由: 現行の規約の`ErrorHandler`は`appErr.Error()`の結果を`errors`の1要素として返す形であり、複数のメッセージを並べる仕組みがない。規約に定めのない事項を本書で新設しない（CLAUDE.md「規約が正本」）
 - 推測かどうか: **②からの補足**。②「19. API仕様」はエラー本文の形式がRails現行と同じであるとしているが、複数メッセージの扱いまでは検討されていない。**本Contextは配信先が複数あり、件数分のメッセージが返る場面が分析機能より多い。** 分析機能③スライス編「17. ②からの補足事項」4で同じ制約に当たっており、`計画書/tmp/残タスク.md` に記録済みである。解消には`apperror`と`ErrorHandler`の拡張が必要であり、その是非は規約側で判断する
 
-## 9. `teacher-permission`・`student-directory`のシグネチャが未確定
+## 9. `student-directory`のシグネチャが未確定
 
 - 判断した内容: 消費者側のインターフェース（`GradeRestrictionDirectory`・`StudentOptionDirectory`）を本Contextに置き、実装をアダプタに閉じ込める
 - 判断理由: コーディング規約「7. インターフェース」の「利用側でインターフェースを定義する」に従う。相手Contextが別の形を公開している場合はアダプタが差を吸収する
-- 推測かどうか: **②からの補足**。`teacher-permission`（教師権限管理機能）・`student-directory`（教師生徒参照機能）はいずれも未追随の文書である。**同機能の追随時にシグネチャを合わせる必要がある。** `user`・`master-data`は追随済みであり、公開操作との対応を「8. Infrastructure層設計」に記載した
+- 推測かどうか: `GradeRestrictionDirectory`については確定済みである。`teacher-permission`（教師権限管理機能）②「11. Repository設計」の「他Contextへ公開する参照手段」が`FindGradeRestriction`と同じ名称・戻り方の操作を定め、同③「8. Infrastructure層設計」の「他Contextへ公開する参照手段」が実装する。**②からの補足**が残るのは`StudentOptionDirectory`のみである。`student-directory`（教師生徒参照機能）は未追随の文書であり、**同機能の追随時にシグネチャを合わせる必要がある。** `user`・`master-data`・`teacher-permission`は追随済みであり、公開操作との対応を「8. Infrastructure層設計」に記載した
