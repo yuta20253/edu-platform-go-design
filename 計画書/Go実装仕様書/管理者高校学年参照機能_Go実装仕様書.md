@@ -580,21 +580,17 @@ var _ schooldirectory.TeacherCountDirectory = (*userCountDirectory)(nil)
 |struct名|フィールド|JSONキー|型|
 |-|-|-|-|
 |`HighSchoolListResponse`|`Schools`|`schools`|`[]HighSchoolResponse`|
-||`Meta`|`meta`|`PaginationMetaResponse`|
+||`Meta`|`meta`|`pagination.Meta`|
 |`HighSchoolResponse`|`ID`|`id`|`uint`|
 ||`Name`|`name`|`string`|
 ||`PrefectureName`|`prefecture_name`|`string`|
 ||`StudentCount`|`student_count`|`int`|
 ||`TeacherCount`|`teacher_count`|`int`|
-|`PaginationMetaResponse`|`CurrentPage`|`current_page`|`int`|
-||`TotalPages`|`total_pages`|`int`|
-||`TotalCount`|`total_count`|`int64`|
-||`PerPage`|`per_page`|`int`|
 |`HighSchoolDetailResponse`|`HighSchoolResponse`と同じ5項目|同|同|
 
 `HighSchoolDetailResponse`を別のstructにせず`HighSchoolResponse`をそのまま返す形でもよい。項目が同一であるためである。本書では`HighSchoolResponse`を詳細でもそのまま使い、`HighSchoolDetailResponse`という別名を設けない。
 
-`meta`の項目名と構成は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の定めに従う。`PaginationMetaResponse`を本Contextに定義するか共通部品とするかは、全Contextに共通する事項であり本書では定めない（「17. ②からの補足事項」参照）。
+`meta`は`internal/shared/pagination.Meta`型である。`HighSchoolListResponse`への変換時に`pagination.NewMeta(page.CurrentPage, page.PerPage, page.TotalCount)`で構築する。項目名・構成・置き場所は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の定めに従う（「17. ②からの補足事項」4）。
 
 ### GradeListResponse（`presentation/response/grade_response.go`）
 
@@ -938,11 +934,11 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 - 判断理由: 1ページあたり最大100件の高校について人数を集計するため、単一指定では100回の問い合わせが必要になる。ユーザー基盤機能③「3. 公開操作の定義」の`SearchCondition`は所属校の絞り込みを`HighSchoolIDs []uint`（複数指定）としており、集合を1回で渡せる。Rails現行も`by_high_school(school_ids)`として識別子の集合で1回のクエリにまとめている（①「5. API / 処理詳細」`#index`）
 - 推測かどうか: 推測ではない。②「12. UseCase設計」が識別子の集合に対して集計を呼ぶ手順を定めており、`user`の公開操作がその形を持つ
 
-## 4. ページ情報のResponse DTOの置き場所を確定しない
+## 4. ページ情報のResponse DTOの置き場所
 
-- 判断した内容: `PaginationMetaResponse`を本Contextに定義するか、全Contextで共通の部品とするかを本書では定めない
-- 判断理由: ページ情報の項目と構成は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」が全APIに共通のものとして定めており、本Contextに固有の事項ではない。規約「4. Bounded Context構成」の「ディレクトリ構成」も、`internal/shared/`配下にページ情報のための置き場所を定めていない
-- 推測かどうか: **②からの補足**。置き場所の確定は先送りする。本Contextの設計は、どちらであっても成立する。ページネーションを持つ他機能（教師生徒参照・管理者お知らせ管理等）と共通の判断が必要であり、規約側に定めるべき事項と考えられる
+- 判断した内容: ページ情報のResponse DTOを本Context独自の`PaginationMetaResponse`型とせず、`internal/shared/pagination.Meta`を`HighSchoolListResponse.Meta`に埋め込む
+- 判断理由: 規約「4. Bounded Context構成」の`shared/`一覧に`pagination/`が置かれ、「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「ページネーション」節が、ページ情報の4項目の型を`internal/shared/pagination/`の共通`Meta`型として置き、ページネーションを持つ各Contextのレスポンス型がこれを埋め込むと定めている（埋め込みフィールド名`Meta`、JSONキー`meta`）。置き場所は本Contextに固有の事項ではなく、規約が確定している
+- 推測かどうか: 確定済み。規約「15. API規約」の定めによる
 
 ## 5. 生徒数と教員数を2つのインターフェースに分ける
 

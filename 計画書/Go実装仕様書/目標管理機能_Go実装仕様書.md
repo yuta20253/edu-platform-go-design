@@ -844,7 +844,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 - `GoalStatus`は`int`を基底型とする型であるため、GORMは追加実装なしに整数カラム`status`として扱える（①「6. データモデル」のとおり`goals.status`は整数）
 - `DueDate`は内部に`*time.Time`を保持する独自structであるため、`database/sql`の`Scanner`／`driver.Valuer`を実装して`date`カラムに対応させる。`Scan`はカラムの値（NULLを含む）を受け取って内部値に設定し、`Value`は内部値（または`nil`）を返す
 
-**②からの補足**: Value Objectを独自の型のままGORMで永続化する方式について、②にもGorm規約にも定めがない。本書では`Scanner`／`driver.Valuer`の実装を採る。`GoalStore`の各メソッドに`time.Time`⇔`DueDate`の変換を書く方式では、列を読み書きするすべての箇所に同じ変換が散るためである。この方式はValue Objectを持つ他機能にも共通して必要になるため、規約側に定めるべき事項と考えられる（「17. ②からの補足事項」参照）
+Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が`Scanner`／`driver.Valuer`の実装を標準パターンとして定めている。`DueDate`における上記の実装はこの規約に一致する。`GoalStore`の各メソッドに`time.Time`⇔`DueDate`の変換を書く方式は、列を読み書きするすべての箇所に同じ変換が散るため採らない
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
@@ -970,7 +970,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |Active Record構造を`goal.go` / `goal_status.go` / `due_date.go` / `goal_status_policy.go` / `errors.go` / `goal_store.go`等に分割した|②が扱う対象（Goal本体・状態・期限・判定・参照専用のTask）が複数あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断と矛盾しない）|
 |`TaskStatusSet`（タスクの状態の集合）という型を本Contextに定義した|`Goal.CanDelete`・`GoalStatusPolicy.Decide`が判定に必要とするのはタスクの状態だけであり、タスクの識別子や内容を受け取る必要がないため。判定をDBや他Contextの呼び出しから切り離してテストできる形にした|補足（②「8. Domain Service」の責務分担を型として表したもの）|
 |`TaskDirectory`インターフェースの具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、`task-management`側が公開する操作の形は同機能の③で確定する|要確認（`task-management`機能の③の追随時にシグネチャを合わせる）|
-|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|②にもGorm規約にもValue Objectの永続化方式の定めがないため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る。Value Objectを持つ他機能にも共通して必要になる事項であり、規約側に定めるべきと考えられる|補足（規約未定。規約への反映はユーザー確認が必要）|
+|Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が標準パターンとして定める方式であるため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る|補足（Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」に一致）|
 |論理削除を`Delete`ではなく`deleted_at`・`updated_at`の2列更新として行う|Gorm規約の論理削除は`gorm.DeletedAt`型の使用を定めているが、GORMの`Delete`は`updated_at`を更新しない。Rails現行は`update_columns`で両列を更新している（①「5. API / 処理詳細」`#destroy`）ため、現行の挙動に合わせた|補足（①の実体に基づく）|
 |`DeleteGoal`の削除可否判定をトランザクションの外に置いた（②「14. Transaction設計」のとおりトランザクションは`SoftDelete`の内側のみ）|②が`DeleteGoal`も「Handlerの処理単位に対応するStoreメソッド内で開始する」としており、Rails現行の`Goal#soft_delete!`も判定と`update_columns`を囲んでいないため、現行の挙動に合わせた。ただし判定と削除の間に別のタスクが着手されると、`not_started`以外のタスクが紐づいた目標が削除され得る（Rails現行にも同じ競合がある）|要確認（現行踏襲とするか、判定を含めて囲むかは②側で決める事項。囲む場合は②「14. Transaction設計」の変更が必要）|
 |②「3. Bounded Context」の`draft-task` Context（下書きタスク）への参照依存を、具体的な参照手段・Response DTOとしては実装対象に含めなかった|②は参照依存を概念レベルで記載しているが、②「12. UseCase設計」ShowGoalの出力定義（目標とタスク一覧）に下書きタスクが含まれておらず、`TaskDirectory`に相当する参照手段も②「11. Repository設計」に存在しない。②に記載のない出力項目を本書側で新設しないため見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|

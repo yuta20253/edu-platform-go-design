@@ -730,7 +730,7 @@ flowchart TD
 |struct名|フィールド|JSONキー|型|
 |-|-|-|-|
 |`AnnouncementListResponse`|`Announcements`|`announcements`|`[]any`|
-||`Meta`|`meta`|`PaginationMetaResponse`|
+||`Meta`|`meta`|`pagination.Meta`|
 |`ReceivedAnnouncementResponse`|`ID`|`id`|`uint`|
 ||`Title`|`title`|`string`|
 ||`Content`|`content`|`string`|
@@ -771,7 +771,7 @@ flowchart TD
 ||`Students`|`students`|`StudentsResponse`|
 ||`OwnGradeRestriction`|`own_grade_restriction`|`*uint`|
 |`StudentsResponse`|`Items`|`items`|`[]StudentResponse`|
-||`Meta`|`meta`|`PaginationMetaResponse`|
+||`Meta`|`meta`|`pagination.Meta`|
 |`GradeResponse`|`ID`・`Year`・`DisplayName`|`id`・`year`・`display_name`|`uint`・`int`・`string`|
 |`UserRoleResponse`|`ID`・`Name`|`id`・`name`|`uint`・`string`|
 |`StudentResponse`|`ID`・`Name`・`NameKana`・`GradeID`|`id`・`name`・`name_kana`・`grade_id`|`uint`・`string`・`string`・`*uint`|

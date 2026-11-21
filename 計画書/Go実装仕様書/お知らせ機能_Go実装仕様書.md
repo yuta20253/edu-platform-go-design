@@ -361,7 +361,7 @@ sequenceDiagram
 |struct名|フィールド|JSONキー|型|
 |-|-|-|-|
 |`AnnouncementListResponse`|`Announcements`|`announcements`|`[]AnnouncementResponse`|
-||`Meta`|`meta`|`PaginationMetaResponse`|
+||`Meta`|`meta`|`pagination.Meta`|
 |`AnnouncementResponse`|`ID`|`id`|`uint`|
 ||`Title`|`title`|`string`|
 ||`Content`|`content`|`string`|
@@ -370,10 +370,6 @@ sequenceDiagram
 |`PublisherResponse`|`ID`|`id`|`uint`|
 ||`Name`|`name`|`string`|
 ||`NameKana`|`name_kana`|`string`|
-|`PaginationMetaResponse`|`CurrentPage`|`current_page`|`int`|
-||`TotalPages`|`total_pages`|`int`|
-||`TotalCount`|`total_count`|`int64`|
-||`PerPage`|`per_page`|`int`|
 
 **一覧と詳細で`AnnouncementResponse`を共用する。** 返す項目が同じであり、最上位の構造だけが違う（①「5. API / 処理詳細」）。詳細は`AnnouncementResponse`をそのまま返し、キーで包まない。
 
@@ -383,9 +379,9 @@ sequenceDiagram
 
 `PublisherResponse`に`deactivated`を含めない。発行者の在籍状態を生徒に見せない（②「16. Authorization設計」）。
 
-`total_pages`は総件数と1ページあたりの件数から算出する。Rails現行のページネーションが返す値と同じになる。
+`meta`は`internal/shared/pagination.Meta`型である。`AnnouncementListResponse`への変換時に`pagination.NewMeta(result.CurrentPage, result.PerPage, result.TotalCount)`で構築する。`total_pages`は総件数と1ページあたりの件数から`NewMeta`が算出する。Rails現行のページネーションが返す値と同じになる。
 
-`PaginationMetaResponse`の項目名と構成は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の定めに従う。置き場所（本Contextに定義するか共通部品とするか）は全Contextに共通する事項であり本書では定めない。管理者高校学年参照機能③「17. ②からの補足事項」4が同じ点を先送りしている。
+`meta`の項目名・構成・置き場所は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の定めに従う。
 
 ## Routing
 

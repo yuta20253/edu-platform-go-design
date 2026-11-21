@@ -782,16 +782,16 @@ flowchart TD
 
 ## 定期実行の起動
 
-`cmd/server/main.go`で行う。規約「13. 非同期ジョブ実行パターン（JobQueue）」の「定期実行」の起動イメージに従う。
+`cmd/server/main.go`で行う。規約「13. 非同期ジョブ実行パターン（JobQueue）」の「定期実行」の「複数Contextからの登録」に従い、`announcement.Context`が`ScheduledTasks() scheduler.TaskMap`を公開し、`main.go`が全Context（お知らせ機能のほか今後増える想定のものを含む）から集めたタスクを1つの`scheduler.TaskMap`にまとめて`scheduler.Run`を1回だけ呼ぶ。
 
 |項目|内容|
 |-|-|
 |周期|1分|
 |有効・無効|設定値（環境変数）で切り替える。Railsの`ENABLE_SIDEKIQ_CRON`に対応する（①「9. 非同期処理」）|
-|呼び出す対象|`announcement.Context`が公開する`PublishScheduledAnnouncementsUseCase`|
+|`ScheduledTasks()`が返すタスク|キー`"publish_scheduled_announcements"`（ログ出力用の識別名）に`PublishScheduledAnnouncementsUseCase.Execute`相当の関数を対応させた`scheduler.TaskMap`|
 |`context.Context`|プロセスの終了で取り消されるものを渡す|
 
-周期実行の共通基盤（`scheduler`パッケージ）そのものの実装は本書の範囲外である（「17. ②からの補足事項」2参照）。
+周期実行の共通基盤（`scheduler`パッケージ本体、`main.go`での複数Context分の集約と`scheduler.Run`の呼び出し）は規約「13. 非同期ジョブ実行パターン（JobQueue）」の「定期実行」が定める。本書が担当する範囲は`announcement.Context`の`ScheduledTasks()`メソッドと`PublishScheduledAnnouncementsUseCase`の実装である（「17. ②からの補足事項」2参照）。
 
 ---
 
@@ -911,7 +911,7 @@ flowchart TD
 |struct名|フィールド|JSONキー|型|
 |-|-|-|-|
 |`AnnouncementListResponse`|`Announcements`|`announcements`|`[]AnnouncementSummaryResponse`|
-||`Meta`|`meta`|`PaginationMetaResponse`|
+||`Meta`|`meta`|`pagination.Meta`|
 |`AnnouncementSummaryResponse`|`ID`|`id`|`uint`|
 ||`Title`|`title`|`string`|
 ||`Status`|`status`|`string`|
@@ -945,7 +945,7 @@ flowchart TD
 |struct名|フィールド|JSONキー|型|
 |-|-|-|-|
 |`HighSchoolAnnouncementListResponse`|`Announcements`|`announcements`|`[]HighSchoolAnnouncementResponse`|
-||`Meta`|`meta`|`PaginationMetaResponse`|
+||`Meta`|`meta`|`pagination.Meta`|
 |`HighSchoolAnnouncementResponse`|`ID`|`id`|`uint`|
 ||`Title`|`title`|`string`|
 ||`Content`|`content`|`string`|
@@ -977,7 +977,7 @@ flowchart TD
 
 別ファイルに切り出すのは、高校別一覧のレスポンスの入れ子が深く、1ファイルに4つのstructが入ると見通しが悪くなるためである（コーディング規約「5. ファイル設計」）。
 
-`PaginationMetaResponse`の項目名と構成は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の定めに従う。置き場所（本Contextに定義するか共通部品とするか）は全Contextに共通する事項であり本書では定めない（お知らせ機能③「9. Presentation層設計」と同じ扱い）。
+`meta`は`internal/shared/pagination.Meta`型である。`AnnouncementListResponse`への変換時は`pagination.NewMeta(result.CurrentPage, result.PerPage, result.TotalCount)`で、`HighSchoolAnnouncementListResponse`への変換時は`pagination.NewMeta(result.CurrentPage, result.PerPage, result.TotalCount)`で構築する。項目名・構成・置き場所は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の定めに従い確定済みである。
 
 ## Routing
 
@@ -1049,7 +1049,7 @@ flowchart TD
 
 `404`の本文は規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」のとおり`errors`形式とする（②「17. Error設計」）。
 
-**作成時に複数の検証に失敗した場合、Rails現行は複数のメッセージを`errors`に含める**（①「5. API / 処理詳細」`#create`）。Gin規約「8. エラーハンドリングミドルウェア」の`ErrorHandler`は`appErr.Error()`の1要素のみを`errors`に入れるため、現状の規約のままでは複数のメッセージを返せない。この点は規約側で扱う事項であり、本書では新しいルールを設けない（「17. ②からの補足事項」5参照）。
+**作成時に複数の検証に失敗した場合、Rails現行は複数のメッセージを`errors`に含める**（①「5. API / 処理詳細」`#create`）。`entity.NewAnnouncement`が返す複数のDomain Errorを、基盤編「14. Error実装方針」の「複数のエラーをまとめて返す」で定める`AppError`・`FieldErrorer`・`Messages`を実装する型へ変換する。Gin規約「8. エラーハンドリングミドルウェア」の`ErrorHandler`は、この型が`Messages`を満たすため`errors`配列に`Messages()`の全件を入れる（アーキテクチャ規約「12. Error変換パターン（AppError）」の「複数のメッセージを同時に返すエラー」、「17. ②からの補足事項」5参照）。
 
 ---
 
@@ -1225,7 +1225,7 @@ Domain層で行う（基盤編「12. Validation実装方針」）。本機能が
 
 作成時に件名・本文・状態・予約日時の検証が同時に失敗しうる。Rails現行は複数のメッセージを`errors`に含める（①「5. API / 処理詳細」`#create`）。`NewAnnouncement`は複数のDomain Errorをまとめて返す（基盤編「3. Domain層設計」）。
 
-**Presentation層でこれを`errors`の複数要素として出す手段が規約に定まっていない。** Gin規約「8. エラーハンドリングミドルウェア」の`ErrorHandler`は`appErr.Error()`の1要素のみを入れる。本書では独自のルールを設けず、規約側で扱う事項として残す（「17. ②からの補足事項」5参照）。
+**UseCaseがこれを基盤編「14. Error実装方針」の「複数のエラーをまとめて返す」で定めるAppError実装型（`AppError`・`FieldErrorer`・`Messages`を実装する型）へ変換する。** Gin規約「8. エラーハンドリングミドルウェア」の`ErrorHandler`は、この型が`Messages`を満たすため`errors`配列に`Messages()`の全件を入れる（アーキテクチャ規約「12. Error変換パターン（AppError）」の「複数のメッセージを同時に返すエラー」、「17. ②からの補足事項」5参照）。
 
 ---
 
@@ -1433,11 +1433,11 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 - 判断理由: 本処理は操作者を持たず、利用者ロールに紐づかない。しかし**①②が本機能（管理者お知らせ管理機能）の責務として定めている**（②「12. UseCase設計」）。ロール別ディレクトリの外（`application/usecase/`）に置くと、`CreateSystemAnnouncement`（基盤編が担当）と同じ場所に並び、どちらがどの文書の担当か分からなくなる。手動配信（`PublishAnnouncement`）と自動切替が同じディレクトリにあることで、予約日時の扱いの違いが読み比べられる利点もある
 - 推測かどうか: **②からの補足**。②はUseCaseの一覧に含めているが、ディレクトリ上の置き場所を定めていない
 
-## 2. 周期実行の共通基盤の実装を本書の範囲外とする
+## 2. 周期実行の共通基盤と本書が担当する範囲の境界
 
-- 判断した内容: `scheduler`パッケージ（周期の管理・複数タスクの登録・プロセス終了時の停止）の実装を本書で定めない。本書はUseCaseと、`cmd/server/main.go`での呼び出し方を定める
-- 判断理由: 規約「13. 非同期ジョブ実行パターン（JobQueue）」の「定期実行」が`scheduler.Run(ctx, time.Minute, scheduler.TaskMap{...})`という起動イメージを示しているが、このパッケージは複数のContextが共有する共通基盤である。特定の機能の③で設計すると、他の機能が定期実行を追加するときに置き場所が決まらない。**規約に書くべき内容だと判断したため、本書では新しいルールを設けない**
-- 推測かどうか: **②からの補足**。②「18. Domain Event」の「定期実行としての設計」も基盤を「ワーカーのプロセス内で一定間隔（毎分）対象を検索して処理する」とだけ述べ、パッケージ構成を定めていない。残タスクとして記録する
+- 判断した内容: `scheduler`パッケージ本体（周期の管理・複数Context分のタスクの集約・プロセス終了時の停止）は規約が定める共通基盤であり、本書では実装しない。本書が担当するのは、`announcement.Context`が公開する`ScheduledTasks() scheduler.TaskMap`メソッドと、そのタスクマップが指す`PublishScheduledAnnouncementsUseCase`の実装である
+- 判断理由: 規約「13. 非同期ジョブ実行パターン（JobQueue）」の「定期実行」が、`scheduler`パッケージの置き場所（`internal/shared/scheduler/`）、`TaskMap`・`Run`のインターフェース、各Contextが`context.go`で`ScheduledTasks() scheduler.TaskMap`を公開する形、`main.go`が全Contextから集めて`scheduler.Run`を1回だけ呼ぶ形を定めている
+- 推測かどうか: 推測ではない。規約「13. 非同期ジョブ実行パターン（JobQueue）」の「定期実行」の定めによる
 
 ## 3. 更新時に状態が既知でない値のとき`422`を返す
 
@@ -1453,11 +1453,11 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 - 推測かどうか: **②からの補足**。②「12. UseCase設計」は「渡された項目の集合を入力に含める」と述べるが、実現方法を定めていない。②「15. Validation設計」の「渡された項目の記録」も同じ点を指している
 - 代替案: ボディ全体を`map[string]any`へバインドしてキーの有無を見る方法もあるが、型の検証を自前で書くことになり、`scheduled_at`が日時として解釈できない場合の`422`を`ShouldBindJSON`に任せられなくなる
 
-## 5. 複数のエラーメッセージを`errors`に並べる手段を本書で定めない
+## 5. 複数のエラーメッセージを`errors`に並べる手段
 
-- 判断した内容: 作成時に複数の検証に失敗した場合、Rails現行は複数のメッセージを`errors`に含めるが、それを実現する仕組みを本書で設計しない
-- 判断理由: 規約「12. Error変換パターン（AppError）」の`AppError`と、Gin規約「8. エラーハンドリングミドルウェア」の`ErrorHandler`が、`errors`に`appErr.Error()`の1要素のみを入れる形を定めている。複数要素を返すには`ErrorHandler`側の変更が必要であり、**全Contextに影響する。規約に書くべき内容だと判断したため、仕様書側で独自のルールを新設しない**
-- 推測かどうか: **②からの補足**。②「17. Error設計」は`422`の本文を`{"errors": [...]}`とするだけで、複数要素の扱いを定めていない。①「5. API / 処理詳細」`#create`は「複数同時に含まれうる」と記録している。残タスクとして記録する。他の機能（教師お知らせ機能③_2）も同じ点を抱えている
+- 判断した内容: 作成時に複数の検証に失敗した場合、Rails現行は複数のメッセージを`errors`に含める。本機能では、基盤編「14. Error実装方針」の「複数のエラーをまとめて返す」で定めるAppError実装型（`AppError`・`FieldErrorer`・`Messages`を実装する型）を用いてこれを実現する。`Messages()`は既存の`Fields() []FieldError`の各要素の`Message`を集めたものを返す
+- 判断理由: アーキテクチャ規約「12. Error変換パターン（AppError）」の「複数のメッセージを同時に返すエラー」が`Messages`インターフェース（`Messages() []string`）を定め、Gin規約「8. エラーハンドリングミドルウェア」の`ErrorHandler`が、`AppError`が`Messages`を満たす場合に`errors`配列へ`Messages()`の全件を入れる形を定めている。1つの型に`AppError`・`FieldErrorer`・`Messages`をまとめる置き場所は、基盤編「14. Error実装方針」が`announcement` Context全体の方針として確定している
+- 推測かどうか: 推測ではない。アーキテクチャ規約「12. Error変換パターン（AppError）」および基盤編「14. Error実装方針」の定めによる
 
 ## 6. 発行者が参照手段の結果に含まれない場合に`403`を返す
 
