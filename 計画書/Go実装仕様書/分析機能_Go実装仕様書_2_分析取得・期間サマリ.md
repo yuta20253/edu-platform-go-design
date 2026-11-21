@@ -343,13 +343,13 @@ AnalyticsTypeUnitRank           = "unit_rank"
 2. `stats`からユーザーIDを集め、`ActiveUserDirectory.FilterActiveUserIDs`で在籍中のものへ絞り込む
 3. 在籍中のユーザーの集計のみを残す
 4. 残った集計それぞれについて`Percentage(Correct, Total)`で正答率を求める
-5. 正答率の降順に並べる。同値の場合はユーザーIDの昇順で並べる
-6. 操作者のユーザーIDが並びの中にあれば、その位置（0起点）に1を足した値を`Rank`とする。なければ`Rank`は`nil`
+5. 操作者のユーザーIDが残った集計に含まれるか確認する。含まれなければ`Rank`は`nil`
+6. 含まれる場合、操作者より正答率が高いユーザーの人数を数え、1を加えた値を`Rank`とする（同率のユーザーは同順位になる。①「5. API / 処理詳細」`course_rank` / `unit_rank`）
 7. `TotalUsers`は残った集計の件数とする
 
 `courseID`が`nil`のときに参照手段を呼ばないのは、Rails現行が「対象が指定されていなければ母集団0人」として振る舞うためである（①「5. API / 処理詳細」`course_rank` / `unit_rank`）。条件なしで問い合わせると全コースの集計になってしまう。
 
-同値の場合にユーザーIDの昇順で並べるのは、同じ入力に対して常に同じ順位を返すためである。Rails現行は同率を同順位として扱わず、並べた結果の位置がそのまま順位になるが、同値の順序は保証されていない（②「19. API仕様」の「変更しないもの」）。同率を同順位にする変更は行わない。
+手順6でソートを行わず人数を数える方式にするのは、同じ入力に対して常に同じ順位を返しつつ、同率のユーザーを同順位として扱うためである。
 
 ### GetSummary（`application/get_summary.go`）
 
@@ -488,7 +488,7 @@ sequenceDiagram
         RD-->>S: []UserAnswerStats
         S->>AU: FilterActiveUserIDs(ctx, userIDs)
         AU-->>S: 在籍中のユーザーID
-        S->>S: 正答率を算出し降順に並べ、自分の位置を順位にする
+        S->>S: 正答率を算出し、自分より高い人数+1を順位にする(同率は同順位)
         S-->>H: *AnalyticsResult
     end
     H->>H: RankResponseへ変換
@@ -780,15 +780,15 @@ flowchart TD
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|`from`が`YYYY-MM-DD`形式でない、または実在しない日付|422|`{"errors": ["From は正しい日付を入力してください"], "fields": [...]}`|
-|`to`が`YYYY-MM-DD`形式でない、または実在しない日付|422|`{"errors": ["To は正しい日付を入力してください"], "fields": [...]}`|
-|`from`が`to`より後|422|`{"errors": ["To はfrom以降の日付を指定してください"], "fields": [...]}`|
+|`from`が`YYYY-MM-DD`形式でない、または実在しない日付|422|`{"errors": ["開始日は正しい日付を入力してください"], "fields": [...]}`|
+|`to`が`YYYY-MM-DD`形式でない、または実在しない日付|422|`{"errors": ["終了日は正しい日付を入力してください"], "fields": [...]}`|
+|`from`が`to`より後|422|`{"errors": ["終了日はfrom以降の日付を指定してください"], "fields": [...]}`|
 |期間が366日を超える|422|`{"errors": ["取得期間は366日以内で指定してください"], "fields": [...]}`|
 |他Contextの参照手段の呼び出しに失敗|500|`{"errors": ["internal server error"]}`|
 |未認証|401|認証ミドルウェアの応答|
 |`student`ロール以外|403|`{"errors": ["この操作を行う権限がありません"]}`|
 
-メッセージの文言はRails現行を維持する（②「15. Validation設計」）。`From` / `To`が英語表記のままである点も維持する。
+メッセージの文言はRails現行を維持する(②「15. Validation設計」)。
 
 複数の検証に同時に失敗した場合の`errors`の扱いは「14. Error実装方針」に記載する。
 
@@ -811,8 +811,8 @@ flowchart TD
 |`Type`|`IndexRequest`|なし（`nil`判定をHandlerで行う）|分析タイプを指定してください|
 |`CourseID`|`IndexRequest`|なし（`*uint`へのバインド失敗で検出）|コースの指定が不正です|
 |`UnitID`|`IndexRequest`|なし（`*uint`へのバインド失敗で検出）|単元の指定が不正です|
-|`From`|`ShowRequest`|`omitempty,datetime=2006-01-02`|From は正しい日付を入力してください|
-|`To`|`ShowRequest`|`omitempty,datetime=2006-01-02`|To は正しい日付を入力してください|
+|`From`|`ShowRequest`|`omitempty,datetime=2006-01-02`|開始日は正しい日付を入力してください|
+|`To`|`ShowRequest`|`omitempty,datetime=2006-01-02`|終了日は正しい日付を入力してください|
 
 `from`・`to`の前後関係と期間の上限は、複数フィールドにまたがるためタグで表せない。Handlerの処理順序4・5で判定する（「9. Presentation層設計」）。
 
@@ -915,14 +915,13 @@ Transaction Script採用のため、application関数内のガード節で検証
 ||学年は設定されているが年次が取得できないとき`ErrGradeNotSet`を返す|
 ||母集団に自分が含まれる（`FindUserIDsByGradeIDs`の結果から自分を除外しない）|
 ||母集団が同じ年次の複数の学年（他校を含む）にまたがって集まること|
-|`courseRank`|正答率の降順に並び、自分の位置が順位になる|
+|`courseRank`|自分より正答率が高い人数+1が自分の順位になる|
 ||自分が母集団にいないとき`Rank`が`nil`、`TotalUsers`が母集団の人数になる|
 ||`courseID`が`nil`のとき参照手段を呼ばず、`Rank`が`nil`・`TotalUsers`が0になる|
 ||母集団が0件のとき`Rank`が`nil`・`TotalUsers`が0になる|
 ||在籍していないユーザーが母集団と人数から除かれる|
 ||在籍の絞り込みで自分が除かれたとき`Rank`が`nil`になる|
-||正答率が同率でも別の順位になる（同順位にしない）|
-||同率のときユーザーIDの昇順に並ぶ|
+||正答率が同率のユーザーが複数いるとき同順位になる|
 |`unitRank`|`AggregateAnswersByUserForUnit`を呼ぶ。それ以外は`courseRank`と同じ|
 |`GetSummary`|集計期間と比較対象期間が`meta`に入る|
 ||`CountTasksByDueDate`が集計期間・比較対象期間の2回呼ばれる|
@@ -973,8 +972,8 @@ Transaction Script採用のため、application関数内のガード節で検証
 ||application層のエラーを`c.Error`へ渡し、自身で`c.JSON`しない|
 |`SummaryHandler.Show`|`from`・`to`をクエリから受け取り、`PeriodQuery`へ渡す|
 ||`from`・`to`を省略したとき`PeriodQuery`が`nil`を持つ（Handlerで既定値を補わない）|
-||`from`が`2026-09-99`のとき422と「From は正しい日付を入力してください」を返す|
-||`to`が`from`より前のとき422と「To はfrom以降の日付を指定してください」を返す|
+||`from`が`2026-09-99`のとき422と「開始日は正しい日付を入力してください」を返す|
+||`to`が`from`より前のとき422と「終了日はfrom以降の日付を指定してください」を返す|
 ||期間が367日のとき422と「取得期間は366日以内で指定してください」を返す|
 ||複数の検証に失敗したとき`c.Error`を1回だけ呼び、`fields`に全件が入る|
 ||日付が`YYYY-MM-DD`形式の文字列で返る（`series[].date`・`meta`の4項目）|

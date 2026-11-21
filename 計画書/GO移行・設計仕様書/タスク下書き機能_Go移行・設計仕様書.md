@@ -111,7 +111,6 @@ Aggregateを大きく分ける必要はなく、DraftTaskを中心に扱う。
 
 - DraftTaskが自身の基本情報（目標・タイトル・内容・優先度・期限日・メモ）と、関連付けた単元（DraftTaskUnit）の整合性を保証する単位とする
 - 目標・単元そのものはAggregateの外部の参照情報として扱い、DraftTaskの整合性を保つための制約条件として利用する
-- `draft_task_courses`（コースとの関連付けテーブル）は、Rails現行仕様書6章に「現行実装の下書き作成処理ではコースの関連付けは行われておらず、テーブル自体はモデル上の関連として定義されている」と明記されており、現時点の業務スコープでは使用されないため、本Aggregateには含めない
 
 ## 整合性を保証する単位
 
@@ -409,9 +408,9 @@ sequenceDiagram
 |`due_date`|Domain|日付として解釈できること。フォーマットは固定しない|`期限は正しい日付を入力してください`|
 |`unit_ids`|Presentation|配列であること（任意項目）。空文字を除いて整数として扱う|—|
 |`unit_ids`|Domain|指定されたすべての単元が存在すること|`単元に不正な値が含まれています`（**1件**）|
-|`status` / `completed_at` / `estimated_time` / `course_id`|—|入力として受け取らない|—|
+|`status` / `completed_at` / `estimated_time`|—|入力として受け取らない|—|
 
-`estimated_time`は作成時に`0`で固定する。`course_id`は設定せず、コースの関連付け（`draft_task_courses`）も行わない（①「5. API / 処理詳細」`#create`）。
+`estimated_time`は作成時に`0`で固定する（①「5. API / 処理詳細」`#create`）。
 
 エラーメッセージの項目名は①のとおり日本語訳が定義されている（「17. Error設計」の「エラーレスポンスの本文」）。
 
@@ -554,7 +553,6 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 ## 変更理由
 
 - 現行の`draft_tasks`・`draft_task_units`テーブルで本機能（詳細取得・新規作成）の要件を満たしているため
-- `draft_task_courses`テーブルは現行実装で未使用だが、モデル上の関連として維持されているため、スキーマとしてはそのまま残す
 
 ## 変更を提案しない理由
 
@@ -574,8 +572,6 @@ JSONスキーマの厳密な型定義・Goの構造体は③Go実装仕様書で
 `goals`・`units`・`courses`へは本Contextからクエリを発行しない。相手Contextが公開する参照手段を呼び出す（「11. Repository設計」の「他Contextの参照手段」、規約「5. Context間連携ルール」）。
 
 `deleted_at`による絞り込みは行わない。`DraftTask`は`default_scope`を持たないため（①「6. データモデル」）。
-
-`draft_task_courses`は現行実装で書き込まれないため、本Contextでは扱わない（①「6. データモデル」）。
 
 具体的なSQL・GORMのクエリコードは③Go実装仕様書（Gorm規約）で扱う。
 

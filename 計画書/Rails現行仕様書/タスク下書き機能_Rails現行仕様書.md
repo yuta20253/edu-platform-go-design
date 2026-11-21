@@ -125,7 +125,6 @@
 - `status` は入力を受け取らず、既定値の `not_started`（`0`）で作成する。
 - `completed_at` は常に未設定で作成する。
 - `estimated_time` は入力を受け取らず、常に `0` で作成する。
-- `course_id` は入力を受け取らず、常に未設定で作成する。コースの関連付け（`draft_task_courses`）も行わない。
 
 ### Database変更
 
@@ -172,7 +171,6 @@ draft_task_units（関連付けた単元の数だけ作成）
 |`id`|bigint|不可|主キー|
 |`user_id`|bigint|不可|生徒（`users`）への外部キー|
 |`goal_id`|bigint|**可**|目標（`goals`）への外部キー。カラムは NULL 可だが、`belongs_to :goal` により登録時は必須である|
-|`course_id`|bigint|可|コースへの外部キー。現行実装では値を設定する処理が存在しない|
 |`title`|string(100)|不可|タイトル|
 |`content`|text|不可|内容|
 |`priority`|integer|不可|優先度。Rails の `enum` で `very_low: 1` / `low: 2` / `normal: 3` / `high: 4` / `very_high: 5` に対応する整数。既定値は `3`（`normal`）。**`0` は使っていない**|
@@ -184,20 +182,13 @@ draft_task_units（関連付けた単元の数だけ作成）
 |`deleted_at`|datetime|可|論理削除日時。現行実装に値を設定する処理は存在しない|
 |`created_at` / `updated_at`|datetime|不可|作成・更新日時|
 
-- `user_id`・`goal_id`・`course_id` にそれぞれインデックスを持つ
+- `user_id`・`goal_id` にそれぞれインデックスを持つ
 - リレーション:
   - `belongs_to :user`
   - `belongs_to :goal`
-  - `has_many :draft_task_courses`（`dependent: :destroy`）
-  - `has_many :courses`（`draft_task_courses` 経由）
   - `has_many :draft_task_units`（`dependent: :destroy`）
   - `has_many :units`（`draft_task_units` 経由）
 - **`default_scope` を持たない。** `Goal`・`Task` は `default_scope { where(deleted_at: nil) }` を持つが、`DraftTask` は持たないため、論理削除済みのレコードも通常の検索の対象に含まれる
-
-## `draft_task_courses`
-
-- 役割: 下書きタスクとコースの関連付けを保持する中間テーブル。現行実装の下書き作成処理ではコースの関連付けは行われておらず、テーブル自体はモデル上の関連として定義されている。
-- 主なカラム: `id`, `draft_task_id`（不可）, `course_id`（不可）, `created_at`, `updated_at`
 
 ## `draft_task_units`
 
