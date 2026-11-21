@@ -561,7 +561,7 @@ sequenceDiagram
 |`questionModel`|`questions`|同|
 |`questionChoiceModel`|`question_choices`|同|
 |`questionHintModel`|`question_hints`|同|
-|`questionExplanationModel`|`question_explanations`|同。**本Contextが所有するテーブルとして扱う**（②からの補足。「17. ②からの補足事項」）|
+|`questionExplanationModel`|`question_explanations`|同。本Contextが所有するテーブルである（コース参照機能②「11. Repository設計」）|
 
 いずれも`DeletedAt`に**`gorm.DeletedAt`を使わず`*time.Time`とする**。詳細は「15. GORM / DBクエリ設計」に記載する。
 
@@ -638,7 +638,7 @@ sequenceDiagram
 
 **`CourseSubjectInfo`の行は、既存の公開操作が増えた際に本表へ反映されていなかったものであり、本書で補う。**
 
-**②からの補足（要確認）**: `QuestionLocationInfo`・`SubjectCurriculumIDs`・`ContentInventory`の型名・フィールド名は②に明記がなく、管理者分析機能③が確定する前の暫定である（「6. Application層設計」参照）。同③確定時に、フィールド構成が一致するか、本書側の調整が必要かを確認する。
+`QuestionLocationInfo`・`SubjectCurriculumIDs`・`ContentInventory`の型名・フィールド名は②に明記がなく、本書が暫定で定めたものである（「6. Application層設計」参照）。管理者分析機能③で呼び出し元のアダプタと突き合わせた結果、`QuestionLocationInfo`は呼び出し元の`QuestionRef`と完全に一致し、`SubjectCurriculumIDs`・`ContentInventory`は呼び出し元が`UnitIDs`のみを取り出す・フィールド名を読み替える（`TotalUnits`→`TotalActiveUnits`）形で問題なく変換できることを確認した（管理者分析機能③「8. Infrastructure層設計」の`curriculumDirectory`実装）。本書側の型・フィールド名の調整は不要である。
 
 `UnitInfo`がコースのレベル番号・レベル名を含むのは、呼び出し元がレスポンスに含めるためである（タスク管理機能③「8. Infrastructure層設計」の`UnitRef`）。
 
@@ -915,11 +915,11 @@ GORMが返すエラーは`fmt.Errorf`でラップして返す（コーディン�
 |`questionModel`|`questions`|同|
 |`questionChoiceModel`|`question_choices`|同|
 |`questionHintModel`|`question_hints`|同|
-|`questionExplanationModel`|`question_explanations`|同。**本Contextが所有するテーブルとして扱う**（下記「②からの補足」）|
+|`questionExplanationModel`|`question_explanations`|同。本Contextが所有するテーブルである（コース参照機能②「11. Repository設計」）|
 
 カラム対応はGorm規約の既定命名規則（フィールド名のsnake_case）に従う。`SubjectID`→`subject_id`、`LevelNumber`→`level_number`、`UnitName`→`unit_name`、`CorrectAnswer`→`correct_answer`、`ChoiceNumber`→`choice_number`、`StepNumber`→`step_number`等。`ExplanationText`→`explanation_text`、`ExplanationType`→`explanation_type`。
 
-**②からの補足**: `question_explanations`は、コース参照機能②「11. Repository設計」の「本機能のエンドポイントが使う検索」が列挙する本Context所有テーブル一覧（`courses`・`units`・`questions`・`question_choices`・`question_hints`・`subjects`）に含まれていない。一方、管理者コース・単元参照機能②「21. DB操作仕様」は`question_explanations`を`curriculum`が所有すると明記している（同②「3. Bounded Context」も同様）。本書は後者に基づき、`question_explanations`を本Contextが所有するテーブルとして扱う。`FindUnitDetail`（新規）が必要とする唯一の操作であり、既存6操作はこのテーブルを使わない。
+`question_explanations`は、コース参照機能②「11. Repository設計」の所有テーブル一覧に`question_explanations`を加えたことで、本Contextが所有するテーブルであることが確定している。`FindUnitDetail`（新規）が必要とする唯一の操作であり、既存6操作はこのテーブルを使わない。
 
 **いずれのモデルも`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とする。** Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本Contextに削除操作は存在せず、`gorm.DeletedAt`を使うと`Find`系が`deleted_at IS NULL`を自動付与する。
 
@@ -1109,10 +1109,10 @@ application層の関数のテストである。検索関数を差し替えて検
 |`gormtx.DBFromContext`を使う形にした|現時点でトランザクションの内側から呼ばれる経路はないが、将来に備える。使わない理由がない（「11. Transaction実装方針」）|補足|
 |新規6操作を`application/admin_course_directory.go`・`application/admin_analytics_directory.go`の2ファイルにまとめた|既存の`unit_directory.go`・`question_directory.go`と同じ基準（呼び出し元Context単位でまとめる）による。6操作を操作ごとに6ファイルへ分けると、テスト込みの実装ファイル数が1文書あたり30〜35の基準に抵触しうる（「2. ディレクトリ構成」「文書の分割」）|補足（ファイル分割の基準に基づく判断）|
 |`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`のシグネチャ・型名を、管理者コース・単元参照機能③「3. Domain層設計」の`CurriculumDirectory`が暫定で定義していたものと完全に一致させた|②「11. Repository設計」の「②からの補足」が、この3操作の追加によって同③の前提が本Contextの公式な公開操作になると明記している。既存6操作のように型名を変えて呼び出し元が変換する構成にしなかった|補足（②の指示どおり。推測ではない）|
-|`FindQuestionLocations`・`FindCourseAndUnitIDsBySubject`・`FindContentInventory`の関数名・型名（`QuestionLocationInfo`・`SubjectCurriculumIDs`・`ContentInventory`）を本書側で暫定的に定めた|②「11. Repository設計」はこの3操作の概要（返す内容）のみを定め、具体的な関数名・シグネチャ・型名は管理者分析機能③で確定する事項としている（②「11. Repository設計」「他Context側への追加が必要な公開操作」）。既存の`FindCourseSubjects`・`CourseSubjectInfo`と同じ命名方針で型に落とした|**要確認**（管理者分析機能③確定時に、呼び出し元が必要とする形と一致するか、本書側の調整が必要かを確認する）|
+|`FindQuestionLocations`・`FindCourseAndUnitIDsBySubject`・`FindContentInventory`の関数名・型名（`QuestionLocationInfo`・`SubjectCurriculumIDs`・`ContentInventory`）を本書側で暫定的に定めた|②「11. Repository設計」はこの3操作の概要（返す内容）のみを定め、具体的な関数名・シグネチャ・型名は管理者分析機能③で確定する事項としている（②「11. Repository設計」「他Context側への追加が必要な公開操作」）。既存の`FindCourseSubjects`・`CourseSubjectInfo`と同じ命名方針で型に落とした|確定済み（管理者分析機能③で呼び出し元のアダプタと突き合わせ、本書側の型・フィールド名の調整が不要であることを確認した。「11. Repository設計」参照）|
 |`SearchCourses`で論理削除済みのコースを除外し、`FindCourseDetail`はコース自体を除外しない一方で単元・問題数集計は除外する形にした|①「5. API / 処理詳細」`Api::V1::Admin::CoursesController#index`・`#show`が明記する業務ルールのとおりである（②「11. Repository設計」の「公開操作における論理削除の扱い」）|補足（①②の実体に基づく。推測ではない）|
 |`FindUnitDetail`の論理削除の扱いを確定させず、未確定のまま残した|②「11. Repository設計」が「①に論理削除の扱いの記載がなく未確定である」「本機能の③で確定する事項として残す」と明記している。①「5. API / 処理詳細」`Api::V1::Admin::UnitsController#show`にも論理削除の除外に関する記載がない|**要確認（未確定）**。実装着手前に、論理削除済みの問題・選択肢・ヒント・解説を除外するかどうかを確定する必要がある|
-|`question_explanations`を本Contextが所有するテーブルとして扱った|コース参照機能②「11. Repository設計」の所有テーブル一覧には含まれていないが、管理者コース・単元参照機能②「21. DB操作仕様」「3. Bounded Context」が`curriculum`の所有テーブルと明記している（「8. Infrastructure層設計」「15. GORM / DBクエリ設計」）|**要確認**（コース参照機能②の所有テーブル一覧を更新すべきか。本書は実装のための補足として扱う）|
+|`question_explanations`を本Contextが所有するテーブルとして扱った|コース参照機能②「11. Repository設計」の所有テーブル一覧に`question_explanations`が加わり確定した（管理者コース・単元参照機能②「21. DB操作仕様」「3. Bounded Context」の記載とも一致する）|確定済み（推測ではない）|
 |`SearchCourses`で`PerPage`が0以下のとき20を既定値とした|①「5. API / 処理詳細」`Api::V1::Admin::CoursesController#index`は上限100件のみを明記し、既定値は明記していない。本プロジェクトの他機能③（教師教員管理機能③「16. API互換方針」等）が参照するRails `ApplicationController`共通設定の`DEFAULT_PER_PAGE`相当（20件）に合わせた|**推測**（①に既定値の明記がないため。Rails実体の確認が必要）|
 |コース参照②と管理者コース・単元参照機能②の間で、単元詳細取得の論理削除の扱いに記載の齟齬がある|管理者コース・単元参照機能②「21. DB操作仕様」（旧）が単元詳細の参照手段を「論理削除除外」と記す一方、コース参照②「11. Repository設計」（最新）は同操作を「未確定」としている。本書はコース参照②を正本として扱い、未確定のまま残した（CLAUDE.md「規約が正本」と同様に、同一事項を扱う文書間では該当機能が所有するContext側の②を優先する）|**要確認**（管理者コース・単元参照機能②側の記載更新の要否を含め、確認が必要）|
 

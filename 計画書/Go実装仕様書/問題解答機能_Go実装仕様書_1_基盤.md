@@ -322,6 +322,7 @@ Domain Model採用のため、`domain/repository/`にインターフェースを
 |`AggregateByQuestion`|同上|`([]QuestionAdminAnswerStats, error)`|同、設問ごと|
 |`AggregateByUser`|同上|`([]UserAdminAnswerStats, error)`|同、ユーザーごと|
 |`AggregateByDate`|同上|`([]DateAdminAnswerStats, error)`|同、日本時間の暦日ごと。その日に解答したユーザーの重複排除数も返す|
+|`FindUnitIDsAnsweredInPeriod`|`ctx context.Context, from, to time.Time`|`([]uint, error)`|母集団・教科による絞り込みを受けず、指定した期間（日本時間の暦日。両端を含む）内に1件以上の解答がある単元の識別子を重複なく返す（コンテンツ網羅率専用。②「11. Repository設計」の「本Contextが他Contextへ公開する参照手段」）|
 
 **論理削除を除外する。** 履歴自体の論理削除も、問題の論理削除も除外の対象に含める。`AnswerStatsRepository`の5メソッドが除外しないのとは逆である。これにより、`QuestionHistoryRepository`の2通り（`CountAnsweredByTask`＝除外する、他のメソッド＝除外しない）・`AnswerStatsRepository`（除外しない）と合わせて、同じ`question_histories`（および紐づく`questions`）に対する論理削除の扱いが4通りになる（②「11. Repository設計」の「本Contextが他Contextへ公開する参照手段」）。
 
@@ -726,12 +727,13 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 |`AggregateAnswersByCourse`|`learning-analytics`|指定期間のコースごとの解答数・正答数を返す（同`CourseAnswerStatsDirectory`）|
 |`AggregateAnswersByUserForCourse` / `AggregateAnswersByUserForUnit`|`learning-analytics`|ユーザーごとの解答数・正答数を返す（同`RankAnswerStatsDirectory`）|
 |`AggregateAdminAnswersByUnit` / `AggregateAdminAnswersByQuestion` / `AggregateAdminAnswersByUser` / `AggregateAdminAnswersByDate`|`admin-analytics`|期間・ユーザーID集合（および任意の単元ID集合）を条件に、単元別／設問別／ユーザー別／日別の解答数・正答数を集計して返す。論理削除済みの解答履歴・問題を除外する（②「11. Repository設計」の「期間・ユーザーID集合を指定した単元別／設問別／ユーザー別／日別の解答数・正答数の集計」、管理者分析機能③「8. Infrastructure層設計」の`AnswerAggregateDirectory`）|
+|`FindUnitIDsAnsweredInPeriod`|`admin-analytics`|母集団・教科による絞り込みを受けず、指定した期間内に1件以上の解答がある単元の識別子を重複なく返す。コンテンツ網羅率の判定に使う。論理削除済みの解答履歴・問題を除外する（②「11. Repository設計」の「期間内に解答がある単元の識別子の参照」）|
 
 いずれも`TodayAnswerCountRepository`・`QuestionHistoryRepository`・`AnswerStatsRepository`・`AdminAnswerStatsRepository`へ委譲するだけである。業務ルールを持たない。
 
 分析向けの6操作は`AnswerStatsRepository`へ委譲する。戻り値は`domain/repository/`の型をそのまま返す。呼び出し元の`learning-analytics`が自身の型へ変換する（アーキテクチャ規約「5. Context間連携ルール」）。
 
-`admin-analytics`向けの4操作は`AdminAnswerStatsRepository`へ委譲する。論理削除済みを除外する点が`AnswerStatsRepository`（除外しない）と逆であるため、`learning-analytics`向けの6操作とは別のRepositoryへ分けて委譲する（「3. Domain層設計」`AdminAnswerStatsRepository`の「別インターフェースに分ける判断とその根拠」）。戻り値は`domain/repository/`の型（`UnitAdminAnswerStats`等）をそのまま返し、呼び出し元の`admin-analytics`が自身の`AggregationScope`・`UnitAnswerAggregate`等の型へ変換する。
+`admin-analytics`向けの5操作は`AdminAnswerStatsRepository`へ委譲する。論理削除済みを除外する点が`AnswerStatsRepository`（除外しない）と逆であるため、`learning-analytics`向けの6操作とは別のRepositoryへ分けて委譲する（「3. Domain層設計」`AdminAnswerStatsRepository`の「別インターフェースに分ける判断とその根拠」）。戻り値は`domain/repository/`の型（`UnitAdminAnswerStats`等）をそのまま返し、呼び出し元の`admin-analytics`が自身の`AggregationScope`・`UnitAnswerAggregate`等の型へ変換する。
 
 `FindStartedUnitIDs`が返すのは識別子のスライスである。呼び出し元の`task-management`が自身の集合型へ変換する。本Contextの`UnitIDSet`を公開の型に使わない。相手Contextに本Contextの型を持ち込ませないためである。
 
@@ -1034,6 +1036,7 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |`AggregateByQuestion`|同|同じ絞り込みで、`question_id`・`unit_id`で`GROUP BY`して件数・正答数を取得する|
 |`AggregateByUser`|同|同じ絞り込みで、`user_id`で`GROUP BY`して件数・正答数を取得する|
 |`AggregateByDate`|同|同じ絞り込みで、`answered_at`を日本時間の暦日へ変換して`GROUP BY`し、件数・正答数と、その日の`user_id`の重複排除数（`COUNT(DISTINCT user_id)`相当）を取得する|
+|`FindUnitIDsAnsweredInPeriod`|`question_histories`|`user_id`での絞り込みを行わず、`deleted_at IS NULL`・`answered_at`が期間内（日本時間の暦日。両端を含む）で絞り込み、`questions`と結合して`questions.deleted_at IS NULL`を条件に加え、`unit_id`で`DISTINCT`して識別子の集合を取得する|
 
 **いずれも`deleted_at IS NULL`（履歴・問題の両方）を条件に加える。** `answerStatsRepository`の6操作が除外しないのとは逆である（「3. Domain層設計」`AdminAnswerStatsRepository`）。
 
@@ -1086,6 +1089,7 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |`adminAnswerStatsRepository.AggregateByUnit` / `AggregateByQuestion` / `AggregateByUser` / `AggregateByDate`|`unitIDs`を指定した場合にその単元のみに絞り込まれること、`nil`の場合は絞り込まれないこと|
 |`adminAnswerStatsRepository.AggregateByUnit` / `AggregateByQuestion` / `AggregateByUser` / `AggregateByDate`|範囲の境界の日が含まれること、指定していないユーザーの解答が結果に含まれないこと|
 |`adminAnswerStatsRepository.AggregateByDate`|同じ日に複数回解答したユーザーが重複排除数に1回だけ数えられること|
+|`adminAnswerStatsRepository.FindUnitIDsAnsweredInPeriod`|**論理削除済みの履歴・問題が除外されること**／`user_id`での絞り込みを行わないこと／範囲の境界の日が含まれること／重複なく単元の識別子が返ること|
 |`todayAnswerCountRepository.Increment`|値が1増えること|
 |`todayAnswerCountRepository.Increment`|キーが新規作成されたときのみ有効期限が設定されること（2回目の加算で有効期限が再設定されないこと）|
 |`todayAnswerCountRepository.Increment`|日付が変わると別のキーになること|
@@ -1100,6 +1104,7 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |`Context.FindTodayAnswerCount`|`TodayAnswerCountRepository.Find`へ委譲し、値をそのまま返すこと|
 |`Context.FindStartedUnitIDs`|`QuestionHistoryRepository.FindStartedUnitIDs`へ委譲し、識別子のスライスを返すこと|
 |`Context.AggregateAdminAnswersByUnit` / `AggregateAdminAnswersByQuestion` / `AggregateAdminAnswersByUser` / `AggregateAdminAnswersByDate`|`AdminAnswerStatsRepository`の対応するメソッドへ委譲し、結果をそのまま返すこと|
+|`Context.FindUnitIDsAnsweredInPeriod`|`AdminAnswerStatsRepository.FindUnitIDsAnsweredInPeriod`へ委譲し、結果をそのまま返すこと|
 
 ## UseCase Test / Handler Test / Integration Test
 
@@ -1141,5 +1146,6 @@ RDBのトランザクションに含めることはできない（「11. Transac
 |他Contextの参照手段・公開操作のシグネチャを本書で確定とした|コーディング規約「7. インターフェース」の「利用側でインターフェースを定義する」に従い、本Contextが必要とする形を`dependency.go`で定め切る。相手Contextが別の形を公開している場合は、アダプタが差を吸収する。相手側の③が確定するのを待たない|補足（規約の適用。`task-management`・`goal-management`の③は確定済みであり、`curriculum`の③は本バッチで作成する）|
 |`admin-analytics`向けの集計を`AnswerStatsRepository`とは別の`AdminAnswerStatsRepository`に分けた|論理削除の扱いが逆（除外する/しない）であり、1つのインターフェースに条件引数を増やす方式では呼び出し側の指定ミスを防げない。`AnswerStatsRepository`が`QuestionHistoryRepository`と分かれているのと同じ理由による|補足（既存の分離方針の適用。②「11. Repository設計」が「同じ`question_histories`に対する論理削除の扱いが4通り目になるため、`admin-analytics`向けであることが分かる形で公開する」と明記している）|
 |`AdminAnswerStatsRepository`の各メソッドに`unitIDs []uint`を加えた|②「11. Repository設計」は期間・ユーザーID集合のみを記載するが、管理者分析機能③「8. Infrastructure層設計」の`AnswerAggregateDirectory`が教科による絞り込み（`AggregationScope.UnitIDs`）を要求しており、同③がアダプタの責務を委譲と型変換のみに限る方針であるため、絞り込み自体を本メソッド側に持たせる必要がある|**②からの補足**（消費側の③の要求に基づく拡張。`unitIDs`が`nil`なら②の記載範囲と同じ挙動になる）|
+|`AdminAnswerStatsRepository`に`FindUnitIDsAnsweredInPeriod`を追加した|管理者分析機能③の実装過程で、コンテンツ網羅率の判定に、母集団・教科を問わない期間内の単元ID取得が必要と判明した。②「11. Repository設計」の整理時点ではこの操作が他の4操作とまとめて記載されていたため、本書で区別した（②「11. Repository設計」「本Contextが他Contextへ公開する参照手段」に本操作を追加済み）|確定済み（推測ではない）|
 
 `question_histories`の全カラムの型・NULL可否、エンドポイントとステータスコード、レスポンスの形状、トランザクション境界、当日の解答件数のキーと有効期限は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

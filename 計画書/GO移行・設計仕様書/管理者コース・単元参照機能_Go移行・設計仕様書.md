@@ -501,8 +501,10 @@ flowchart TD
 |-|-|-|-|-|-|
 |コース一覧の検索|`curriculum`|courses（subjectsとの結合を含む）|論理削除除外、`subject_id`による絞り込み（任意）、`level_name`/`description`への部分一致検索（`q`指定時）|subjectsと結合し科目名を取得|`sort`（`level_name`/`created_at`/`id`、既定`created_at`）・`order`（`asc`/`desc`、既定`desc`）、`per_page`上限100件|
 |コース詳細の取得|`curriculum`|courses・units（単元ごとの問題数集計を含む）|論理削除除外、`id`一致|unitsと結合|単元一覧は`id`昇順|
-|単元詳細のスコープ確認と問題一覧の取得|`curriculum`|units・questions（question_choices・question_hints・question_explanationsとの結合を含む）|論理削除除外、`course_id` + `id`の組み合わせで一致するものだけを対象とする|question_choices（choice_number順）・question_hints（step_number順）・question_explanations（登録順）と結合|問題一覧は`id`順|
+|単元詳細のスコープ確認と問題一覧の取得|`curriculum`|units・questions（question_choices・question_hints・question_explanationsとの結合を含む）|論理削除の扱いは①「5. API / 処理詳細」`Api::V1::Admin::UnitsController#show`に記載がなく未確定である（コース参照機能②「11. Repository設計」も同操作を未確定としている）。`course_id` + `id`の組み合わせで一致するものだけを対象とする|question_choices（choice_number順）・question_hints（step_number順）・question_explanations（登録順）と結合|問題一覧は`id`順|
 |直近のインポート履歴の参照|`question-import`|import_histories|`unit_id`による絞り込み|不要|作成日時の降順、上位5件|
+
+**②からの補足**: 上記の単元詳細の行は、当初「論理削除除外」としていたが、①の該当箇所（`UnitsController#show`の処理内容・業務ルール）に論理削除の除外についての記載がないことを確認したため、未確定として改めた。コース一覧の検索・コース詳細の取得の「論理削除除外」は、①「5. API / 処理詳細」`CoursesController#index`・`#show`の業務ルールに明記があり、そのまま維持する。
 
 ---
 
