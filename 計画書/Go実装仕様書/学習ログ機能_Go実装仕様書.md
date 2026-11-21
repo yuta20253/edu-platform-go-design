@@ -69,6 +69,7 @@ internal/studylog/study_log_store.go               # StudyLogStore（永続化�
 internal/studylog/study_log_stats_store.go         # StudyLogStatsStore（分析向けの集計。論理削除済みを除外する）
 internal/studylog/find_studied_dates.go            # FindStudiedDates（他Contextから呼ばれる公開操作）
 internal/studylog/sum_study_minutes_by_date.go     # SumStudyMinutesByDate（他Contextから呼ばれる公開操作）
+internal/studylog/find_active_user_ids_and_sum_study_minutes_in_period.go  # FindActiveUserIDsAndSumStudyMinutesInPeriod（他Contextから呼ばれる公開操作）
 internal/studylog/infrastructure/contextadapter/task_unit_directory.go  # TaskUnitDirectoryの実装
 internal/studylog/infrastructure/contextadapter/task_starter.go         # TaskStarterの実装
 internal/studylog/presentation/handler/study_log_handler.go
@@ -79,7 +80,7 @@ internal/studylog/presentation/routes.go
 
 ## 文書の分割
 
-本書は分割しない。実装ファイルは上記の16であり、テストが付くもの（StudyLog・StudyLogStatus・Duration・StudyLogStore・StudyLogStatsStore・FindStudiedDates・SumStudyMinutesByDate・2つのアダプタ・StudyLogHandlerの10）を加えると26となるため、1文書あたり30〜35という範囲に収まる。
+本書は分割しない。実装ファイルは上記の17であり、テストが付くもの（StudyLog・StudyLogStatus・Duration・StudyLogStore・StudyLogStatsStore・FindStudiedDates・SumStudyMinutesByDate・FindActiveUserIDsAndSumStudyMinutesInPeriod・2つのアダプタ・StudyLogHandlerの11）を加えると28となるため、1文書あたり30〜35という範囲に収まる。
 
 ---
 
@@ -413,8 +414,11 @@ flowchart TD
 |-|-|-|-|
 |`FindStudiedDates`|`ctx context.Context, userID uint`|`([]time.Time, error)`|`user_id`で絞り込み、`started_at`を日本時間の暦日へ変換して重複なく取得する。**`deleted_at IS NULL`を条件に加える**|
 |`SumStudyMinutesByDate`|`ctx context.Context, userID uint, from, to time.Time`|`([]DailyStudyMinutes, error)`|`user_id`と日本時間の暦日が`from`〜`to`の範囲（両端を含む）であるもので絞り込み、暦日ごとに`duration_minutes`を合計する。**`deleted_at IS NULL`を条件に加える**。`duration_minutes`が`NULL`のログは0分として扱う|
+|`FindActiveUserIDsAndSumStudyMinutesInPeriod`|`ctx context.Context, userIDs []uint, from, to time.Time`|`([]uint, int, error)`|`user_id IN (?)`と日本時間の暦日が`from`〜`to`の範囲（両端を含む）であるもので絞り込み、学習記録のある利用者の識別子を重複なく取得しつつ、`duration_minutes`の合計を算出する。**`deleted_at IS NULL`を条件に加える**。`duration_minutes`が`NULL`のログは0分として扱う|
 
 **`StudyLogStore`と別のstructに分ける。** 同じテーブルを対象とするが、論理削除済みの扱いが逆である（`StudyLogStore`は除外せず、本Storeは除外する）。1つのstructに混在させると、呼び出し箇所から扱いの違いが見えない（②「3. Bounded Context」の「本Contextが公開する操作」）。
+
+`FindActiveUserIDsAndSumStudyMinutesInPeriod`は`FindStudiedDates`・`SumStudyMinutesByDate`と同じ`StudyLogStatsStore`に3つ目のメソッドとして追加する。論理削除の扱い（`deleted_at IS NULL`を条件に加える）が既存の2メソッドと同じであり、新しいStoreを設ける根拠がないためである（既存2メソッドと異なる扱いであれば、問題解答機能③基盤編の`AdminAnswerStatsRepository`と同様に別Storeへ分ける判断になる）。戻り値を`[]uint`・`int`の2つに分けたのは、`SumStudyMinutesByDate`の`[]DailyStudyMinutes`のように暦日ごとの行が複数ある構造ではなく、期間全体に対する集合と合計値の2つで表せるため、専用の構造体を新設しなかった（**②からの補足**。「17. ②からの補足事項」参照）。
 
 `DailyStudyMinutes`（`study_log.go`で定義する）は`Date time.Time`（暦日）・`Minutes int`を持つ。
 
@@ -476,6 +480,26 @@ flowchart TD
 学習ログのない日は結果に含めない。呼び出し側（`learning-analytics`）が欠けている日を0分として埋める（②「12. UseCase設計」）。
 
 いずれも認可を行わない。操作者の識別子を絞り込み条件として受け取るだけである（②「16. Authorization設計」）。トランザクションは使用しない。
+
+## FindActiveUserIDsAndSumStudyMinutesInPeriod（`find_active_user_ids_and_sum_study_minutes_in_period.go`）
+
+他Contextから呼ばれる公開操作である（②「11. Repository設計」「12. UseCase設計」）。
+
+|項目|内容|
+|-|-|
+|関数|`FindActiveUserIDsAndSumStudyMinutesInPeriod(ctx context.Context, userIDs []uint, from, to time.Time) ([]uint, int, error)`|
+|受け取る依存|`*StudyLogStatsStore`|
+
+処理ステップ:
+
+1. `StudyLogStatsStore.FindActiveUserIDsAndSumStudyMinutesInPeriod`で、指定したユーザーID集合・期間について学習記録のある利用者の識別子の集合と合計学習時間を取得する
+2. そのまま返す
+
+呼び出し元（`admin-analytics`）が渡すユーザーID集合は、在籍中の生徒等の母集団である。本Contextはその集合を絞り込み条件として受け取るだけで、「在籍中とは何か」の判定は行わない（②「12. UseCase設計」）。
+
+`FindActiveUserIDsSince`（単一時点・全利用者を対象とし期間を取らない）・`SumStudyMinutesByDate`（単一ユーザー・期間を対象とする）のいずれも、期間とユーザーID集合を組み合わせた母集団に対する参照を満たさないため、本操作が新たに必要になる（②「12. UseCase設計」）。
+
+認可を行わない。トランザクションは使用しない。
 
 ## 外部連携実装
 
@@ -786,8 +810,9 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 
 - `StudyLogStatsStore.FindStudiedDates`: `user_id`と`deleted_at IS NULL`で絞り込み、`started_at`を日本時間の暦日へ変換して`DISTINCT`で取得する。並び順は指定しない（呼び出し側が継続日数の計算で扱う）
 - `StudyLogStatsStore.SumStudyMinutesByDate`: 同じ絞り込みに暦日の範囲を加え、暦日で`GROUP BY`して`duration_minutes`を`SUM`する。`NULL`は0として合計する（`COALESCE`相当）
+- `StudyLogStatsStore.FindActiveUserIDsAndSumStudyMinutesInPeriod`: `user_id IN (?)`・`deleted_at IS NULL`・暦日の範囲で絞り込み、`user_id`を重複なく取得しつつ、同じ絞り込みで`duration_minutes`を`SUM`する（`NULL`は0として合計する）。利用者の集合取得と合計の算出は、Repositoryインターフェース上は1メソッドだが、発行するクエリ自体は2つに分けてよい（集計対象が異なるため）
 
-**この2つだけが`deleted_at IS NULL`を条件に加える。** 本Contextの他のクエリは論理削除済みを除外しない（「8. Infrastructure層設計」）。
+**この3つだけが`deleted_at IS NULL`を条件に加える。** 本Contextの他のクエリは論理削除済みを除外しない（「8. Infrastructure層設計」）。
 
 # 16. テストケース設計
 
@@ -816,6 +841,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |-|-|
 |`StudyLogStatsStore.FindStudiedDates`|同じ日に複数のログがある場合に暦日が重複しないこと／論理削除済みのログが含まれないこと／日本時間で日付が切り替わること（UTCの15時台のログが翌日になること）|
 |`StudyLogStatsStore.SumStudyMinutesByDate`|暦日ごとに合計されること／範囲の境界の日が含まれること／`duration_minutes`が未設定のログが0分として扱われること／ログのない日が結果に含まれないこと／論理削除済みのログが含まれないこと|
+|`StudyLogStatsStore.FindActiveUserIDsAndSumStudyMinutesInPeriod`|指定したユーザーID集合のうち学習記録のある利用者のみが重複なく返ること／指定していないユーザーの学習記録が合計に含まれないこと／範囲の境界の日が含まれること／論理削除済みのログが除外されること／`duration_minutes`が未設定のログが0分として扱われること|
 |`StudyLogStore.FindScoped`|4つの識別子すべてに一致する学習ログが取得できること|
 |`StudyLogStore.FindScoped`|`user_id`が異なる場合に`ErrStudyLogNotFound`が返ること|
 |`StudyLogStore.FindScoped`|`task_id`・`unit_id`のいずれかが異なる場合に`ErrStudyLogNotFound`が返ること|
@@ -879,6 +905,8 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |`Duration`型をカラムに対応させず、`Complete`の中で`*int`へ変換する形にした|完了するまで未設定であり、`Scanner`／`driver.Valuer`を実装するより変換を1箇所に閉じ込める方が単純であるため|補足|
 |所要時間が負になる場合の検証を設けなかった|終了時刻は常にサーバの現在時刻であり、開始時刻より前になる経路がない。Rails現行にも検証がない|補足（①の実体に基づく）|
 |`started_at`・`ended_at`の**日時の表現形式**を確定しなかった|Goの`time.Time`の既定のJSON表現はRFC3339（小数部6桁）、RailsのActiveSupportの既定は小数部3桁であり**桁数が異なる**。フロントエンドが文字列として扱っている場合は影響しないが、桁数に依存した処理があると差が出る|**要確認**（フロントエンドを変更しない方針に関わる。整形方針を揃えるかは実装前に確認が必要）|
+|`FindActiveUserIDsAndSumStudyMinutesInPeriod`を既存の`StudyLogStatsStore`に3つ目のメソッドとして追加し、新しいStoreを設けなかった|論理削除の扱い（`deleted_at IS NULL`を条件に加える）が既存の`FindStudiedDates`・`SumStudyMinutesByDate`と同じであるため。`StudyLogStore`と`StudyLogStatsStore`を分けているのは論理削除の扱いが逆の場合であり、本操作は該当しない|補足（②「11. Repository設計」が「本Contextにとって論理削除の扱いの種類を新たに増やすものではない」と明記している判断の実装への反映）|
+|`FindActiveUserIDsAndSumStudyMinutesInPeriod`の戻り値を`[]uint`・`int`の2値とし、専用の構造体を新設しなかった|`SumStudyMinutesByDate`の`DailyStudyMinutes`は暦日ごとに複数行が生じるため構造体が必要だが、本操作の出力はユーザーID集合と合計分の2つの値であり、呼び出し元（`StudyActivitySummary`への変換は管理者分析機能③側）が必要とする形に本Context側で先取りして構造体を合わせる必要がない|補足（実装レベルの整理）|
 |ルートの登録を`study_logs`以下のみに限る形にした|パスの前半（`/tasks/:task_id/units/:unit_id`）は`task-management`が所有するリソースの下にある。パスの文字列を複数のContextが重複して持たないようにするため|要確認（入れ子のルートをどのContextが登録するかの方針は規約に定めがない。`cmd/server/main.go`での組み立て方とあわせて確認が必要）|
 
 ディレクトリ名・package名（`internal/studylog/`）、レスポンスの形状（`study_log_id`キー、5項目、日付の整形なし）、HTTPステータス（201・200・422・404）、`study_logs.status`の整数2値での保持、トランザクション境界は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

@@ -365,7 +365,7 @@ flowchart TD
 ||`AggregateByDay(ctx context.Context, scope AggregationScope, r DateRange) ([]DailyAnswerAggregate, error)`|同、日本時間の日付ごと|
 ||`FindUnitIDsAnsweredInPeriod(ctx context.Context, r DateRange) ([]uint, error)`|母集団・教科による絞り込みを受けずに、指定期間内に1件以上の解答がある単元の識別子を返す（コンテンツ網羅率専用）|
 
-いずれも②「11. Repository設計」が「新規」と整理した公開操作であり、`question-answering`②「11. Repository設計」への追加が別途必要である（②「11. Repository設計」の「他Context側への追加が必要な公開操作」）。`FindUnitIDsAnsweredInPeriod`は、本書で初めて必要性が判明した5つ目の操作であり、②の整理時点では他の4つ（単元別・設問別・ユーザー別・日別）とまとめて記載していた（**②からの補足**。「17. ②からの補足事項」参照）。
+`AggregateByUser` / `AggregateByUnit` / `AggregateByQuestion` / `AggregateByDay`の4メソッドは、`question-answering`②「11. Repository設計」「本Contextが他Contextへ公開する参照手段」に追加された「期間・ユーザーID集合を指定した単元別／設問別／ユーザー別／日別の解答数・正答数の集計」に対応する操作であり、**②③とも確定済みである**。問題解答機能③基盤編「3. Domain層設計」の`AdminAnswerStatsRepository`（メソッド名は`AggregateByUnit` / `AggregateByQuestion` / `AggregateByUser` / `AggregateByDate`）として実装レベルまで定められており、論理削除済みの解答履歴・問題を除外する点も②③で確定している。`FindUnitIDsAnsweredInPeriod`（母集団・教科を問わない期間内の単元ID取得）は、本書で初めて必要性が判明した5つ目の操作であり、②の整理時点では他の4つ（単元別・設問別・ユーザー別・日別）とまとめて記載していたため、**この操作だけ`question-answering`②「11. Repository設計」への追加が別途必要なまま残っている**（**②からの補足**。「17. ②からの補足事項」の2.参照）。
 
 ### `study-log`への参照
 
@@ -373,7 +373,7 @@ flowchart TD
 |-|-|-|
 |`StudyActivityDirectory`|`AggregateStudyActivity(ctx context.Context, userIDs []uint, r DateRange) (StudyActivitySummary, error)`|指定したユーザーID集合・期間について、学習記録のあるユーザーIDの集合と合計学習時間を返す|
 
-②「11. Repository設計」が「新規」と整理した公開操作であり、`study-log`②「11. Repository設計」への追加が別途必要である。
+`study-log`②「11. Repository設計」「12. UseCase設計」に追加された`FindActiveUserIDsAndSumStudyMinutesInPeriod`に対応する操作であり、**②③とも確定済みである**。学習ログ機能③「8. Infrastructure層設計」として実装レベルまで定められており、論理削除済みの学習ログを除外する点も②③で確定している。
 
 ### `curriculum`への参照
 
@@ -384,7 +384,7 @@ flowchart TD
 ||`FindQuestionTexts(ctx context.Context, questionIDs []uint) ([]QuestionRef, error)`|設問IDから設問テキスト・単元ID・単元名・コースIDを返す|
 ||`ContentInventory(ctx context.Context) (ContentInventory, error)`|有効な単元の総数と、問題を1件以上持つ単元の識別子を返す|
 
-いずれも②「11. Repository設計」が「新規」と整理した公開操作であり、`curriculum`②「11. Repository設計」への追加が別途必要である。
+`FindQuestionTexts`・`FindUnitIDsBySubject`・`ContentInventory`に対応する公開操作は、コース参照機能②「11. Repository設計」「他Contextへ公開する参照手段」に、設問テキストと単元・コースの対応の参照・教科に属するコース・単元の識別子の参照・コンテンツ在庫の参照の3操作として追加され、**②レベルでは確定済みである**（いずれも論理削除済みを除外する）。コース参照機能③への実装レベルの反映は別途進められている。
 
 渡したIDに対応する行が存在しない場合（論理削除済みの単元・設問等）は、その要素を戻り値に含めない。エラーにしない（分析機能③基盤編の`CurriculumDirectory`と同じ扱い）。
 
@@ -412,7 +412,13 @@ flowchart TD
 
 `highSchoolNameDirectory.FindHighSchoolNames`は、`master-data`の`FindHighSchools`を呼び、返った属性から`ID`・`Name`のみを取り出して`HighSchoolRef`へ変換する。
 
-アダプタの責務は委譲と型変換のみである。集計・並べ替え・グルーピングをアダプタで行わない（分析機能③基盤編と同じ方針）。
+`answerAggregateDirectory`の4メソッドは、`qaContext`の`AggregateAdminAnswersByUnit` / `AggregateAdminAnswersByQuestion` / `AggregateAdminAnswersByUser` / `AggregateAdminAnswersByDate`（問題解答機能③基盤編「8. Infrastructure層設計」の「本Contextが他Contextへ公開する参照手段」）へ、それぞれ`scope.UserIDs`・`scope.UnitIDs`・`r.From`・`r.To`をそのまま渡して委譲する。戻り値の`[]questionanswering.UnitAdminAnswerStats`等を本Contextの`[]UnitAnswerAggregate`等へ変換する。`FindUnitIDsAnsweredInPeriod`は、`question-answering`②への5つ目の操作の追加が完了していないため、本書では委譲先を確定しない（「17. ②からの補足事項」の2.参照）。
+
+`studyActivityDirectory.AggregateStudyActivity`は、`studyLogContext`の`FindActiveUserIDsAndSumStudyMinutesInPeriod`（学習ログ機能③「8. Infrastructure層設計」）へ`userIDs`・`r.From`・`r.To`を渡して委譲する。戻り値の`([]uint, int)`を`StudyActivitySummary{ActiveUserIDs, TotalMinutes}`へ変換する。
+
+`curriculumDirectory`の4メソッドの委譲先は、コース参照機能②「11. Repository設計」で確定した3操作（設問テキストと単元・コースの対応の参照・教科に属するコース・単元の識別子の参照・コンテンツ在庫の参照）および既存の公開操作（単元情報の取得等）に対応する。具体的な関数名・シグネチャはコース参照機能③で定まる。
+
+アダプタの責務は委譲と型変換のみである。集計・並べ替え・グルーピングをアダプタで行わない（分析機能③基盤編と同じ方針）。`unitIDs`による絞り込みを`answerAggregateDirectory`のアダプタ内で行わないのもこの方針による。絞り込み自体は委譲先（`AdminAnswerStatsRepository`）が行う。
 
 コンパイル時のインターフェース充足チェック（コーディング規約「7. インターフェース」）をそれぞれのアダプタファイルに置く。
 
@@ -420,7 +426,7 @@ flowchart TD
 var _ adminanalytics.StudentPopulationDirectory = (*studentPopulationDirectory)(nil)
 ```
 
-**②からの補足**: 相手Contextが公開する参照手段の具体的なシグネチャは、各機能の③で確定する。本書が宣言するインターフェースのメソッド名・引数は、所有Context側（`question-answering`・`study-log`・`curriculum`）の②へ公開操作を追加する際の起点として使う（「17. ②からの補足事項」参照）。
+**②からの補足**: `question-answering`・`study-log`が公開する参照手段の具体的なシグネチャは、両機能の③（問題解答機能③基盤編・学習ログ機能③）で確定済みである。`curriculum`が公開する参照手段は、コース参照機能②のレベルで確定済みであり、③への実装レベルの反映は別途進められている。本書が宣言するインターフェースのメソッド名・引数は、所有Context側がこれらを確定させる際の起点として使われた（「17. ②からの補足事項」参照）。
 
 ## 外部連携実装
 
@@ -711,7 +717,8 @@ Transaction Script採用のため、application関数内のガード節で検証
 |対象|テストケース|
 |-|-|
 |`studentPopulationDirectory.FindAcceptedStudents`|`user`の`SearchUsers`へ、役割=生徒・在籍中のみ・所属校の指定を渡すこと（相手Contextのテストダブルで検証）|
-|`answerAggregateDirectory`の各メソッド|`question-answering`側の対応する参照手段へ委譲するだけで、集計・並べ替えを行わないこと|
+|`answerAggregateDirectory`の各メソッド|`question-answering`側の対応する参照手段へ委譲するだけで、集計・並べ替えを行わないこと（`unitIDs`による絞り込みも委譲先に行わせ、アダプタ内で絞り込まないこと）|
+|`studyActivityDirectory.AggregateStudyActivity`|`study-log`側の`FindActiveUserIDsAndSumStudyMinutesInPeriod`へ委譲し、戻り値を`StudyActivitySummary`へ変換するだけであること|
 |`curriculumDirectory`の各メソッド|同様に委譲のみであること|
 |`highSchoolNameDirectory.FindHighSchoolNames`|`master-data`の`FindHighSchools`の結果から`ID`・`Name`のみを取り出すこと|
 
@@ -759,6 +766,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 - 判断した内容: コンテンツ網羅率の`units_without_answers`判定に、母集団・教科による絞り込みを受けない「期間内に解答がある単元ID」の取得が必要であり、`AggregateByUnit`等とは別の操作として`FindUnitIDsAnsweredInPeriod`を追加した
 - 判断理由: ①の調査（Rails`AnalyticsContentCoverable#answered_exists_sql`）で、コンテンツ網羅率の判定が`question_histories`を母集団で絞らずに参照していることを確認した。`AggregateByUnit`は母集団で絞り込む設計のため、同じ操作を流用できない
 - 推測かどうか: **②からの補足**。②「11. Repository設計」は`question-answering`への新規操作を「単元別／設問別／ユーザー別／日別の解答数・正答数集計」とまとめて記載していたが、コンテンツ網羅率専用の母集団を問わない参照は区別されていなかった
+- 現状: 上記の「単元別／設問別／ユーザー別／日別の解答数・正答数集計」（`AggregateByUser` / `AggregateByUnit` / `AggregateByQuestion` / `AggregateByDay`）は`question-answering`②③とも確定済みである（問題解答機能③基盤編「3. Domain層設計」「8. Infrastructure層設計」の`AdminAnswerStatsRepository`）。`FindUnitIDsAnsweredInPeriod`のみ、`question-answering`②への追加が別途必要なまま残っている
 
 ## 3. `high_school_id`・`subject_id`のバインド失敗を`binding`タグではなくHandlerで吸収する
 

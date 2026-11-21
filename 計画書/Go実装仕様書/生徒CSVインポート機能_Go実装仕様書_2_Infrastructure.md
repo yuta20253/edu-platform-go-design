@@ -134,8 +134,8 @@ internal/studentimport/infrastructure/storage/csv_file_storage.go
 ### SchoolClassDirectory実装（`infrastructure/contextadapter/school_class_directory.go`）
 
 - 実装struct名: 非公開struct（例: `schoolClassDirectory`）+ コンストラクタ`NewSchoolClassDirectory(schoolClassContext *schoolclass.Context) studentimport.SchoolClassDirectory`
-- 委譲先: `school-class`が公開する学級名による解決操作（**要確認**。クラス編成機能③にまだ定義がない。1_Domain「2. ディレクトリ構成」参照）
-- 実装方針: `school-class`側の追随時に確定する公開操作を呼び出し、結果を`schoolClassID`・`found`へ変換する。本アダプタはGORMに依存せず、`school_classes`へクエリを発行しない
+- 委譲先: `school-class`が公開する`Context.ResolveClassByName(ctx context.Context, gradeID uint, className string) (schoolClassID uint, found bool, err error)`（クラス編成機能③_3「6. Application層設計」「他Contextへ公開する参照手段」）
+- 実装方針: `school-class`の`Context.ResolveClassByName`を呼び出し、結果を`schoolClassID`・`found`へ変換する。本アダプタはGORMに依存せず、`school_classes`へクエリを発行しない
 
 ### StudentAccountCreator実装（`infrastructure/contextadapter/student_account_creator.go`）
 
@@ -277,7 +277,7 @@ SQL文そのものは記載しない。
 |対象|テストケース|
 |-|-|
 |`GradeDirectory`|`FindGradesByHighSchoolID`への引数が正しく渡ること／表示名が一致する学年が見つかった場合に`found=true`となること／見つからない場合に`found=false`となること|
-|`SchoolClassDirectory`|`school-class`側の公開操作が確定した時点で、引数・戻り値の変換が正しいことを検証する（**要確認**。公開操作の確定が前提）|
+|`SchoolClassDirectory`|`Context.ResolveClassByName`への引数（学年ID・学級名）が正しく渡ること／指定した学年に属する学級名が見つかった場合に`found=true`となること／見つからない場合、または別の学年に属する学級名を指定した場合に`found=false`となること|
 |`StudentAccountCreator`|`user`の`CreateStudentAccount`へ入力が正しく変換されて渡され、結果が変換されて返ること（`user`の作成規則そのものは`user`のテストで検証する）／`IssueStudentNumber`の呼び出しパラメータが正しいこと|
 
 ---
