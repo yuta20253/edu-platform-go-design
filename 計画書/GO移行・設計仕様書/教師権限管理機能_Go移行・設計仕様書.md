@@ -267,6 +267,21 @@ Gorm規約「12. 楽観ロック（Optimistic Locking）」に従う。
   - 保護ルールそのものの判断（TeacherPermissionUpdateGuardの責務。本参照手段は判断に必要な事実の取得のみを行う）
 - 判断根拠: 教員の有効状態・ロール・所属校はユーザーの基本属性であり、`user` Contextが正として管理する。本Contextが`users`テーブルを独自に解釈すると、「有効な教員とは何か」の判断が2箇所に分かれる。規約「5. Context間連携ルール」に従い、`user` Contextの公開参照を呼び出す形とし、そのためのインターフェースは本Contextの`dependency.go`に置く
 
+## 他Contextへ公開する参照手段
+
+本Contextが公開する操作は2つであり、いずれも読み取りのみである。状態を変える操作は公開しない。
+
+|公開する操作|呼び出し元|内容|
+|-|-|-|
+|担当学年の制限の参照|`student-directory`（教師生徒参照機能）・`announcement`（教師お知らせ機能）|指定した教員の権限区分（`grade_scope`）が「担当学年のみ」（`own_grade`）であれば、その教員自身の担当学年の識別子を返す。「全学年」（`all_grades`）、または権限レコードが存在しない場合は、制限なしとして扱い、該当する値がないことを返す|
+|他職員操作権限の参照|`school-class`（クラス編成機能）|指定した教員が他職員操作権限（`manage_other_teachers`）を保持するかどうかを返す。対象教員に権限レコードが存在しない場合は、権限を保持しないものとして扱う|
+
+**担当学年の制限の参照について**: 担当学年の識別子は`teacher_permissions`自体には保持していない（「7. Value Object設計」のGradeScope、本節「他Contextの参照手段」のとおり、本Contextが保持するのは`grade_scope`という区分のみである）。本Contextが既に依存している`user` Contextの`GetUserAttributes`（本節「他Contextの参照手段」）から取得した対象教員自身の学年識別子を、`grade_scope`が`own_grade`の場合にのみ用いて返す。
+
+教師生徒参照機能③（`教師生徒参照機能_Go実装仕様書.md`「Context間連携（GradeDirectory / SchoolClassDirectory / GradeRestrictionDirectory）」）は、`GradeRestrictionDirectory`の`FindGradeRestriction`というインターフェース（教員の識別子を受け取り、担当学年の識別子を返す。制限がなければ該当なし）を暫定で定義し、「`teacher-permission` Contextの②には、担当学年の制限を他Contextへ公開する操作が定義されていない。本書では`FindGradeRestriction`相当の公開操作が同Contextに追加されることを前提とする」と明記している。教師お知らせ機能③_1（`教師お知らせ機能_Go実装仕様書_1_Domain・Infrastructure.md`「8. Infrastructure層設計」）も同じ名称・同じ意味のインターフェースで同じ情報を取得する前提に立っている。この公開操作を本Contextに追加することで、両文書が前提としていた操作が本Contextの②に定義されることになる。名称・戻り方（制限がなければ該当なしを返す）は、呼び出し元の両③で既に確定している`FindGradeRestriction`に揃える。
+
+**他職員操作権限の参照について**: クラス編成機能③_3（`クラス編成機能_Go実装仕様書_3_Application・Presentation.md`「17. ②からの補足事項」）は、`TeacherPermissionRepository`の`HasManageOtherTeachersPermission`という参照専用モデル（教員の識別子を受け取り、他職員操作権限の保持を真偽値で返す）を自Context内に定義し、`teacher_permissions`を直接読む形を取っている。同箇所は、その理由を「`teacher-permission`②「11. Repository設計」は他Contextへ向けた公開操作を定めていない」「所有Context側に公開操作が定まるまでの形である」と明記している。この公開操作を本Contextに追加することで、クラス編成機能側が規約「4. Bounded Context構成」の`dependency.go`＋`infrastructure/contextadapter/`への委譲という通常の形に改められるようになる。**ただし、クラス編成機能側の実装をその形へ改める作業自体は本書の対象外である。**名称・戻り方（真偽値）は、呼び出し元の③で既に確定している`HasManageOtherTeachersPermission`に揃える。
+
 ---
 
 # 12. UseCase設計
