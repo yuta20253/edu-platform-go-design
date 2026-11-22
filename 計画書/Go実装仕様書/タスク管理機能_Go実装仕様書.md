@@ -833,7 +833,7 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 
 いずれのルートも認証Middleware・`student`ロール確認Middlewareを経由する（②「16. Authorization設計」）。`POST` / `PATCH`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象にも含める（Gin規約「5. CSRF対策」の「適用範囲」）。一覧・詳細はGETのため対象外である。
 
-`DELETE /api/v1/student/tasks/:id`は定義しない。Rails現行は`resources :tasks`により経路だけが存在するが`destroy`が実装されていないため、経路自体を設けない（①「4. API一覧」）。
+`DELETE /api/v1/student/tasks/:id`は定義しない。Rails現行は`resources :tasks`を`only:`で限定しており削除の経路が存在しないため、経路自体を設けない（①「4. API一覧」）。
 
 ---
 

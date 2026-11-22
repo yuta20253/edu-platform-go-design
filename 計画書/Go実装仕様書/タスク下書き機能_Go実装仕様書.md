@@ -605,7 +605,7 @@ flowchart TD
 
 いずれのルートも認証Middleware・`student`ロール確認Middlewareを経由する（②「16. Authorization設計」）。`POST`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象にも含める（Gin規約「5. CSRF対策」の「適用範囲」）。詳細取得はGETのため対象外である。
 
-一覧取得・更新・削除の経路は定義しない。Rails現行は`resources :draft_tasks`により経路だけが存在するが、対応するアクションが実装されていないため（①「4. API一覧」）。
+一覧取得・更新・削除の経路は定義しない。Rails現行は`resources :draft_tasks`を`only: [:show, :create]`で限定しており、これらの経路が存在しないため（①「4. API一覧」）。
 
 ---
 
@@ -885,6 +885,6 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`EstimatedTime`を`*int`とした|カラムがNULL可であり既存データにNULLが存在し得るため。作成時に`0`を設定する（①「5. API / 処理詳細」`#create`）|補足（①の実体に基づく）|
 |`GoalID`を`uint`（非ポインタ）とし、Response DTOでは`*uint`とした|カラムはNULL可だがRailsの`belongs_to :goal`により登録時は必須である。一方、既存データにNULLが存在し得るため出力では`null`を返しうる（①「6. データモデル」）|補足（①の実体に基づく）|
 |`DueDate`に比較用のメソッドを設けない|本機能に期限の前後を比較する業務要件がないため。目標管理機能・タスク管理機能の`DueDate`は比較用メソッドを持つが、本機能では不要である|補足|
-|一覧取得・更新・削除の経路・Storeメソッドを設けない|Rails現行は`resources :draft_tasks`により経路だけが存在するが、対応するアクションが実装されていない（①「4. API一覧」）。使えない経路を移植する理由がない|補足（②「19. API仕様」の「Railsとの差分」に従う）|
+|一覧取得・更新・削除の経路・Storeメソッドを設けない|Rails現行は`resources :draft_tasks`を`only: [:show, :create]`で限定しており、これらの経路が存在しない（①「4. API一覧」）。提供されていない経路を移植する理由がない|補足（②「19. API仕様」の「Railsとの差分」に従う）|
 
 ディレクトリ名・package名（`internal/drafttask/`）、レスポンスの形状、HTTPステータス、`due_date`の入力の扱い、`draft_tasks.status`・`draft_tasks.priority`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。

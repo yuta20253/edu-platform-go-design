@@ -50,7 +50,7 @@
 |`Api::V1::Student::TasksController`|`create`|POST|`/api/v1/student/tasks`|タスクを作成|
 |`Api::V1::Student::TasksController`|`update`|PATCH|`/api/v1/student/tasks/:id`|タスクを更新|
 
-ルーティングは `resources :tasks` で定義されているため `DELETE /api/v1/student/tasks/:id` も経路として存在するが、`TasksController` に `destroy` が実装されていない。タスクの削除は提供されていない。
+ルーティングは `resources :tasks, only: [:index, :show, :create, :update]` で定義されており、`DELETE /api/v1/student/tasks/:id` の経路は存在しない。タスクの削除は提供されていない。
 
 `/api/v1/student/tasks/:task_id` の下には、提出（`submission`）・単元詳細（`units`）・問題（`questions`）・学習ログ（`study_logs`）・解答（`answers`）・確認（`confirmation`）が入れ子で定義されている。これらはそれぞれ別機能であり、本仕様書の対象外である。
 
