@@ -938,7 +938,6 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`GoalHandler.CreateGoal`|正常系: 目標が作成され識別子が201で返ること|
 |`GoalHandler.CreateGoal`|正常系: 作成された目標の`status`が`not_started`であること|
 |`GoalHandler.CreateGoal`|異常系: `title` / `due_date`未入力時に422と`{"errors": [...]}`が返ること|
-|エラーハンドラ|404のみ`message`キー、それ以外は`errors`キーの本文になること|
 |`GoalHandler.CreateGoal`|異常系: `due_date`が日付として解釈できない場合に422が返ること|
 |`GoalHandler.UpdateGoal`|正常系: 目標が更新され識別子が200で返ること|
 |`GoalHandler.UpdateGoal`|正常系: `status`が変更されないこと|

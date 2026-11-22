@@ -854,7 +854,6 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`DraftTaskHandler.CreateDraftTask`|異常系: 他の生徒の目標を指定した場合に422が返ること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: 存在しない単元を指定した場合に422が返り、メッセージが**1件**であること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: `title`が100文字を超えた場合に422が返ること|
-|エラーハンドラ|404のみ`message`キー、それ以外は`errors`キーの本文になること|
 
 ## Integration Test
 

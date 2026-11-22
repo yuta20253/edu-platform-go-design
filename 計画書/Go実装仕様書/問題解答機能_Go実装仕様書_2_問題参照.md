@@ -78,7 +78,7 @@ internal/questionanswering/presentation/response/confirmation_response.go
 |`entity.QuestionHistory`|確認表示で、問題ごとの解答履歴を参照する|
 |`valueobject.QuestionIDSet`|解答済みの問題の識別子の集合を扱う|
 |`repository.QuestionHistoryRepository`|`FindAnsweredQuestionIDs`・`FindByQuestionIDs`を呼ぶ|
-|`domain.ErrTaskNotFound` / `ErrUnitNotFound` / `ErrTaskOrUnitNotFound`|対象が見つからない場合のエラー|
+|`domain.ErrTaskNotFound` / `ErrUnitNotFound`|対象が見つからない場合のエラー|
 
 本書だけが使うDomain層の要素はない。Domain Serviceも使わない。いずれのエンドポイントも正誤判定を行わず、既に記録された判定結果を読むだけである。
 
@@ -249,7 +249,7 @@ UseCaseが受け取る依存はいずれもインターフェースである。`
 処理ステップ:
 
 1. `tasks.VerifyTaskUnit(ctx, q.TaskID, q.UnitID, q.UserID)`で対象を確認する
-2. 失敗した場合、**`ErrTaskOrUnitNotFound`として返す**（404。本文は`errors`形式）。タスクと単元を区別しない
+2. 失敗した場合、`VerifyTaskUnit`が返した`ErrTaskNotFound`／`ErrUnitNotFound`をそのまま返す（404）。`ListQuestionsUseCase`と同じ扱いである
 3. `questions.FindUnitQuestions(ctx, q.UnitID)`で単元に属する**すべての**問題を取得する
 4. `q.AnsweredQuestionIDs`が空であれば、解答履歴を取得せず空のマップとして扱う
 5. 空でなければ`histories.FindByQuestionIDs(ctx, q.UserID, q.TaskID, q.UnitID, q.AnsweredQuestionIDs)`で解答履歴を取得し、問題の識別子で引けるマップにする
@@ -257,8 +257,6 @@ UseCaseが受け取る依存はいずれもインターフェースである。`
 7. 変換した一覧を返す
 
 トランザクションは使用しない。
-
-**問題一覧とエラーの扱いが異なる。** 問題一覧は`ErrTaskNotFound` / `ErrUnitNotFound`（本文は`message`形式、名称は`タスク` / `Unit`）を返すが、確認表示は`ErrTaskOrUnitNotFound`（本文は`errors`形式、メッセージは`対象データが見つかりません`）を返す。Rails現行の`ConfirmationsController`が独自に例外を捕まえているためである（①「6. データモデル」の「エラーレスポンスの本文」、基盤編「14. Error実装方針」）。
 
 **対象は単元のすべての問題である。** `AnsweredQuestionIDs`で絞り込まれるのは解答履歴の検索条件だけであり、返す問題の範囲ではない（①「5. API / 処理詳細」`#show`（確認表示））。クライアントが解答済みと伝えなかった問題も`unanswered`として返る。
 
@@ -311,7 +309,7 @@ sequenceDiagram
     H->>H: カンマ区切りを分解してQuestionIDSetにする
     H->>U: Execute(ctx, ShowConfirmationQuery)
     U->>TD: VerifyTaskUnit(taskID, unitID, userID)
-    TD-->>U: nil / ErrTaskOrUnitNotFound
+    TD-->>U: nil / ErrTaskNotFound / ErrUnitNotFound
     U->>QD: FindUnitQuestions(unitID)
     QD-->>U: []QuestionRef（単元のすべての問題）
     alt 指定された識別子の集合が空でない
@@ -531,11 +529,10 @@ CSRFの対象外であるため、CSRFに起因するエラーは発生しない
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|対象のタスクまたは単元が見つからない（他の生徒のタスクを含む）|404|`ErrTaskOrUnitNotFound`。本文は**`{"errors": ["対象データが見つかりません"]}`**|
+|対象のタスクが存在しない、または他の生徒のタスク|404|`ErrTaskNotFound`。本文は`{"errors": ["タスクが見つかりません"]}`|
+|対象の単元がそのタスクに紐づかない|404|`ErrUnitNotFound`。本文は`{"errors": ["単元が見つかりません"]}`|
 
-**同じ404でも問題一覧と本文の形が異なる。** Rails現行の`ConfirmationsController`が独自に例外を捕まえているためである（①「6. データモデル」の「エラーレスポンスの本文」）。Rails側で統一する修正の方針があるが、修正までは現行の形を維持する（基盤編「14. Error実装方針」）。
-
-`answered_question_ids`に不正な値が含まれていてもエラーにしない。該当の要素を捨てて処理を続ける（「9. Presentation層設計」）。
+問題一覧と同じ扱いである。`answered_question_ids`に不正な値が含まれていてもエラーにしない。該当の要素を捨てて処理を続ける（「9. Presentation層設計」）。
 
 ---
 
@@ -555,8 +552,8 @@ CSRFの対象外であるため、CSRFに起因するエラーは発生しない
 |-|-|-|
 |パスパラメータ`task_id`・`unit_id`が整数か|Presentation|整数でなければ422|
 |クエリパラメータ`answered_question_ids`の形式|Presentation|**検証しない。** 整数に変換できない要素は捨てる（①「5. API / 処理詳細」`#show`（確認表示））|
-|タスクが操作者自身のものか|UseCase（`TaskUnitDirectory`）|問題一覧は`ErrTaskNotFound`、確認表示は`ErrTaskOrUnitNotFound`|
-|単元がそのタスクに紐づくか|同|問題一覧は`ErrUnitNotFound`、確認表示は`ErrTaskOrUnitNotFound`|
+|タスクが操作者自身のものか|UseCase（`TaskUnitDirectory`）|`ErrTaskNotFound`。問題一覧・確認表示で共通|
+|単元がそのタスクに紐づくか|同|`ErrUnitNotFound`。問題一覧・確認表示で共通|
 
 リクエストボディを持たないため、必須チェック・型チェックの対象は実質パスパラメータのみである。
 
@@ -582,14 +579,13 @@ Domain層の検証は行わない。本書のUseCaseはEntityを新しく生成�
 
 |Error|発生箇所|HTTP Status|ボディ|
 |-|-|-|-|
-|`ErrTaskNotFound`|`ListQuestionsUseCase`|404|`{"errors": ["タスクが見つかりません"]}`|
-|`ErrUnitNotFound`|`ListQuestionsUseCase`|404|`{"errors": ["単元が見つかりません"]}`|
-|`ErrTaskOrUnitNotFound`|`ShowConfirmationUseCase`|404|`{"errors": ["対象データが見つかりません"]}`|
+|`ErrTaskNotFound`|`ListQuestionsUseCase`・`ShowConfirmationUseCase`|404|`{"errors": ["タスクが見つかりません"]}`|
+|`ErrUnitNotFound`|`ListQuestionsUseCase`・`ShowConfirmationUseCase`|404|`{"errors": ["単元が見つかりません"]}`|
 |パスパラメータの形式不正|Handler|422|`{"errors": [...]}`|
 
 **同じ原因（タスク・単元が見つからない）を、UseCaseによって別のセンチネルエラーへ変換する。** `TaskUnitDirectory`のアダプタは「見つからない」という事実のみを返し、どのエラーにするかはUseCaseが決める（基盤編「14. Error実装方針」）。
 
-`ListQuestionsUseCase`はタスクと単元を区別するが、`ShowConfirmationUseCase`は区別しない。Rails現行の`ConfirmationsController`が`set_questions`で両方を1つの`rescue`にまとめているためである（①「5. API / 処理詳細」`#show`（確認表示））。
+`ListQuestionsUseCase`・`ShowConfirmationUseCase`いずれも`VerifyTaskUnit`が返したエラーをそのまま呼び出し元へ返す。タスクと単元を区別しない独自のエラーは持たない。
 
 本書の担当範囲に500になる経路はない。`QuestionDirectory`・`QuestionHistoryRepository`が技術的な障害を返した場合は、未分類のエラーとして500になる（基盤編「14. Error実装方針」）。
 
@@ -644,7 +640,7 @@ Domain層の検証は行わない。本書のUseCaseはEntityを新しく生成�
 |正常系: **指定された識別子の集合が空のとき、解答履歴を取得せずすべて`unanswered`になること**|
 |正常系: 指定された識別子に解答履歴のないものが含まれていても、その問題が`unanswered`として返ること|
 |正常系: 同じ問題に解答履歴が複数ある場合、1件が選ばれて結果が組み立てられること|
-|異常系: `VerifyTaskUnit`が失敗した場合に`ErrTaskOrUnitNotFound`を返すこと（タスクと単元を区別しないこと）|
+|異常系: `VerifyTaskUnit`が失敗した場合、`ErrTaskNotFound`／`ErrUnitNotFound`をそのまま返すこと|
 
 ## Handler Test
 
@@ -684,7 +680,7 @@ Domain層の検証は行わない。本書のUseCaseはEntityを新しく生成�
 |認可: 他の生徒のタスクを指定した場合に404になること|
 |認可: 他の生徒の解答履歴が`answered`・確認表示に混ざらないこと|
 |CSRF: GETのためCSRFトークンなしでも成功すること|
-|エラーハンドラ: 同じ404でも問題一覧は`message`キー、確認表示は`errors`キーの本文になること|
+|エラーハンドラ: 問題一覧・確認表示のいずれも404が`errors`キーの本文になること|
 
 ---
 

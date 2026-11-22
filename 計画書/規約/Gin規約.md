@@ -485,17 +485,13 @@ func (h *Handler) CreateTask(c *gin.Context) {
 }
 ```
 
-エラーハンドリングミドルウェアは`c.Next()`の後で`c.Errors`を確認し、アーキテクチャ規約「12. Error変換パターン（AppError）」の`AppError`インターフェースを`errors.As`で判定して、ログ出力とレスポンスを1箇所にまとめる。レスポンスの形式はアーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」に従い、`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す。**ただし404（`http.StatusNotFound`）は`{"message": "..."}`とする**（同「エラーレスポンス」の「404のみ`{"message": ...}`とする」）。`AppError`が同時に`Messages`（同12章「複数のメッセージを同時に返すエラー」）を満たす場合は、`errors`配列に全件を入れる。満たさない場合は`appErr.Error()`の1件のみを入れる。`AppError`が同時に`FieldErrorer`（同12章「複数フィールドのバリデーションエラー」）を満たす場合は、レスポンスに`fields`を含める。登録は`AccessLogger`の次とする（「0. 本プロジェクトでの採用方針」の「ミドルウェアの配置」）。
+エラーハンドリングミドルウェアは`c.Next()`の後で`c.Errors`を確認し、アーキテクチャ規約「12. Error変換パターン（AppError）」の`AppError`インターフェースを`errors.As`で判定して、ログ出力とレスポンスを1箇所にまとめる。レスポンスの形式はアーキテクチャ規約「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「エラーレスポンス」に従い、`{"errors": ["メッセージ", ...]}`とする。エラーが1件でも配列で返す。`AppError`が同時に`Messages`（同12章「複数のメッセージを同時に返すエラー」）を満たす場合は、`errors`配列に全件を入れる。満たさない場合は`appErr.Error()`の1件のみを入れる。`AppError`が同時に`FieldErrorer`（同12章「複数フィールドのバリデーションエラー」）を満たす場合は、レスポンスに`fields`を含める。登録は`AccessLogger`の次とする（「0. 本プロジェクトでの採用方針」の「ミドルウェアの配置」）。
 
 ```go
 // Good
 type ErrorResponse struct {
     Errors []string              `json:"errors"`
     Fields []apperror.FieldError `json:"fields,omitempty"`
-}
-
-type NotFoundResponse struct {
-    Message string `json:"message"`
 }
 
 func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
@@ -511,13 +507,6 @@ func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
 
         var appErr apperror.AppError
         if errors.As(err, &appErr) {
-            logger.Log(ctx, appErr.LogLevel(), "request failed", "error", appErr)
-
-            if appErr.StatusCode() == http.StatusNotFound {
-                c.JSON(http.StatusNotFound, NotFoundResponse{Message: appErr.Error()})
-                return
-            }
-
             resp := ErrorResponse{Errors: []string{appErr.Error()}}
 
             var msgsErr apperror.Messages
@@ -530,6 +519,7 @@ func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
                 resp.Fields = fieldErr.Fields()
             }
 
+            logger.Log(ctx, appErr.LogLevel(), "request failed", "error", appErr)
             c.JSON(appErr.StatusCode(), resp)
             return
         }

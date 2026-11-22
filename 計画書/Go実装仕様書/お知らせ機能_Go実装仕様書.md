@@ -280,7 +280,7 @@ sequenceDiagram
             R-->>U: ErrAnnouncementNotFound
             U-->>H: ErrAnnouncementNotFound
             H->>H: c.Error(err)
-            H-->>C: 404（message形式）
+            H-->>C: 404（errors形式）
         else 該当あり
             R-->>U: DeliveredAnnouncement
             U-->>H: AnnouncementItem
