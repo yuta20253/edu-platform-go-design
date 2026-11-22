@@ -175,7 +175,6 @@ classDiagram
     class HighSchoolPage {
         +[]HighSchoolSummary Schools
         +int CurrentPage
-        +int TotalPages
         +int64 TotalCount
         +int PerPage
     }
@@ -214,7 +213,7 @@ classDiagram
 |-|-|-|-|
 |`ListHighSchoolsQuery`|`PrefectureID *uint`・`Page int`・`PerPage int`|Query|`PrefectureID`は未指定を`nil`で表す。`Page`・`PerPage`はPresentation層で正規化済みの値を受け取る|
 |`HighSchoolSummary`|`ID uint`・`Name string`・`PrefectureName string`・`StudentCount int`・`TeacherCount int`|出力|一覧の要素と詳細で共用する。返す項目が同じであるため（①「5. API / 処理詳細」）|
-|`HighSchoolPage`|`Schools []HighSchoolSummary`・`CurrentPage int`・`TotalPages int`・`TotalCount int64`・`PerPage int`|出力|ページ情報を含む|
+|`HighSchoolPage`|`Schools []HighSchoolSummary`・`CurrentPage int`・`TotalCount int64`・`PerPage int`|出力|ページ情報を含む。`TotalPages`は持たない。Presentation層が`pagination.NewMeta`で`CurrentPage`・`PerPage`・`TotalCount`から算出するため、Application層で重ねて持つ必要がない|
 |`GradeRef`|`ID uint`・`Year int`・`DisplayName string`|出力（`dependency.go`で定義）|`master-data`から受け取る型をそのまま出力に使う。本Contextで項目を足さないため|
 
 出力の型をPresentation層のResponse DTOと分けるのは、application層の型がJSONのキー名や最上位の構造といったHTTPの関心を持たないためである（アーキテクチャ規約「6. データフロー」）。一覧と詳細は同じ`HighSchoolSummary`を返し、最上位の構造の違い（`schools`キーで包むか包まないか）はResponse DTOで表す。
@@ -346,7 +345,7 @@ sequenceDiagram
         Q-->>S: 該当なし
         S-->>H: ErrHighSchoolNotFound
         H->>H: c.Error(err)
-        H-->>C: 404（message形式）
+        H-->>C: 404（errors形式）
     else 該当あり
         Q-->>S: 高校
         S->>GD: FindGradesByHighSchoolID(ctx, 高校ID)
@@ -936,8 +935,8 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 
 ## 4. ページ情報のResponse DTOの置き場所
 
-- 判断した内容: ページ情報のResponse DTOを本Context独自の`PaginationMetaResponse`型とせず、`internal/shared/pagination.Meta`を`HighSchoolListResponse.Meta`に埋め込む
-- 判断理由: 規約「4. Bounded Context構成」の`shared/`一覧に`pagination/`が置かれ、「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「ページネーション」節が、ページ情報の4項目の型を`internal/shared/pagination/`の共通`Meta`型として置き、ページネーションを持つ各Contextのレスポンス型がこれを埋め込むと定めている（埋め込みフィールド名`Meta`、JSONキー`meta`）。置き場所は本Contextに固有の事項ではなく、規約が確定している
+- 判断した内容: ページ情報のResponse DTOを本Context独自の`PaginationMetaResponse`型とせず、`internal/shared/pagination.Meta`を`HighSchoolListResponse.Meta`に埋め込む。あわせて、Application層の`HighSchoolPage`から`TotalPages`フィールドを外した
+- 判断理由: 規約「4. Bounded Context構成」の`shared/`一覧に`pagination/`が置かれ、「15. API規約（レスポンス形式・ページネーション・URL・クエリパラメータ）」の「ページネーション」節が、ページ情報の4項目の型を`internal/shared/pagination/`の共通`Meta`型として置き、ページネーションを持つ各Contextのレスポンス型がこれを埋め込むと定めている（埋め込みフィールド名`Meta`、JSONキー`meta`）。置き場所は本Contextに固有の事項ではなく、規約が確定している。Presentation層が`pagination.NewMeta(page.CurrentPage, page.PerPage, page.TotalCount)`で`total_pages`を算出するため、Application層が`HighSchoolPage.TotalPages`として同じ値を重ねて持つ必要がなくなった（算出元の3項目のみ残す）
 - 推測かどうか: 確定済み。規約「15. API規約」の定めによる
 
 ## 5. 生徒数と教員数を2つのインターフェースに分ける

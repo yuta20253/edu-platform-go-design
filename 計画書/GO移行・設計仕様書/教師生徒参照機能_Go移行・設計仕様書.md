@@ -634,7 +634,7 @@ flowchart TD
   - `tab=goals`: `{"student": {...}, "goals": [...]}`。**`meta`を返さない**
   - `tab=tasks`: `{"student": {...}, "tasks": [...], "meta": {...}}`
 - Status Code: 正常系 `200`。異常系 `404`（不存在・閲覧範囲外）・`422`・`401`・`403`・`500`
-- Error Response方針: `404`はRails現行の`{"message": "..."}`を維持する。それ以外は`{"errors": [...]}`
+- Error Response方針: `404`・`422`いずれも`{"errors": [...]}`
 
 ### `POST /api/v1/teacher/students`
 

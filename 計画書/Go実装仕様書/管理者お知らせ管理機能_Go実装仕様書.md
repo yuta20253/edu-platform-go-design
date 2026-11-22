@@ -613,7 +613,7 @@ sequenceDiagram
     alt 該当なし（教員が発行した・存在しない）
         R-->>U: ErrAnnouncementNotFound
         U-->>H: ErrAnnouncementNotFound
-        H-->>C: 404（message形式）
+        H-->>C: 404（errors形式）
     else 該当あり
         R-->>U: Aggregate
         U->>PD: FindPublishers(ctx, [publisherID])

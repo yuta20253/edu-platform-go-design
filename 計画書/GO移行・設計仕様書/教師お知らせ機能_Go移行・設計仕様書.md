@@ -905,7 +905,7 @@ flowchart TD
 - Request: パスパラメータ `id`
 - Response: 最上位が単体のオブジェクト。`id`・`title`・`content`・`published_at`・`publisher`
 - Status Code: 正常系 `200`。異常系 `404`・`422`・`401`・`403`・`500`
-- Error Response方針: `404`は`{"message": "..."}`、それ以外は`{"errors": [...]}`
+- Error Response方針: `404`・`422`いずれも`{"errors": [...]}`
 
 ### `GET /api/v1/teacher/announcements/new`
 
@@ -1061,7 +1061,7 @@ Schema変更の候補として検討した点と、提案しない理由を記�
 - 作成のレスポンスで状態に応じたメッセージと識別子が返ること
 - 操作者をcontextから取り出し、リクエストから受け取らないこと
 - `422`の本文に複数のメッセージが含まれうること
-- `404`の本文が`message`キーであること
+- `404`の本文が`errors`キーであること
 
 ## Integration Test
 

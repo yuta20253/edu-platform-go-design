@@ -1145,7 +1145,6 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`TaskHandler.UpdateTask`|正常系: `unit_ids`を空配列で渡した場合に紐づけがすべて外れること（開始済みの単元がない場合）|
 |`TaskHandler.UpdateTask`|異常系: 存在しない・他の生徒のTaskを指定した場合に404が返ること|
 |`TaskHandler.UpdateTask`|異常系: 学習開始済みの単元を外そうとした場合に422が返ること|
-|エラーハンドラ|404のみ`message`キー、それ以外は`errors`キーの本文になること|
 
 ## Integration Test
 
@@ -1178,4 +1177,4 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`UpdateTaskBody.UnitIDs`をポインタ型（`*[]uint`）とした|「渡されなかった」と「空配列で渡された」を区別する必要があるため。Rails現行も`attributes.key?(:unit_ids)`で区別している（①「5. API / 処理詳細」`#update`）|補足（①の実体に基づく）|
 |`DELETE /api/v1/student/tasks/:id`の経路を設けない|Rails現行に`destroy`が実装されておらず、ルーティングにも存在しない（①「4. API一覧」）。提供されていない操作を移植する理由がない|補足（①の実体に基づく）|
 
-ディレクトリ名・package名（`internal/taskmanagement/`）、レスポンスの形状（`tasks`＋`meta`、`message`、404の`message`）、HTTPステータス、`due_date`の入力の扱い、`tasks.status`・`tasks.priority`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
+ディレクトリ名・package名（`internal/taskmanagement/`）、レスポンスの形状（`tasks`＋`meta`、`message`）、HTTPステータス、`due_date`の入力の扱い、`tasks.status`・`tasks.priority`の整数での保持は、いずれも規約または①に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。
