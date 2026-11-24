@@ -238,7 +238,7 @@ Goのstruct定義（参照用の型のフィールド）は③Go実装仕様書�
 |公開する操作|呼び出し元|内容|
 |-|-|-|
 |単元の存在確認|`task-management`・`draft-task`|指定された単元の識別子がすべて存在するかを返す（タスク管理機能③・タスク下書き機能③の`UnitDirectory.ExistsAll`）|
-|単元情報の取得|`task-management`・`draft-task`|指定された単元の情報（単元名・所属コースの識別子・レベル番号・レベル名）を返す（同`UnitDirectory.FindUnitsByIDs`）|
+|単元情報の取得|`task-management`・`draft-task`・`goal-management`|指定された単元の情報（単元名・所属コースの識別子・レベル番号・レベル名）を返す（同`UnitDirectory.FindUnitsByIDs`。`goal-management`は目標の一覧・詳細に含めるため呼ぶ）|
 |単元の問題一覧の取得|`question-answering`|単元に属する問題の一覧を、選択肢・ヒント・正解とあわせて返す（問題解答機能③の`QuestionDirectory.FindUnitQuestions`）|
 |解答対象の確認|`question-answering`|指定の問題がその単元に属し、指定の選択肢がその問題のものであることを確認し、コースの識別子・選択肢の番号・問題の正解を返す（同`QuestionDirectory.FindQuestionForAnswer`）|
 |問題数の集計|`question-answering`|指定された単元群に属する問題の件数を返す（同`UnitQuestionCountDirectory.CountQuestions`）|

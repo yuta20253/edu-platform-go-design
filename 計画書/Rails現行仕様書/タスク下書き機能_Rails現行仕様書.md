@@ -227,7 +227,7 @@ draft_task_units（関連付けた単元の数だけ作成）
 |Controller（共通）|`ApplicationController`（`not_found` 等の共通ハンドラ）|
 |Form|`Student::CreateDraftTaskForm`（単元の存在確認・期限日の検証をいずれも自身に持つ。タスク管理機能の `UnitIdsValidatable`・`DueDateValidatable`・`PriorityCastable` は include していない）|
 |Service|`Student::CreateDraftTaskService`|
-|Model|`DraftTask`, `DraftTaskCourse`, `DraftTaskUnit`|
+|Model|`DraftTask`, `DraftTaskUnit`|
 |Serializer|`DraftTaskSerializer`（`UnitSerializer` で `units` を含める。`memo` は含めない）|
 
 注意:

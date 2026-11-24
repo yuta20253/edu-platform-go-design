@@ -396,7 +396,7 @@ sequenceDiagram
 
     OC->>MC: FindGradesByHighSchoolID(ctx, highSchoolID)
     MC->>A: 委譲
-    A->>Q: FindByHighSchoolID(ctx, highSchoolID, 年次昇順=true)
+    A->>Q: FindByHighSchoolID(ctx, highSchoolID)
     Q->>DB: high_school_id で絞り、year 昇順
     DB-->>Q: 学年
     Q-->>A: []gradeModel
@@ -468,7 +468,7 @@ flowchart TD
 
 `prefectures`との結合に`LEFT JOIN`を使う。`addresses.prefecture_id`が未設定を許すためである（①「6. データモデル」）。内部結合にすると都道府県が未設定の住所が結果から落ちる。ただし`Search`は`prefecture_id`で絞り込むため、実際には未設定の行が対象になることはない。それでも`LEFT JOIN`とするのは、絞り込みの条件が将来変わったときに行が静かに落ちないようにするためである。
 
-部分一致は検索語の前後にワイルドカードを置く形になる。検索語に含まれるワイルドカード文字（`%`・`_`）をそのまま渡すと、利用者の入力が意図しないパターンとして解釈される。**検索語をエスケープしてから渡す**（**②からの補足**。「17. ②からの補足事項」参照）。
+部分一致は検索語の前後にワイルドカードを置く形になる。検索語に含まれるワイルドカード文字（`%`・`_`）をそのまま渡すと、利用者の入力が意図しないパターンとして解釈される。**検索語をエスケープしてから渡す**（Rails現行も同じ。①「5. API / 処理詳細」。方法はGorm規約「14. 部分一致検索のエスケープ」）。
 
 ### high_school_query.go
 
@@ -489,11 +489,11 @@ flowchart TD
 
 |関数|引数|戻り値|発行するクエリ内容|
 |-|-|-|-|
-|`FindByHighSchoolID`|`ctx context.Context, highSchoolID uint, orderByYear bool`|`([]gradeModel, error)`|`high_school_id`で絞り込む。`orderByYear`が真なら`year`昇順、偽なら並び替えを行わない|
+|`FindByHighSchoolID`|`ctx context.Context, highSchoolID uint`|`([]gradeModel, error)`|`high_school_id`で絞り込み、`year`昇順で返す|
 |`FindByIDs`|`ctx context.Context, ids []uint`|`([]gradeModel, error)`|`id IN (...)`で取得する|
 |`FindIDsByYear`|`ctx context.Context, year int`|`([]uint, error)`|`year`で絞り込み、`id`のみを取得する。**学校で絞り込まない**|
 
-`orderByYear`で並び順を切り替えるのは、エンドポイントと公開操作で並び順が異なるためである。エンドポイントはRails現行に合わせて並び替えを行わず、公開操作は年次の昇順とする（②「19. API仕様」の「Railsとの差分」1）。
+エンドポイントと公開操作はどちらも年次の昇順で返すため、並び順を切り替える引数を持たない（①「5. API / 処理詳細」`Api::V1::GradesController#index`、②「19. API仕様」）。
 
 真偽値の引数で振る舞いを切り替える形を採るのは、クエリの組み立てが`ORDER BY`の有無だけしか違わないためである。関数を2つに分けると同じ絞り込みが2か所に書かれる（**②からの補足**。「17. ②からの補足事項」参照）。
 
@@ -721,7 +721,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 - `addressQuery.FindByIDs`: `id IN (...)`。結合しない
 - `highSchoolQuery.Search`: `prefecture_id`を**常に**条件に加える（`nil`なら`IS NULL`）。`keyword`を部分一致で加える。`name`昇順、`LIMIT`で件数を制限
 - `highSchoolQuery.FindByIDs`: `id IN (...)`
-- `gradeQuery.FindByHighSchoolID`: `high_school_id`で絞る。`orderByYear`に応じて`year`昇順を付ける
+- `gradeQuery.FindByHighSchoolID`: `high_school_id`で絞る。`year`昇順を付ける
 - `gradeQuery.FindByIDs`: `id IN (...)`
 - `gradeQuery.FindIDsByYear`: `year`で絞り、`id`のみを`Pluck`相当で取得
 - 部分一致の検索語は、ワイルドカード文字をエスケープしてから渡す（「8. Infrastructure層設計」）
@@ -762,7 +762,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 ||`HighSchoolID`が含まれること|
 ||該当しない識別子が結果に含まれないこと|
 ||空の集合で検索を呼ばずに空スライスを返すこと|
-|`FindGradesByHighSchoolID`|**年次の昇順で返ること**（検索へ`orderByYear`に真を渡すこと）|
+|`FindGradesByHighSchoolID`|**年次の昇順で返ること**（検索が`year`昇順であること）|
 ||`DisplayName`が付くこと|
 ||存在しない高校の識別子で空スライスを返すこと（エラーにしないこと）|
 ||高校の実在確認を行わないこと|
@@ -810,8 +810,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 ||検索語に`%`・`_`が含まれてもパターンとして解釈されないこと|
 |`highSchoolQuery.FindByIDs`|`id IN`で絞られること、`school_code`・`csv_managed`が取得できること|
 |`gradeQuery.FindByHighSchoolID`|`high_school_id`で絞られること|
-||`orderByYear`が真のとき`year`昇順になること|
-||`orderByYear`が偽のとき`ORDER BY`を付けないこと|
+||`year`昇順になること
 ||他の高校の学年が含まれないこと|
 ||存在しない高校の識別子で空になること|
 |`gradeQuery.FindByIDs`|`id IN`で絞られること|
@@ -845,15 +844,15 @@ Transaction Script採用のため、application関数内のガード節で検証
 
 ## 1. 部分一致の検索語をエスケープする
 
-- 判断した内容: `city`・`town`・`keyword`の値に含まれるワイルドカード文字（`%`・`_`）とエスケープ文字を、`LIKE`のパターンへ渡す前にエスケープする
-- 判断理由: Rails現行は`where('city LIKE ?', "%#{@city}%")`としており、利用者の入力に含まれる`%`がワイルドカードとして解釈される。そのまま再現すると、`%`を含む検索で意図しない広い範囲が返る。これは検索結果の件数が変わるため外部仕様に関わるが、利用者が`%`を検索語として入力する場面は想定されず、エスケープした方が入力どおりの結果になる。SQLインジェクションの問題ではない（プレースホルダは使われている）
-- 推測かどうか: **②からの補足**。②「15. Validation設計」は検索語に制限を設けないとしているが、ワイルドカードの扱いまでは定めていない。Rails現行の振る舞いを変える点であり、「19. API仕様」の差分には挙げていない。**`%`を含む検索語での結果が変わるため、Rails側の扱いとあわせて確認が必要である**
+- 判断した内容: `city`・`town`・`keyword`の値に含まれるワイルドカード文字（`%`・`_`）とエスケープ文字を、`LIKE`のパターンへ渡す前にエスケープする。方法はGorm規約「14. 部分一致検索のエスケープ」に従う
+- 判断理由: Rails現行も`sanitize_sql_like`でエスケープしており（①「5. API / 処理詳細」`Api::V1::AddressesController#index`・`Api::V1::HighSchoolsController#index`）、利用者が`%`を含む語を入力しても入力どおりの結果になる。Goでも同じ結果にする
+- 推測かどうか: 推測ではない。①の記述とGorm規約「14. 部分一致検索のエスケープ」に根拠がある。②は検索語に制限を設けないとしており、エスケープはその実装手段として矛盾しない（②「15. Validation設計」）
 
-## 2. 学年の検索で並び順を真偽値の引数で切り替える
+## 2. 学年の検索は常に年次の昇順で取得する
 
-- 判断した内容: `gradeQuery.FindByHighSchoolID`に`orderByYear bool`を取らせ、エンドポイントと公開操作で並び順を切り替える
-- 判断理由: ②「19. API仕様」の「Railsとの差分」1のとおり、エンドポイントは並び替えを行わず、公開操作は年次の昇順とする。クエリの違いが`ORDER BY`の有無だけであり、関数を2つに分けると同じ絞り込みが2か所に書かれる。真偽値の引数は呼び出し箇所で意図が読みにくくなるが、呼び出し箇所が2つに限られ、いずれもapplication層の関数内であるため影響が小さい
-- 推測かどうか: 推測ではない。②の方針を実装手段に落としたものである
+- 判断した内容: `gradeQuery.FindByHighSchoolID`は並び順を切り替える引数を持たず、常に`year`昇順で返す
+- 判断理由: Rails現行の`Api::V1::GradesController#index`が`order(:year)`を付けており、公開操作（`FindGradesByHighSchoolID`）も年次の昇順である（②「19. API仕様」）。エンドポイントと公開操作で並び順が同じであるため、切り替えは不要である
+- 推測かどうか: 推測ではない。①②の内容を実装手段に落としたものである
 
 ## 3. `Context`が公開操作を直接持つ
 

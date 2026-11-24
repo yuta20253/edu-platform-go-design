@@ -240,13 +240,13 @@ classDiagram
 
 処理ステップ:
 
-1. 学年の検索で、指定された高校に属する学年を取得する。**並び替えを行わない**（`orderByYear`に偽を渡す）
+1. 学年の検索で、指定された高校に属する学年を**年次の昇順**で取得する
 2. 表示名の変換で年次から表示名を導出し、`GradeItem`へ変換する
 3. `nil`の場合は空スライスにして返す
 
 **高校の実在確認を行わない。** 存在しない識別子では空スライスを返す。`404`にしない。Rails現行と同じ振る舞いである（②「12. UseCase設計」）。
 
-**並び替えを行わない点が、公開操作との違いである。** 公開操作（`FindGradesByHighSchoolID`）は年次の昇順で返す（②「19. API仕様」の「Railsとの差分」1）。同じ検索に`orderByYear`で切り替えを渡す（基盤編「8. Infrastructure層設計」）。
+公開操作（`FindGradesByHighSchoolID`）も同じ検索を用い、年次の昇順で返す（基盤編「8. Infrastructure層設計」）。
 
 `HighSchoolID`を出力に含めない。Rails現行のレスポンスに含まれない（①「5. API / 処理詳細」`Api::V1::GradesController#index`）。
 
@@ -316,8 +316,8 @@ sequenceDiagram
     C->>H: GET /api/v1/high_schools/:id/grades
     H->>H: パスパラメータidを符号なし整数として解釈
     H->>S: ListGradesByHighSchool(ctx, 高校ID)
-    S->>GQ: FindByHighSchoolID(ctx, 高校ID, orderByYear=false)
-    GQ-->>S: []gradeModel（並び替えなし）
+    S->>GQ: FindByHighSchoolID(ctx, 高校ID)
+    GQ-->>S: []gradeModel（year昇順）
     loop 学年ごと
         S->>D: displayNameOf(year)
         D-->>S: 表示名
@@ -705,7 +705,7 @@ Response DTOに`school_code`を含めない。公開操作でのみ返す値で�
 ||`Keyword`が空文字のときもそのまま渡ること|
 ||`SchoolCode`・`PrefectureID`を出力に含めないこと|
 ||0件のとき空スライスを返すこと|
-|`ListGradesByHighSchool`|検索へ`orderByYear`に**偽**を渡すこと（並び替えを行わないこと）|
+|`ListGradesByHighSchool`|年次の昇順で返ること|
 ||表示名の変換が呼ばれ、`DisplayName`が設定されること|
 ||`HighSchoolID`を出力に含めないこと|
 ||存在しない高校の識別子で空スライスを返すこと（エラーにしないこと）|

@@ -878,7 +878,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`DeletedAt`に`gorm.DeletedAt`を使わず`*time.Time`とした|Gorm規約「0. 本プロジェクトでの採用方針」の論理削除は`gorm.DeletedAt`の使用を定めているが、これは削除操作を実装する場合の規定である。本機能に削除操作はなく、`gorm.DeletedAt`を使うと`deleted_at IS NULL`が自動付与され、論理削除済みも返すRails現行の挙動（①「6. データモデル」）が変わる|補足（Gorm規約「0. 本プロジェクトでの採用方針」の論理削除に、削除操作を持たないContextでは`gorm.DeletedAt`を使わず`*time.Time`等を使う旨が定められており、本書の判断はこの規約に一致する）|
 |`UnitIDSet`（単元の識別子の集合）という型を本Contextに定義した|存在確認と関連付けの対象が識別子の集合であり、単元の実体を扱う必要がないため。タスク管理機能③と同じ型名を用いるが、Contextごとに定義する（規約「5. Context間連携ルール」）|補足|
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#show`のレスポンスに合わせた|補足|
-|`GoalDirectory` / `UnitDirectory`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。タスク管理機能③と同じ操作を呼ぶため、シグネチャを合わせた|要確認（`goal-management`・`curriculum`の③の追随時にシグネチャを合わせる）|
+|`GoalDirectory` / `UnitDirectory`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。タスク管理機能③と同じ操作を呼ぶため、シグネチャを合わせた|補足（相手Contextの③で確定した形に合わせた。`goal-management`は`FindUserGoal`、`curriculum`は`ExistsAllUnits`・`FindUnitsByIDs`を公開しており、アダプタが名前・型の違いを吸収する）|
 |`CreateDraftTaskBody.Priority`を`*int`とした|`0`が渡された場合（`ErrInvalidPriority`）と未入力の場合（`ErrPriorityRequired`）を区別する必要があるため。`binding:"required"`は`0`を未入力と見なすため、タグだけでは区別できない|補足（①の実体に基づく）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が標準パターンとして定める方式であるため|補足（Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」に一致）|
 |`DraftTaskPriority`を`iota + 1`で宣言した|`draft_tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|

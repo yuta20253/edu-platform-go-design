@@ -55,12 +55,14 @@
 - `task-management` Context: 目標詳細取得時に、紐づくタスク一覧を参照するために依存する
 - `draft-task` Context: 目標には、正式なタスクのほかに生徒が作成途中で保存した下書きタスク（DraftTask）が紐づき得る（Rails現行仕様書6章 `has_many :draft_tasks`）。下書きタスク自体の登録・管理は`draft-task` Contextの責務であり、本Contextは目標詳細表示等で参照する立場に限定される
 - `user` Context: 認証済み生徒の識別と所有権の確認に依存する
+- `curriculum` Context: 目標の一覧・詳細に含める、紐づくタスクの単元の情報（単元名・所属コースの識別子・レベル番号・レベル名）を参照するために依存する（目標管理①「5. API / 処理詳細」`#index`・`#show`の`units`。項目はタスク管理機能①「5. API / 処理詳細」`#index`の`UnitSerializer`）
 
 本Contextを参照する側の依存も生じる。
 
 - `task-management` Context: タスクの着手時に、本Contextが公開する「目標の状態の再評価」操作を呼ぶ（①「7. 状態管理」の`Student::TaskStartService`に対応）
 - `question-answering` Context: 問題の提出時に、同じ操作を呼ぶ（同`Student::SubmissionService`に対応）
 - `calendar` Context: カレンダー表示のため、本Contextが公開する「期間内の目標の参照」操作を呼ぶ（カレンダー機能②「3. Bounded Context」）
+- `task-management` Context・`draft-task` Context: 作成時に指定された目標が操作者自身のものかを確認するため、本Contextが公開する「操作者の目標の参照」操作を呼ぶ。`task-management`は、タスクの期限が目標の期限以前かの検証にも、この操作が返す目標の期限を用いる（タスク管理機能②「3. Bounded Context」・タスク下書き機能②「3. Bounded Context」）
 
 ## 本Contextが公開する操作
 
@@ -68,6 +70,7 @@
 |-|-|-|
 |目標の状態の再評価|`task-management`・`question-answering`|紐づくタスクの状況から状態を再評価し、変化があれば更新する|
 |期間内の目標の参照|`calendar`|期限日が指定期間内にある操作者の目標を、識別子・件名・期限日・状態とともに返す。論理削除済みを除外する|
+|操作者の目標の参照|`task-management`・`draft-task`|指定された識別子の目標が操作者自身のもので、論理削除されていなければ、その識別子と期限日（未設定を含む）を返す。操作者のものでない場合と存在しない場合は区別せず「見つからない」として返す|
 
 いずれもHTTPを経由せず、Goのパッケージとして直接呼ばれる。認可は呼び出し側Contextが行う（「16. Authorization設計」）。
 
@@ -292,6 +295,7 @@ stateDiagram-v2
   - user_idによる絞り込み
   - due_date昇順ソート。期限が同じ場合はid昇順で並べる（①「5. API / 処理詳細」`#index`）
   - due_dateの範囲による絞り込み（「3. Bounded Context」の公開操作「期間内の目標の参照」から呼ばれる。両端を含む）
+  - 識別子とuser_idの両方に一致する1件の取得（紐づくタスクは取得しない。「3. Bounded Context」の公開操作「操作者の目標の参照」から呼ばれる）
   - ページネーション
   - 論理削除済みを除外する絞り込み（①「6. データモデル」の`default_scope`に相当）
 - 保持しない責務:
@@ -309,6 +313,14 @@ stateDiagram-v2
 - 保持しない責務: タスクの作成・更新（`task-management` Contextの責務）、状態の判定そのもの（GoalStatusPolicy・Goal Entityの責務）
 - 判断根拠: 目標の一覧・詳細に必要な関連情報の取得と、業務ルールの判定に必要な事実の取得に限定するため。`task-management` Contextが公開する参照手段を呼び出す形とし、そのためのインターフェースは本Contextの`dependency.go`に置く（規約「5. Context間連携ルール」）
 
+## UnitDirectory（他Contextの参照手段）
+
+- 管理対象: 単元（本Contextでは読み取り専用。`curriculum` Contextが所有する）
+- 責務: 指定された単元の識別子の集合について、単元の情報（識別子・所属コースの識別子・単元名・所属コースのレベル番号・レベル名）を返す
+- 保持しない責務: 単元の存在確認、単元・コースの更新
+- 判断根拠: 目標の一覧・詳細は、紐づくタスクごとに単元の情報を含める。単元の表現は`curriculum`が所有するため、本Contextが`units`・`courses`を直接読まず、`curriculum`が公開する参照手段を呼び出す形とし、そのためのインターフェースは本Contextの`dependency.go`に置く（規約「5. Context間連携ルール」）。タスクと単元の紐づき（`task_units`）は、`tasks`と同じく画面向けの参照モデルとして本Contextが読む（下記「TaskStore（参照用）」の「関連の取得」と同じ考え方）
+- 関連の取得: 一覧・詳細に含まれるすべてのタスクの単元の識別子をまとめて1回で問い合わせる。目標ごと・タスクごとには問い合わせない
+
 ---
 
 # 12. UseCase設計
@@ -321,7 +333,7 @@ stateDiagram-v2
 - 入力: current user, page, per_page
 - 出力: 目標一覧（各目標に紐づくタスクを含む）とページ情報
 - トランザクション範囲: 読み取りのみ、トランザクション不要
-- 呼び出すStore: GoalStore
+- 呼び出すStore・Context: GoalStore、`curriculum` Contextの参照（紐づくタスクの単元の情報）
 - 判断根拠: 単純な一覧取得であり、業務ルールが少ないため。紐づくタスクは目標ごとに問い合わせず、一覧取得で一括して得る（「11. Repository設計」）
 
 ## ShowGoal(Handler処理)
@@ -330,8 +342,8 @@ stateDiagram-v2
 - 入力: current user, goal id
 - 出力: 目標詳細情報とタスク一覧
 - トランザクション範囲: 読み取りのみ
-- 呼び出すStore: GoalStore, TaskStore
-- 判断根拠: 詳細画面表示に必要な関連タスク情報を含めて返すため
+- 呼び出すStore・Context: GoalStore, TaskStore、`curriculum` Contextの参照（紐づくタスクの単元の情報）
+- 判断根拠: 詳細画面表示に必要な関連タスク情報（単元の情報を含む）を含めて返すため
 
 ## CreateGoal(Handler処理)
 
@@ -385,6 +397,17 @@ stateDiagram-v2
 - 呼び出し元: `calendar` Context（カレンダー表示）
 - 判断根拠: カレンダー機能は期限日という観点で目標・タスク・面談を横断するが、期限日の意味と論理削除済みの扱いを決めているのは本Contextである（カレンダー機能②「11. Repository設計」）。呼び出し側が`goals`を直接読むと、同じ判断が2か所に分かれる。紐づくタスクは返さない。カレンダーの表示に必要なのは目標そのものの期限日・件名・状態のみである（カレンダー機能①「5. API / 処理詳細」Response）
 - 並び順は指定しない。呼び出し側が3種類の予定を結合したあとに並べ替えるためである（カレンダー機能②「12. UseCase設計」）
+
+## FindUserGoal(他Contextから呼ばれる公開操作)
+
+- 目的: 指定された目標が操作者自身のものかを確認し、その目標の期限日を返す
+- 入力: 目標の識別子、操作者の識別子
+- 出力: 目標の識別子と期限日（未設定を許容する）。見つからない場合はその旨（エラーにしない）
+- トランザクション範囲: 読み取りのみ、トランザクションは不要
+- 呼び出すStore・Context: GoalStore（識別子とuser_idの両方に一致する1件の取得）
+- 呼び出し元: `task-management` Context（タスクの作成時の目標の確認、作成・更新時の期限の検証）、`draft-task` Context（下書きタスクの作成時の目標の確認）
+- 判断根拠: 目標の所有者と論理削除の扱いを決めているのは本Contextである。呼び出し側が`goals`を直接読むと、同じ判断が2か所に分かれる。所有者でないものと存在しないものを区別しないのは、他の生徒の目標が存在することを呼び出し側へ漏らさないためである（①「8. 権限制御」）。期限日を同じ操作で返すのは、呼び出し側が目標の確認と期限の取得を続けて行うためである（タスク管理機能①「5. API / 処理詳細」`#create`・`#update`）。紐づくタスクは返さない
+- 認可は呼び出し側が操作者を渡すことで行う。本操作は`user_id`を検索条件に含めて所有者でスコープする（「16. Authorization設計」）
 
 ---
 
@@ -554,6 +577,7 @@ ReevaluateGoalStatusは他Contextから呼ばれる。呼び出し側（`task-ma
 
 - current userのスコープに基づいて、自分の目標のみ取得・作成・更新・削除できるようにする
 - 取得・更新・削除の対象の目標が自分のものかどうかをHandler/Store側で判断する
+- FindUserGoal（他Contextから呼ばれる公開操作）は、呼び出し側から受け取った操作者の識別子を検索条件に含め、操作者自身の目標だけを返す。所有者でない目標は存在しない目標と同じく「見つからない」として扱う
 - ReevaluateGoalStatus（他Contextから呼ばれる公開操作）は認可を行わない。「その目標の状態を変えてよいか」は呼び出し側（タスクの着手・問題の提出）が、操作者と対象の関係を確認済みである。本操作にcurrent userを渡さないのは、認可の二重実装を避けるためである
 
 ## Domain
@@ -746,6 +770,8 @@ API外部仕様（URL・HTTP Method・リクエスト形式・レスポンス構
 - 対象テーブル: なし。本Contextからはクエリを発行しない
 - 紐づくタスクの状態の集合の取得は`task-management` Contextに委ねる（「11. Repository設計」）。削除可否の判定と状態の再評価の、いずれもこの参照結果を入力とする
 - 判断根拠: 「タスクの状態とは何か」の判断を`task-management` Contextに集約するためである。本Contextが`tasks`を独自に解釈すると判断が2箇所に分かれる
+
+一覧・詳細の表示に含める単元の情報は、`curriculum` Contextの参照に委ねる（「11. Repository設計」の「UnitDirectory」）。
 
 一覧・詳細の表示に必要なタスクの情報は、画面向けの一覧であるため`goals`との結合で取得する。一方、業務ルールの判定に用いるタスクの状態の集合は、判断の前提となる事実であるため`task-management` Contextの参照に委ねる。
 

@@ -291,7 +291,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |関数|シグネチャ|呼び出し元|
 |-|-|-|
 |`ExistsAllUnits`|`(ctx context.Context, unitIDs []uint) (bool, error)`|`task-management`・`draft-task`|
-|`FindUnitsByIDs`|`(ctx context.Context, unitIDs []uint) ([]UnitInfo, error)`|同|
+|`FindUnitsByIDs`|`(ctx context.Context, unitIDs []uint) ([]UnitInfo, error)`|`task-management`・`draft-task`・`goal-management`|
 |`FindUnitQuestions`|`(ctx context.Context, unitID uint) ([]QuestionInfo, error)`|`question-answering`|
 |`FindQuestionForAnswer`|`(ctx context.Context, unitID, questionID, questionChoiceID uint) (AnswerTargetInfo, error)`|同|
 |`CountQuestions`|`(ctx context.Context, unitIDs []uint) (int, error)`|同|
@@ -336,6 +336,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |-|-|-|
 |`ExistsAll(ctx, UnitIDSet) (bool, error)`（タスク管理機能③・タスク下書き機能③）|`ExistsAllUnits(ctx, []uint) (bool, error)`|呼び出し元のアダプタが`UnitIDSet`→`[]uint`へ|
 |`FindUnitsByIDs(ctx, UnitIDSet) ([]UnitRef, error)`（同）|`FindUnitsByIDs(ctx, []uint) ([]UnitInfo, error)`|同。戻り値は`UnitInfo`→`UnitRef`へ|
+|`FindUnitsByIDs(ctx, []uint) ([]UnitRef, error)`（目標管理機能③）|同上|戻り値を`UnitInfo`→`UnitRef`へ|
 |`FindUnitQuestions(ctx, unitID uint) ([]QuestionRef, error)`（問題解答機能③）|`FindUnitQuestions(ctx, unitID uint) ([]QuestionInfo, error)`|戻り値を`QuestionInfo`→`QuestionRef`へ|
 |`FindQuestionForAnswer(ctx, unitID, questionID, questionChoiceID uint) (AnswerTargetRef, error)`（同）|同じ引数。戻り値は`AnswerTargetInfo`|戻り値を`AnswerTargetInfo`→`AnswerTargetRef`へ|
 |`CountQuestions(ctx, UnitIDSet) (int, error)`（同）|`CountQuestions(ctx, []uint) (int, error)`|呼び出し元のアダプタが`UnitIDSet`→`[]uint`へ|
@@ -614,7 +615,7 @@ sequenceDiagram
 
 |型|フィールド|渡す先|
 |-|-|-|
-|`UnitInfo`|ID・CourseID・UnitName・CourseLevelNumber・CourseLevelName|`task-management`・`draft-task`|
+|`UnitInfo`|ID・CourseID・UnitName・CourseLevelNumber・CourseLevelName|`task-management`・`draft-task`・`goal-management`|
 |`QuestionInfo`|ID・UnitID・CourseID・QuestionText・CorrectAnswer・Choices（`[]QuestionChoiceInfo`）・Hints（`[]QuestionHintInfo`）|`question-answering`|
 |`QuestionChoiceInfo`|ID・QuestionID・ChoiceNumber・ChoiceText|同|
 |`QuestionHintInfo`|ID・QuestionID・StepNumber・HintText|同|
