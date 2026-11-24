@@ -210,7 +210,7 @@ Goのstruct定義（参照用の型のフィールド）は③Go実装仕様書�
 
 **実装上の位置づけ**: 本機能はTransaction Script採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はinfrastructure層の関数として実装する（規約「3. 設計パターンごとの構造適用方針」）。
 
-本Contextが所有するテーブルは`courses`・`units`・`questions`・`question_choices`・`question_hints`・`question_explanations`・`subjects`である。`question_explanations`は本機能のエンドポイントでは扱わないが、`curriculum`が所有するテーブルであることは管理者コース・単元参照機能②「3. Bounded Context」「21. DB操作仕様」・管理者問題インポート機能②「6. データモデル」が明記している（②からの補足）。
+本Contextが所有するテーブルは`courses`・`units`・`questions`・`question_choices`・`question_hints`・`question_explanations`・`subjects`である。`question_explanations`は本機能のエンドポイントでは扱わないが、`curriculum`が所有するテーブルであることは管理者コース・単元参照機能②「3. Bounded Context」「21. DB操作仕様」・管理者問題インポート機能①「6. データモデル」が明記している（②からの補足）。
 
 ## 本機能のエンドポイントが使う検索
 
