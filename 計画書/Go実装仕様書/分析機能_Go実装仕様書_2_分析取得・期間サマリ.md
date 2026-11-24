@@ -288,12 +288,12 @@ AnalyticsTypeUnitRank           = "unit_rank"
 2. 結果が空の場合、`Subjects`が空スライス（`nil`ではない）の`UnderstandingScoreData`を返す。`nil`スライスはJSONで`null`になり、Rails現行の`[]`と異なるため（①「5. API / 処理詳細」`understanding_score`）
 3. 取得した組から単元IDを重複なく集め、`CurriculumDirectory.FindUnitHierarchies`で階層と名称を取得する
 4. 階層を単元IDで索引する。階層が引けなかった単元の集計は結果に含めない（基盤編「17. ②からの補足事項」4）
-5. 教科 → コース → 単元の3階層へまとめる。各階層には、その階層に属する集計の`FirstAnsweredAt`の最小値を並び順の鍵として保持する
-6. 各階層を並び順の鍵の昇順で並べる。鍵が同値の場合は教科ID・コースID・単元IDの昇順で並べる（②「19. API仕様」の「Railsとの差分」1）
+5. 教科 → コース → 単元の3階層へまとめる。コースと単元には、その階層に属する集計の`FirstAnsweredAt`の最小値を並び順の鍵として保持する
+6. 教科を教科IDの昇順で並べる（Rails現行どおり）。コースと単元は並び順の鍵の昇順で並べ、鍵が同値の場合はコースID・単元IDの昇順で並べる（②「19. API仕様」の「Railsとの差分」1）
 7. 単元の`Score`を`Percentage(Correct, Total)`で求める
 8. `UnderstandingScoreData`を組み立てて返す
 
-同値の場合にIDの昇順で並べるのは、同じ入力に対して常に同じ順序を返すためである。Rails現行は並び順を保証していない（②「19. API仕様」）。
+コース・単元で同値の場合にIDの昇順で並べるのは、同じ入力に対して常に同じ順序を返すためである。Rails現行はコース・単元の並び順を保証していない（②「19. API仕様」）。
 
 ### gradeAverage（`application/grade_average.go`）
 
@@ -460,7 +460,7 @@ sequenceDiagram
     else 1件以上
         S->>CD: FindUnitHierarchies(ctx, unitIDs)
         CD-->>S: []UnitHierarchy
-        S->>S: 教科→コース→単元へまとめ、FirstAnsweredAtの昇順に並べる
+        S->>S: 教科→コース→単元へまとめ、教科は教科IDの昇順、コースと単元はFirstAnsweredAtの昇順に並べる
         S->>S: Percentageで単元スコアを算出
         S-->>H: *AnalyticsResult
     end
@@ -900,8 +900,9 @@ Rails現行（①「5. API / 処理詳細」`#show`のErrorケース）と同じ
 ||単元スコアが正答率になる|
 ||解答履歴が0件のとき`Subjects`が空スライスになる（`nil`ではない）|
 ||階層が引けない単元の集計が結果に含まれない|
-||各階層が最初に解答した順（`FirstAnsweredAt`の昇順）に並ぶ|
-||`FirstAnsweredAt`が同値のとき教科ID・コースID・単元IDの昇順に並ぶ|
+||教科が教科IDの昇順に並ぶ
+||コースと単元が最初に解答した順（`FirstAnsweredAt`の昇順）に並ぶ
+||`FirstAnsweredAt`が同値のときコースID・単元IDの昇順に並ぶ
 ||同じコースに複数の単元があるとき、1つのコースの下にまとまる|
 ||同じ教科に複数のコースがあるとき、1つの教科の下にまとまる|
 |`gradeAverage`|自分の正答率・タスク達成率を返す|

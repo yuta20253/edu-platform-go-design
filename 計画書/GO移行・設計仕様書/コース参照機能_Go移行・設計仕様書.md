@@ -210,7 +210,7 @@ Goのstruct定義（参照用の型のフィールド）は③Go実装仕様書�
 
 **実装上の位置づけ**: 本機能はTransaction Script採用のため、Repository Interfaceをdomain層に定義しない。以下は永続化・検索責務の設計意図であり、実装時はinfrastructure層の関数として実装する（規約「3. 設計パターンごとの構造適用方針」）。
 
-本Contextが所有するテーブルは`courses`・`units`・`questions`・`question_choices`・`question_hints`・`question_explanations`・`subjects`である。`question_explanations`は本機能のエンドポイントでは扱わないが、`curriculum`が所有するテーブルであることは管理者コース・単元参照機能②「3. Bounded Context」「21. DB操作仕様」・管理者問題インポート機能②「6. データモデル」が明記している（②からの補足）。
+本Contextが所有するテーブルは`courses`・`units`・`questions`・`question_choices`・`question_hints`・`question_explanations`・`subjects`である。`question_explanations`は本機能のエンドポイントでは扱わないが、`curriculum`が所有するテーブルであることは管理者コース・単元参照機能②「3. Bounded Context」「21. DB操作仕様」・管理者問題インポート機能①「6. データモデル」が明記している（②からの補足）。
 
 ## 本機能のエンドポイントが使う検索
 
@@ -238,7 +238,7 @@ Goのstruct定義（参照用の型のフィールド）は③Go実装仕様書�
 |公開する操作|呼び出し元|内容|
 |-|-|-|
 |単元の存在確認|`task-management`・`draft-task`|指定された単元の識別子がすべて存在するかを返す（タスク管理機能③・タスク下書き機能③の`UnitDirectory.ExistsAll`）|
-|単元情報の取得|`task-management`・`draft-task`|指定された単元の情報（単元名・所属コースの識別子・レベル番号・レベル名）を返す（同`UnitDirectory.FindUnitsByIDs`）|
+|単元情報の取得|`task-management`・`draft-task`・`goal-management`|指定された単元の情報（単元名・所属コースの識別子・レベル番号・レベル名）を返す（同`UnitDirectory.FindUnitsByIDs`。`goal-management`は目標の一覧・詳細に含めるため呼ぶ）|
 |単元の問題一覧の取得|`question-answering`|単元に属する問題の一覧を、選択肢・ヒント・正解とあわせて返す（問題解答機能③の`QuestionDirectory.FindUnitQuestions`）|
 |解答対象の確認|`question-answering`|指定の問題がその単元に属し、指定の選択肢がその問題のものであることを確認し、コースの識別子・選択肢の番号・問題の正解を返す（同`QuestionDirectory.FindQuestionForAnswer`）|
 |問題数の集計|`question-answering`|指定された単元群に属する問題の件数を返す（同`UnitQuestionCountDirectory.CountQuestions`）|

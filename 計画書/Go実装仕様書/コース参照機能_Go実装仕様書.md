@@ -111,7 +111,7 @@ internal/curriculum/presentation/routes.go
 
 `admin_course_directory.go`・`admin_analytics_directory.go`の2ファイルに分けるのは、既存の`unit_directory.go`・`question_directory.go`と同じ基準（呼び出し元Context単位でまとめる）による。`course-catalog`向けの3操作、`admin-analytics`向けの3操作をそれぞれ1ファイルにまとめ、ファイル数の増加を抑える（「文書の分割」参照）。
 
-単元参照機能が担当するものは以下の5である（同機能③「2. ディレクトリ構成」）。
+単元参照機能が担当するものは以下の5である（単元参照機能③「2. ディレクトリ構成」）。
 
 ```
 internal/curriculum/application/show_unit_detail.go
@@ -259,7 +259,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |CreatedAt|time.Time|作成日時。同|
 |UpdatedAt|time.Time|更新日時。同|
 
-**`DeletedAt`・`CreatedAt`・`UpdatedAt`を保持するのは本機能固有である。** `as_json`がテーブルの全カラムを返すためである（①「5. API / 処理詳細」`#index`）。単元参照機能が返す単元の型はこの3項目を持たない（同機能③「6. Application層設計」）。同じテーブルを扱うが返す項目が違う。
+**`DeletedAt`・`CreatedAt`・`UpdatedAt`を保持するのは本機能固有である。** `as_json`がテーブルの全カラムを返すためである（①「5. API / 処理詳細」`#index`）。単元参照機能が返す単元の型はこの3項目を持たない（単元参照機能③「6. Application層設計」）。同じテーブルを扱うが返す項目が違う。
 
 ## 関数
 
@@ -291,7 +291,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |関数|シグネチャ|呼び出し元|
 |-|-|-|
 |`ExistsAllUnits`|`(ctx context.Context, unitIDs []uint) (bool, error)`|`task-management`・`draft-task`|
-|`FindUnitsByIDs`|`(ctx context.Context, unitIDs []uint) ([]UnitInfo, error)`|同|
+|`FindUnitsByIDs`|`(ctx context.Context, unitIDs []uint) ([]UnitInfo, error)`|`task-management`・`draft-task`・`goal-management`|
 |`FindUnitQuestions`|`(ctx context.Context, unitID uint) ([]QuestionInfo, error)`|`question-answering`|
 |`FindQuestionForAnswer`|`(ctx context.Context, unitID, questionID, questionChoiceID uint) (AnswerTargetInfo, error)`|同|
 |`CountQuestions`|`(ctx context.Context, unitIDs []uint) (int, error)`|同|
@@ -336,6 +336,7 @@ Transaction Script採用のため、UseCase structを設けない。②「12. Us
 |-|-|-|
 |`ExistsAll(ctx, UnitIDSet) (bool, error)`（タスク管理機能③・タスク下書き機能③）|`ExistsAllUnits(ctx, []uint) (bool, error)`|呼び出し元のアダプタが`UnitIDSet`→`[]uint`へ|
 |`FindUnitsByIDs(ctx, UnitIDSet) ([]UnitRef, error)`（同）|`FindUnitsByIDs(ctx, []uint) ([]UnitInfo, error)`|同。戻り値は`UnitInfo`→`UnitRef`へ|
+|`FindUnitsByIDs(ctx, []uint) ([]UnitRef, error)`（目標管理機能③）|同上|戻り値を`UnitInfo`→`UnitRef`へ|
 |`FindUnitQuestions(ctx, unitID uint) ([]QuestionRef, error)`（問題解答機能③）|`FindUnitQuestions(ctx, unitID uint) ([]QuestionInfo, error)`|戻り値を`QuestionInfo`→`QuestionRef`へ|
 |`FindQuestionForAnswer(ctx, unitID, questionID, questionChoiceID uint) (AnswerTargetRef, error)`（同）|同じ引数。戻り値は`AnswerTargetInfo`|戻り値を`AnswerTargetInfo`→`AnswerTargetRef`へ|
 |`CountQuestions(ctx, UnitIDSet) (int, error)`（同）|`CountQuestions(ctx, []uint) (int, error)`|呼び出し元のアダプタが`UnitIDSet`→`[]uint`へ|
@@ -521,7 +522,7 @@ sequenceDiagram
 |-|-|-|-|
 |`CountUnitsByIDs`|`ctx context.Context, unitIDs []uint`|`(int64, error)`|`id IN (...)`で件数を数える。`deleted_at`を条件に含めない|
 |`FindUnitsByIDs`|`ctx context.Context, unitIDs []uint`|`([]unitWithCourseModel, error)`|`id IN (...)`で取得し、`courses`と結合してレベル番号・レベル名を得る。`deleted_at`を条件に含めない|
-|`FindUnitByID`|`ctx context.Context, unitID uint`|`(*unitWithCourseModel, error)`|`id`で1件取得し、`courses`と結合する。**単元参照機能が用いる**（同機能③「8. Infrastructure層設計」）|
+|`FindUnitByID`|`ctx context.Context, unitID uint`|`(*unitWithCourseModel, error)`|`id`で1件取得し、`courses`と結合する。**単元参照機能が用いる**（単元参照機能③「8. Infrastructure層設計」）|
 |`FindUnitsByCourseID`|`ctx context.Context, courseID uint`|`([]unitModel, error)`|`course_id`一致で取得し、**`deleted_at IS NULL`で論理削除を除外**、`id`昇順で並べる（①「5. API / 処理詳細」`Api::V1::Admin::CoursesController#show`「単元の並び順は単元IDの昇順」「論理削除済みの単元は詳細に含まれない」）。`FindCourseDetail`が用いる|
 |`CountUnitsGroupedByCourseID`|`ctx context.Context, courseIDs []uint`|`(map[uint]int64, error)`|`units`を`course_id IN (...)`かつ`deleted_at IS NULL`で絞り込み、`course_id`ごとに件数を`GROUP BY`で集計する。該当する単元がないコースはマップに現れない（呼び出し元が0として扱う）。`SearchCourses`の単元数集計に用いる|
 |`FindUnitForDetail`|`ctx context.Context, courseID, unitID uint`|`(*unitDetailModel, bool, error)`|`units`を`id`・`course_id`の組み合わせで絞り込み、`courses`・`subjects`・`questions`・`question_choices`・`question_hints`・`question_explanations`と結合して単元・所属コース・問題一覧（選択肢・ヒント・解説を含む）を1回のクエリで取得する。`course_id`の組み合わせが一致しない場合（単元が存在しない、または別のコースに属する場合のいずれも）は`found=false`を返す（①「5. API / 処理詳細」`Api::V1::Admin::UnitsController#show`「単元はURL上の`course_id`に属するものに限定される」）。**論理削除の扱いは未確定である**（②「11. Repository設計」が①に記載がなく未確定と明記しており、本書も確定しない。「17. ②からの補足事項」）。問題は`id`順、選択肢は`choice_number`順、ヒントは`step_number`順、解説は登録順に整理する（①同コントローラ「業務ルール」）|
@@ -575,7 +576,7 @@ sequenceDiagram
 
 **本書では対象外。** 本Contextから他Contextへの依存がないためである（②「3. Bounded Context」）。
 
-単元参照機能が`task-management`への依存を持ち、`infrastructure/contextadapter/task_unit_directory.go`を作成する（同機能③「8. Infrastructure層設計」）。
+単元参照機能が`task-management`への依存を持ち、`infrastructure/contextadapter/task_unit_directory.go`を作成する（単元参照機能③「8. Infrastructure層設計」）。
 
 ## context.go と dependency.go
 
@@ -614,7 +615,7 @@ sequenceDiagram
 
 |型|フィールド|渡す先|
 |-|-|-|
-|`UnitInfo`|ID・CourseID・UnitName・CourseLevelNumber・CourseLevelName|`task-management`・`draft-task`|
+|`UnitInfo`|ID・CourseID・UnitName・CourseLevelNumber・CourseLevelName|`task-management`・`draft-task`・`goal-management`|
 |`QuestionInfo`|ID・UnitID・CourseID・QuestionText・CorrectAnswer・Choices（`[]QuestionChoiceInfo`）・Hints（`[]QuestionHintInfo`）|`question-answering`|
 |`QuestionChoiceInfo`|ID・QuestionID・ChoiceNumber・ChoiceText|同|
 |`QuestionHintInfo`|ID・QuestionID・StepNumber・HintText|同|
@@ -722,7 +723,7 @@ Handlerは`[]CourseResponse`をそのまま返す。
 
 ### 単元参照機能のResponse DTO
 
-`presentation/response/unit_response.go`は単元参照機能が担当する（同機能③「9. Presentation層設計」）。
+`presentation/response/unit_response.go`は単元参照機能が担当する（単元参照機能③「9. Presentation層設計」）。
 
 **本機能の`UnitResponse`とは項目が異なる。** 本機能は`deleted_at`・`created_at`・`updated_at`を含むが、単元参照機能は含まない。同じ`presentation/response/`に置くため、**struct名を分ける必要がある**。本機能を`UnitResponse`、単元参照機能を`UnitDetailResponse`とする（単元参照機能③「9. Presentation層設計」）。
 
@@ -871,7 +872,7 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 
 **本機能には404を返す経路がない。**
 
-単元参照機能には404を返す経路がある（同機能③「14. Error実装方針」）。同じContextだが、エンドポイントによって返すステータスが違う。
+単元参照機能には404を返す経路がある（単元参照機能③「14. Error実装方針」）。同じContextだが、エンドポイントによって返すステータスが違う。
 
 ## 公開操作のエラーの扱い
 
@@ -1089,7 +1090,7 @@ application層の関数のテストである。検索関数を差し替えて検
 
 # 17. ②からの補足事項
 
-②に明記がなく、実装のために追加で判断した内容を記載する。単元参照機能に固有のものは同機能③「17. ②からの補足事項」を参照。
+②に明記がなく、実装のために追加で判断した内容を記載する。単元参照機能に固有のものは単元参照機能③「17. ②からの補足事項」を参照。
 
 |判断した内容|判断理由|推測かどうか|
 |-|-|-|
@@ -1113,7 +1114,7 @@ application層の関数のテストである。検索関数を差し替えて検
 |`SearchCourses`で論理削除済みのコースを除外し、`FindCourseDetail`はコース自体を除外しない一方で単元・問題数集計は除外する形にした|①「5. API / 処理詳細」`Api::V1::Admin::CoursesController#index`・`#show`が明記する業務ルールのとおりである（②「11. Repository設計」の「公開操作における論理削除の扱い」）|補足（①②の実体に基づく。推測ではない）|
 |`FindUnitDetail`の論理削除の扱いを確定させず、未確定のまま残した|②「11. Repository設計」が「①に論理削除の扱いの記載がなく未確定である」「本機能の③で確定する事項として残す」と明記している。①「5. API / 処理詳細」`Api::V1::Admin::UnitsController#show`にも論理削除の除外に関する記載がない|**要確認（未確定）**。実装着手前に、論理削除済みの問題・選択肢・ヒント・解説を除外するかどうかを確定する必要がある|
 |`question_explanations`を本Contextが所有するテーブルとして扱った|コース参照機能②「11. Repository設計」の所有テーブル一覧に`question_explanations`が加わり確定した（管理者コース・単元参照機能②「21. DB操作仕様」「3. Bounded Context」の記載とも一致する）|確定済み（推測ではない）|
-|`SearchCourses`で`PerPage`が0以下のとき20を既定値とした|①「5. API / 処理詳細」`Api::V1::Admin::CoursesController#index`は上限100件のみを明記し、既定値は明記していない。本プロジェクトの他機能③（教師教員管理機能③「16. API互換方針」等）が参照するRails `ApplicationController`共通設定の`DEFAULT_PER_PAGE`相当（20件）に合わせた|**推測**（①に既定値の明記がないため。Rails実体の確認が必要）|
+|`SearchCourses`で`PerPage`が0以下のとき20を既定値とした|①「5. API / 処理詳細」`Api::V1::Admin::CoursesController#index`は上限100件のみを明記し、既定値は明記していない。Rails `ApplicationController`共通設定の`DEFAULT_PER_PAGE`（20件）に合わせた。`Api::V1::Admin::CoursesController`はこの値を上書きしていない（Rails実体で確認）。他機能も同じ値を定めている（教師教員管理機能②「12. UseCase設計」`ListTeachers`）|補足（①に既定値の明記がないため、Rails実体に基づく）|
 |コース参照②と管理者コース・単元参照機能②の間にあった、単元詳細取得の論理削除の扱いの記載の齟齬|管理者コース・単元参照機能②「21. DB操作仕様」（旧）が単元詳細の参照手段を「論理削除除外」と記していたが、①に根拠がないことを確認し、コース参照②「11. Repository設計」と同じ「未確定」に訂正した|解消済み（管理者コース・単元参照機能②「21. DB操作仕様」を訂正した）|
 
 ディレクトリ名・package名（`internal/curriculum/`）、レスポンスの形状（最上位が配列・全カラムを含む・`meta`なし・科目を含まない）、ステータスコード、論理削除を除外しない扱い、既存6個の公開操作のシグネチャは、いずれも規約・①・②に根拠があるため推測ではない。根拠はそれぞれ該当節に記載した。新規6個のシグネチャはいずれも②に根拠があり確定済みである（`FindQuestionLocations`・`FindCourseAndUnitIDsBySubject`・`FindContentInventory`は本書側の暫定型だが、管理者分析機能③との突き合わせにより調整不要と確認済み）。`FindUnitDetail`の論理削除の扱いのみ、①に記載がなく未確定のまま残っている。

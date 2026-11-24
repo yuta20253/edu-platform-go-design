@@ -55,7 +55,7 @@ internal/studentdirectory/
     └── response/
 ```
 
-アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名`student-directory`から`-`を取り除いて連結した全小文字の名前とし、短縮・省略はしない。したがってディレクトリ名は`internal/studentdirectory/`、package名は同じ`studentdirectory`となる。同規約は`internal/student_directory/`のようにアンダースコアで区切ることも、短縮することも禁じている（package名にアンダースコアを使わないため、ディレクトリ名とpackage名が一致しなくなる）。`presentation/request/`を設ける理由は「6. Presentation層設計」参照。
+アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」に従い、Context名`student-directory`から`-`を取り除いて連結した全小文字の名前とし、短縮・省略はしない。したがってディレクトリ名は`internal/studentdirectory/`、package名は同じ`studentdirectory`となる。同規約は`internal/student_directory/`のようにアンダースコアで区切ることも、短縮することも禁じている（package名にアンダースコアを使わないため、ディレクトリ名とpackage名が一致しなくなる）。`presentation/request/`を設ける理由は「9. Presentation層設計」参照。
 
 ## 作成するファイル一覧
 
@@ -94,12 +94,12 @@ internal/studentdirectory/presentation/routes.go
 
 ②「6. Entity設計」「7. Value Object設計」「8. Domain Service」「11. Repository設計」「17. Error設計」で示された設計意図は、Domain層のstruct/interfaceとしては実装せず、以下のとおり読み替えて反映する。
 
-- Student Entity（②「6. Entity設計」）: 独立したEntity structは作らない。生徒情報は「4. Application層設計」のDTOと「5. Infrastructure層設計」の検索結果として表現する
+- Student Entity（②「6. Entity設計」）: 独立したEntity structは作らない。生徒情報は「6. Application層設計」のDTOと「8. Infrastructure層設計」の検索結果として表現する
 - GradeScope Value Object（②「7. Value Object設計」）: 独立したValue Object型は作らない。「担当学年権限の有無」「対象学年ID」という絞り込み条件は、`application/list_students.go`・`application/show_student.go`の関数引数・ローカル変数として表現する
 - StudentEnrollmentTarget Value Object（②「7. Value Object設計」）: 独立したValue Object型は作らない。「登録先の学年ID・クラスID」の組は`application/create_student.go`の関数引数として表現し、整合性検証は関数内のガード節で行う
 - StudentEnrollmentPolicy（②「8. Domain Service」 Domain Service）: 独立したstruct/interfaceとしては設けない。「指定学年・クラスが同校に属し、クラスが指定学年に属すること」の判定を`application/create_student.go`内の非公開関数として実装する（規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造：業務ルールは関数内のガード節で表現する）
-- StudentRepository / GradeRepository / SchoolClassRepository（②「11. Repository設計」）: interfaceとしては定義しない。責務は「5. Infrastructure層設計」のinfrastructure関数、および`user` Contextが公開する作成操作（`CreateStudentAccount`）の呼び出しとして実装する（詳細は「6. Application層設計」の「Context間連携」節・8章参照）
-- Domain Error（②「17. Error設計」）: 独立したDomain Error型は設けない。「11. Error実装方針」に示すとおり、application関数が返すエラーをApplication Error相当として扱う（規約「7. 横断的関心事の置き場所」）
+- StudentRepository / GradeRepository / SchoolClassRepository（②「11. Repository設計」）: interfaceとしては定義しない。責務は「8. Infrastructure層設計」のinfrastructure関数、および`user` Contextが公開する作成操作（`CreateStudentAccount`）の呼び出しとして実装する（詳細は「6. Application層設計」の「Context間連携」節・8章参照）
+- Domain Error（②「17. Error設計」）: 独立したDomain Error型は設けない。「14. Error実装方針」に示すとおり、application関数が返すエラーをApplication Error相当として扱う（規約「7. 横断的関心事の置き場所」）
 
 ---
 
@@ -158,7 +158,7 @@ internal/studentdirectory/presentation/routes.go
 
 **②からの補足**: `RequestingTeacher`のフィールド構成は②「16. Authorization設計」の記述から導出したものであり、具体的な型・フィールド名は②に明記がないため実装仕様書側の判断である（推測）。
 
-**担当学年の制限を`RequestingTeacher`に持たせない。** 制限の有無と対象学年は`teacher-permission`が所有する情報であり、認証Middlewareが運ぶ値にすると、権限の状態が認証の関心に混ざる。各application関数が`GradeRestrictionDirectory.FindGradeRestriction(ctx, teacherID)`を呼んで取得する（「5. Infrastructure層設計」）。教師お知らせ機能③_1も同じインターフェースで同じ情報を取得している（同③_1「8. Infrastructure層設計」）。`ListStudentsOutput.PerPage`は、リクエストで指定された値（または②「19. API仕様」のデフォルト値10・上限100を適用した値）をそのまま返す構成とした。
+**担当学年の制限を`RequestingTeacher`に持たせない。** 制限の有無と対象学年は`teacher-permission`が所有する情報であり、認証Middlewareが運ぶ値にすると、権限の状態が認証の関心に混ざる。各application関数が`GradeRestrictionDirectory.FindGradeRestriction(ctx, teacherID)`を呼んで取得する（「8. Infrastructure層設計」）。教師お知らせ機能③_1も同じインターフェースで同じ情報を取得している（同③_1「8. Infrastructure層設計」）。`ListStudentsOutput.PerPage`は、リクエストで指定された値（または②「19. API仕様」のデフォルト値10・上限100を適用した値）をそのまま返す構成とした。
 
 ## application関数
 
@@ -169,7 +169,7 @@ internal/studentdirectory/presentation/routes.go
   1. `input.Teacher.HighSchoolID`を絞り込み条件（必須）とする
   2. `restrictions.FindGradeRestriction(ctx, input.Teacher.TeacherID)`で担当学年の制限を取得する。`nil`でなければ、その学年を絞り込み条件に追加する（②「7. Value Object設計」 GradeScopeの独自ルール：制限がない場合は学年による絞り込みを行わない）
   3. `input.Keyword`が空文字でなければ、氏名・氏名カナの部分一致を絞り込み条件に追加する（②「12. UseCase設計」）
-  4. `input.PerPage`が未指定（0）の場合は10、上限（100）を超える場合は100へ正規化する（②「15. Validation設計」・「19. API仕様」）
+  4. `input.PerPage`が未指定・0以下の場合は10、上限（100）を超える場合は100へ正規化する。`input.Page`が0以下の場合は1とする（①「5. API / 処理詳細」`#index`、②「15. Validation設計」・「19. API仕様」）
   5. 組み立てた絞り込み条件・`input.Page`・正規化後の`PerPage`・ソート条件（name_kana順）を渡して、`infrastructure.FindStudents`を呼び出す
   6. 検索結果の総件数からページ情報（`TotalPages`・`TotalCount`・`PerPage`）を組み立てる
   7. `ListStudentsOutput`を構築して返す
@@ -191,18 +191,18 @@ internal/studentdirectory/presentation/routes.go
 ### ShowStudentGoals
 
 - 関数シグネチャ: `func ShowStudentGoals(ctx context.Context, input ShowStudentGoalsInput) (ShowStudentGoalsOutput, error)`
-- `ShowStudentGoalsInput`のフィールド: `Teacher RequestingTeacher` / `StudentID uint`
-- `ShowStudentGoalsOutput`のフィールド: `Student StudentSummary`（ID・氏名） / `Goals []StudentGoal`
+- `ShowStudentGoalsInput`のフィールド: `Teacher RequestingTeacher` / `StudentID uint` / `Page int` / `PerPage int`
+- `ShowStudentGoalsOutput`のフィールド: `Student StudentSummary`（ID・氏名） / `Goals []StudentGoal` / `Meta PageMeta`
 - `StudentGoal`のフィールド: `ID uint` / `Title string` / `Description string` / `Status string` / `DueDate *time.Time` / `Progress GoalProgress` / `Tasks []GoalTask`
 - `GoalProgress`のフィールド: `TaskCompletedCount int` / `TaskTotalCount int` / `CompletionRate int`
 - `GoalTask`のフィールド: `ID uint` / `Title string` / `Status string` / `DueDate *time.Time`
 - 処理ステップ（呼び出し順序）:
   1. `ShowStudent`と同一の絞り込み条件（所属校、担当学年権限がある場合は担当学年）で`infrastructure.FindStudentByID`を呼び出し、対象生徒を確認する
   2. 見つからない場合（権限範囲外を含む）は`ErrStudentNotFound`を返す
-  3. `infrastructure.FindGoalsByStudentID`で目標とそれに紐づくタスクを取得する。並び順は期限の昇順、同一期限ではIDの昇順（②「12. UseCase設計」）
+  3. `infrastructure.FindGoalsByStudentID`で目標とそれに紐づくタスクを取得する。並び順は期限の昇順、同一期限ではIDの昇順で、`Page` / `PerPage`でページングする。`Page`・`PerPage`は`ListStudents`と同じ規則で正規化する（未指定・0以下は`Page`が1、`PerPage`が10。`PerPage`が100を超える場合は100。①「5. API / 処理詳細」`#show`、②「12. UseCase設計」）
   4. 目標ごとに、紐づくタスクの完了件数・総件数・完了率を算出する
   5. `ShowStudentGoalsOutput`へ変換して返す
-- ページネーション: 行わない（②「12. UseCase設計」）
+- ページネーション: 行う（②「12. UseCase設計」）。`ShowStudentTasks`と同じ`PageMeta`を返す
 - トランザクション境界: なし
 - 発生しうるApplication Error: `ErrStudentNotFound`
 
@@ -216,7 +216,7 @@ internal/studentdirectory/presentation/routes.go
 - `TaskUnit`のフィールド: 単元の基本情報（ID・名称・コース）＋`AnswerStats`の5項目
 - 処理ステップ（呼び出し順序）:
   1. `ShowStudentGoals`と同一の手順で対象生徒を確認する。見つからない場合は`ErrStudentNotFound`を返す
-  2. `infrastructure.FindTasksByStudentID`でタスクを取得する。論理削除済みの目標に紐づくタスクを除外し（結合条件に`goals.deleted_at IS NULL`を明示する）、期限の昇順・同一期限ではIDの昇順で並べ、`Page` / `PerPage`でページングする（②「12. UseCase設計」）
+  2. `infrastructure.FindTasksByStudentID`でタスクを取得する。論理削除済みの目標に紐づくタスクを除外し（結合条件に`goals.deleted_at IS NULL`を明示する）、期限の昇順・同一期限ではIDの昇順で並べ、`Page` / `PerPage`でページングする。`Page`・`PerPage`は`ListStudents`と同じ規則で正規化する（①「5. API / 処理詳細」`#show`、②「12. UseCase設計」）
   3. 取得したタスクのIDを渡して`infrastructure.CountTaskAnswerStats`を呼び出し、単元ごとの問題数と解答数・正答数を取得する
   4. 単元ごとの統計から、タスク単位の統計を算出する。**件数（問題数・解答数・正答数）を合計してから率を求める。** 単元ごとの率の平均は取らない（②「12. UseCase設計」）
   5. 正答率は解答数が0件のとき`nil`とし、進捗率は分母が0のとき0とする（②「12. UseCase設計」）
@@ -229,7 +229,7 @@ internal/studentdirectory/presentation/routes.go
 ### CreateStudent
 
 - 関数シグネチャ: `func CreateStudent(ctx context.Context, creator StudentAccountCreator, finder UserFinder, input CreateStudentInput) (CreateStudentOutput, error)`
-- 依存: `StudentAccountCreator`インターフェース（本関数の引数として受け取る。コーディング規約「7. インターフェース」の「利用側で定義する」方針、および規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造（struct化しない）の両方を満たすため、依存をstructフィールドではなく関数引数として受け取る構成とする。定義・実装は「5. Infrastructure層設計」「Context間連携」参照）
+- 依存: `StudentAccountCreator`インターフェース（本関数の引数として受け取る。コーディング規約「7. インターフェース」の「利用側で定義する」方針、および規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造（struct化しない）の両方を満たすため、依存をstructフィールドではなく関数引数として受け取る構成とする。定義・実装は「8. Infrastructure層設計」「Context間連携」参照）
 - 処理ステップ（呼び出し順序）:
   1. `GradeDirectory.FindGrade(ctx, input.GradeID)`で学年の所属校を取得し、`SchoolClassDirectory.FindSchoolClass(ctx, input.SchoolClassID)`でクラスの所属学年を取得する。いずれかが該当しなければ`ErrEnrollmentTargetMismatch`を返す
   2. 取得した学年の所属校が`input.Teacher.HighSchoolID`と一致するか、かつクラスが指定学年に属するかを検証する（StudentEnrollmentPolicy相当の判定。②「8. Domain Service」）。一致しない場合は`ErrEnrollmentTargetMismatch`を返す
@@ -251,7 +251,7 @@ internal/studentdirectory/presentation/routes.go
 - メソッドシグネチャ: `CreateStudentAccount(ctx context.Context, cmd CreateStudentAccountCommand) (CreateStudentAccountResult, error)`
 - `CreateStudentAccountCommand`のフィールド: `Name string` / `NameKana string` / `Email string` / `HighSchoolID uint` / `GradeID uint` / `SchoolClassID uint`
 - `CreateStudentAccountResult`のフィールド: `StudentID uint` / `Name string` / `Email string`
-- 実装: `infrastructure/contextadapter/student_account_creator.go`。`user` Contextが公開する`CreateStudentAccount`を呼び出す薄い実装（`CreateStudentAccountCommand` / `CreateStudentAccountResult`と、`user`の入力・出力の型との変換のみを行う。`user`の作成規則である仮パスワード発行・生徒番号採番・招待待ちの設定・招待メール送信依頼は、この実装ではなく`user`が行う）。呼び出す関数のシグネチャは`user`③「3. 公開操作の定義」のとおり
+- 実装: `infrastructure/contextadapter/student_account_creator.go`。`user` Contextが公開する`CreateStudentAccount`を呼び出す薄い実装（`CreateStudentAccountCommand` / `CreateStudentAccountResult`と、`user`の入力・出力の型との変換のみを行う。`user`の作成規則である仮パスワード発行・生徒番号採番・招待待ちの設定・招待メール送信依頼は、この実装ではなく`user`が行う）。呼び出す関数のシグネチャは`user`③「6. Application層設計」の「作成操作」のとおり
 
 ## Context間連携（UserFinder）
 
@@ -259,7 +259,7 @@ internal/studentdirectory/presentation/routes.go
 - メソッドシグネチャ: `FindUserByEmail(ctx context.Context, email string) (ExistingUser, bool, error)`
 - `ExistingUser`のフィールド: `ID uint` / `HighSchoolID *uint` / `IsStudent bool`
 - 用途: メールアドレスの重複の3条件を本Contextが判定するために、既存アカウントの所属校とロールを取得する
-- 実装: `infrastructure/contextadapter/existing_user_finder.go`。`user` Contextが公開する`FindUserByEmail`を呼び出す薄い実装。`user`③「3. 公開操作の定義」のとおり、該当しない場合はエラーではなく`found = false`が返る
+- 実装: `infrastructure/contextadapter/existing_user_finder.go`。`user` Contextが公開する`FindUserByEmail`を呼び出す薄い実装。`user`③「6. Application層設計」の「参照操作」のとおり、該当しない場合はエラーではなく`found = false`が返る
 - 無効化済みの扱い: `user`の`FindUserByEmail`は無効化済みのアカウントも返す。Rails現行の`User.find_by(email:)`も論理削除済みを除外しないため、同じ挙動になる
 - DI配線: アーキテクチャ規約「14. 依存関係の組み立て（DI配線）」に従い、`internal/studentdirectory`のContext組み立て関数（`NewContext`）が、上記の実装を生成し、`StudentAccountCreator`として`CreateStudent`関数（またはそれを呼び出すHandler）へ渡す。他Contextの組み立て結果を受け取る配線は行わない
 
@@ -284,7 +284,7 @@ internal/studentdirectory/presentation/routes.go
 
 `GradeRestrictionDirectory`のメソッド名・シグネチャは、教師お知らせ機能③_1が`teacher-permission`に対して定めたものと同一である（同③_1「8. Infrastructure層設計」）。同じ情報を2つのContextが別の形で取得することを避ける。
 
-**②からの補足**: ②「3. Bounded Context」は、`student-directory`が`user`の`CreateStudentAccount`を直接呼ぶと定めている。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する手段を呼び出す」方針に従い、本書では呼び出し側（student-directory）がコーディング規約「7. インターフェース」の方針どおり利用側で最小限のinterfaceを定義し、`user`の公開関数を呼ぶ薄い実装をDI配線で渡す構成とした。呼び出す関数のシグネチャは`user`③「3. 公開操作の定義」で確定している。
+**②からの補足**: ②「3. Bounded Context」は、`student-directory`が`user`の`CreateStudentAccount`を直接呼ぶと定めている。アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する手段を呼び出す」方針に従い、本書では呼び出し側（student-directory）がコーディング規約「7. インターフェース」の方針どおり利用側で最小限のinterfaceを定義し、`user`の公開関数を呼ぶ薄い実装をDI配線で渡す構成とした。呼び出す関数のシグネチャは`user`③「6. Application層設計」の「参照操作」「作成操作」で確定している。
 
 ---
 
@@ -295,18 +295,18 @@ internal/studentdirectory/presentation/routes.go
 ### ShowStudentGoals
 
 - 関数シグネチャ: `func ShowStudentGoals(ctx context.Context, input ShowStudentGoalsInput) (ShowStudentGoalsOutput, error)`
-- `ShowStudentGoalsInput`のフィールド: `Teacher RequestingTeacher` / `StudentID uint`
-- `ShowStudentGoalsOutput`のフィールド: `Student StudentSummary`（ID・氏名） / `Goals []StudentGoal`
+- `ShowStudentGoalsInput`のフィールド: `Teacher RequestingTeacher` / `StudentID uint` / `Page int` / `PerPage int`
+- `ShowStudentGoalsOutput`のフィールド: `Student StudentSummary`（ID・氏名） / `Goals []StudentGoal` / `Meta PageMeta`
 - `StudentGoal`のフィールド: `ID uint` / `Title string` / `Description string` / `Status string` / `DueDate *time.Time` / `Progress GoalProgress` / `Tasks []GoalTask`
 - `GoalProgress`のフィールド: `TaskCompletedCount int` / `TaskTotalCount int` / `CompletionRate int`
 - `GoalTask`のフィールド: `ID uint` / `Title string` / `Status string` / `DueDate *time.Time`
 - 処理ステップ（呼び出し順序）:
   1. `ShowStudent`と同一の絞り込み条件（所属校、担当学年権限がある場合は担当学年）で`infrastructure.FindStudentByID`を呼び出し、対象生徒を確認する
   2. 見つからない場合（権限範囲外を含む）は`ErrStudentNotFound`を返す
-  3. `infrastructure.FindGoalsByStudentID`で目標とそれに紐づくタスクを取得する。並び順は期限の昇順、同一期限ではIDの昇順（②「12. UseCase設計」）
+  3. `infrastructure.FindGoalsByStudentID`で目標とそれに紐づくタスクを取得する。並び順は期限の昇順、同一期限ではIDの昇順で、`Page` / `PerPage`でページングする。`Page`・`PerPage`は`ListStudents`と同じ規則で正規化する（未指定・0以下は`Page`が1、`PerPage`が10。`PerPage`が100を超える場合は100。①「5. API / 処理詳細」`#show`、②「12. UseCase設計」）
   4. 目標ごとに、紐づくタスクの完了件数・総件数・完了率を算出する
   5. `ShowStudentGoalsOutput`へ変換して返す
-- ページネーション: 行わない（②「12. UseCase設計」）
+- ページネーション: 行う（②「12. UseCase設計」）。`ShowStudentTasks`と同じ`PageMeta`を返す
 - トランザクション境界: なし
 - 発生しうるApplication Error: `ErrStudentNotFound`
 
@@ -320,7 +320,7 @@ internal/studentdirectory/presentation/routes.go
 - `TaskUnit`のフィールド: 単元の基本情報（ID・名称・コース）＋`AnswerStats`の5項目
 - 処理ステップ（呼び出し順序）:
   1. `ShowStudentGoals`と同一の手順で対象生徒を確認する。見つからない場合は`ErrStudentNotFound`を返す
-  2. `infrastructure.FindTasksByStudentID`でタスクを取得する。論理削除済みの目標に紐づくタスクを除外し（結合条件に`goals.deleted_at IS NULL`を明示する）、期限の昇順・同一期限ではIDの昇順で並べ、`Page` / `PerPage`でページングする（②「12. UseCase設計」）
+  2. `infrastructure.FindTasksByStudentID`でタスクを取得する。論理削除済みの目標に紐づくタスクを除外し（結合条件に`goals.deleted_at IS NULL`を明示する）、期限の昇順・同一期限ではIDの昇順で並べ、`Page` / `PerPage`でページングする。`Page`・`PerPage`は`ListStudents`と同じ規則で正規化する（①「5. API / 処理詳細」`#show`、②「12. UseCase設計」）
   3. 取得したタスクのIDを渡して`infrastructure.CountTaskAnswerStats`を呼び出し、単元ごとの問題数と解答数・正答数を取得する
   4. 単元ごとの統計から、タスク単位の統計を算出する。**件数（問題数・解答数・正答数）を合計してから率を求める。** 単元ごとの率の平均は取らない（②「12. UseCase設計」）
   5. 正答率は解答数が0件のとき`nil`とし、進捗率は分母が0のとき0とする（②「12. UseCase設計」）
@@ -362,18 +362,18 @@ sequenceDiagram
 ### ShowStudentGoals
 
 - 関数シグネチャ: `func ShowStudentGoals(ctx context.Context, input ShowStudentGoalsInput) (ShowStudentGoalsOutput, error)`
-- `ShowStudentGoalsInput`のフィールド: `Teacher RequestingTeacher` / `StudentID uint`
-- `ShowStudentGoalsOutput`のフィールド: `Student StudentSummary`（ID・氏名） / `Goals []StudentGoal`
+- `ShowStudentGoalsInput`のフィールド: `Teacher RequestingTeacher` / `StudentID uint` / `Page int` / `PerPage int`
+- `ShowStudentGoalsOutput`のフィールド: `Student StudentSummary`（ID・氏名） / `Goals []StudentGoal` / `Meta PageMeta`
 - `StudentGoal`のフィールド: `ID uint` / `Title string` / `Description string` / `Status string` / `DueDate *time.Time` / `Progress GoalProgress` / `Tasks []GoalTask`
 - `GoalProgress`のフィールド: `TaskCompletedCount int` / `TaskTotalCount int` / `CompletionRate int`
 - `GoalTask`のフィールド: `ID uint` / `Title string` / `Status string` / `DueDate *time.Time`
 - 処理ステップ（呼び出し順序）:
   1. `ShowStudent`と同一の絞り込み条件（所属校、担当学年権限がある場合は担当学年）で`infrastructure.FindStudentByID`を呼び出し、対象生徒を確認する
   2. 見つからない場合（権限範囲外を含む）は`ErrStudentNotFound`を返す
-  3. `infrastructure.FindGoalsByStudentID`で目標とそれに紐づくタスクを取得する。並び順は期限の昇順、同一期限ではIDの昇順（②「12. UseCase設計」）
+  3. `infrastructure.FindGoalsByStudentID`で目標とそれに紐づくタスクを取得する。並び順は期限の昇順、同一期限ではIDの昇順で、`Page` / `PerPage`でページングする。`Page`・`PerPage`は`ListStudents`と同じ規則で正規化する（未指定・0以下は`Page`が1、`PerPage`が10。`PerPage`が100を超える場合は100。①「5. API / 処理詳細」`#show`、②「12. UseCase設計」）
   4. 目標ごとに、紐づくタスクの完了件数・総件数・完了率を算出する
   5. `ShowStudentGoalsOutput`へ変換して返す
-- ページネーション: 行わない（②「12. UseCase設計」）
+- ページネーション: 行う（②「12. UseCase設計」）。`ShowStudentTasks`と同じ`PageMeta`を返す
 - トランザクション境界: なし
 - 発生しうるApplication Error: `ErrStudentNotFound`
 
@@ -387,7 +387,7 @@ sequenceDiagram
 - `TaskUnit`のフィールド: 単元の基本情報（ID・名称・コース）＋`AnswerStats`の5項目
 - 処理ステップ（呼び出し順序）:
   1. `ShowStudentGoals`と同一の手順で対象生徒を確認する。見つからない場合は`ErrStudentNotFound`を返す
-  2. `infrastructure.FindTasksByStudentID`でタスクを取得する。論理削除済みの目標に紐づくタスクを除外し（結合条件に`goals.deleted_at IS NULL`を明示する）、期限の昇順・同一期限ではIDの昇順で並べ、`Page` / `PerPage`でページングする（②「12. UseCase設計」）
+  2. `infrastructure.FindTasksByStudentID`でタスクを取得する。論理削除済みの目標に紐づくタスクを除外し（結合条件に`goals.deleted_at IS NULL`を明示する）、期限の昇順・同一期限ではIDの昇順で並べ、`Page` / `PerPage`でページングする。`Page`・`PerPage`は`ListStudents`と同じ規則で正規化する（①「5. API / 処理詳細」`#show`、②「12. UseCase設計」）
   3. 取得したタスクのIDを渡して`infrastructure.CountTaskAnswerStats`を呼び出し、単元ごとの問題数と解答数・正答数を取得する
   4. 単元ごとの統計から、タスク単位の統計を算出する。**件数（問題数・解答数・正答数）を合計してから率を求める。** 単元ごとの率の平均は取らない（②「12. UseCase設計」）
   5. 正答率は解答数が0件のとき`nil`とし、進捗率は分母が0のとき0とする（②「12. UseCase設計」）
@@ -446,10 +446,10 @@ flowchart TD
 
 ### FindGoalsByStudentID（`infrastructure/student_goal_query.go`）
 
-- 関数シグネチャ: `func FindGoalsByStudentID(ctx context.Context, studentID uint) ([]GoalRecord, error)`
+- 関数シグネチャ: `func FindGoalsByStudentID(ctx context.Context, studentID uint, page int, perPage int) (records []GoalRecord, total int64, err error)`
 - 取得内容: 対象生徒の目標と、各目標に紐づくタスク（ID・タイトル・状態・期限）
 - 並び順: `goals.due_date ASC, goals.id ASC`（②「12. UseCase設計」）
-- ページネーション: 行わない
+- ページネーション: `page` / `perPage`でOFFSET/LIMITを適用し、対象生徒の目標の総件数を`total`として返す。タスクの取得は、ページ内の目標IDに対して行う
 - タスクの読み込み: 目標ごとにクエリを発行せず、目標IDをまとめた1クエリでタスクを取得してアプリケーション側で紐づける（Rails現行の`includes(:tasks)`に対応）
 - `GoalRecord`のフィールド: `ID uint` / `Title string` / `Description string` / `Status string` / `DueDate *time.Time` / `Tasks []GoalTaskRecord`
 
@@ -541,7 +541,7 @@ flowchart TD
 
 - 処理順序（`List`）:
   1. Ginコンテキストから認証Middlewareが格納したcurrent teacher情報を取得し、`RequestingTeacher`へ変換する（Handlerでは権限判定を行わず、値の受け渡しのみ行う。②「16. Authorization設計」「Handler」）
-  2. クエリパラメータ`keyword`・`page`・`per_page`をバインドする（型が整数でない場合の扱いは17章参照）。`keyword`は形式を検証せず、空文字をそのまま渡す（②「15. Validation設計」）
+  2. クエリパラメータ`keyword`・`page`・`per_page`をバインドする（整数に変換できない値は未指定（0）として扱い、エラーにしない。①「5. API / 処理詳細」）。`keyword`は形式を検証せず、空文字をそのまま渡す（②「15. Validation設計」）
   3. `application.ListStudentsInput`を組み立て、`application.ListStudents`を呼び出す
   4. 取得結果を`StudentListResponse`へ変換する
   5. `200`でレスポンスを返す
@@ -574,8 +574,8 @@ flowchart TD
 | | `GradeID uint` | `binding:"required"` |
 | | `SchoolClassID uint` | `binding:"required"` |
 
-- `page`（クエリパラメータ）: `int`。バインド方式・必須有無は17章参照
-- `per_page`（クエリパラメータ）: `int`。未指定時は10、100件を超える場合は100へ正規化する（②「19. API仕様」。正規化自体は`application.ListStudents`が担い、Presentation層では型チェックのみ行う）
+- `page`（クエリパラメータ）: `int`。未指定時は1ページ目として扱う。整数に変換できない値・0以下の値も1ページ目として扱い、エラーにしない（①「5. API / 処理詳細」）
+- `per_page`（クエリパラメータ）: `int`。未指定時は10、100件を超える場合は100へ正規化する（②「19. API仕様」。正規化自体はApplication層の各関数が担い、Presentation層は整数への変換のみ行う。整数に変換できない値は未指定（0）として渡す）
 - `id`（パスパラメータ）: `uint`。整数への変換が必要（②「15. Validation設計」「必須チェック: 詳細取得時のid（route由来）を検証する」）
 
 ### Response（`presentation/response/student_response.go`）
@@ -601,7 +601,8 @@ flowchart TD
 | | `PerPage` | `int` |
 | `StudentCreateResponse` | `Message` | `string`（②「19. API仕様」「message（『生徒の新規作成に成功しました。』相当）を維持する」） |
 | `StudentGoalsResponse` | `Student` | `StudentIdentityResponse` |
-| | `Goals` | `[]StudentGoalResponse`（`meta`は持たない。②「19. API仕様」） |
+| | `Goals` | `[]StudentGoalResponse` |
+| | `Meta` | `MetaResponse`（②「19. API仕様」） |
 | `StudentIdentityResponse` | `ID` | `uint` |
 | | `Name` | `string` |
 | `StudentGoalResponse` | `ID` / `Title` / `Description` / `Status` | `uint` / `string` / `string` / `string` |
@@ -647,7 +648,7 @@ flowchart TD
 |Method|Path|Handler|Request|Response|Status Code|
 |-|-|-|-|-|-|
 |GET|/api/v1/teacher/students|StudentHandler.List|page, per_page（query, optional）|StudentListResponse|200|
-|GET|/api/v1/teacher/students/:id|StudentHandler.Show|id（path, required）、tab（query, optional）、`tab=tasks`では page / per_page（query, optional）|`tab`未指定: StudentDetailResponse／`tab=goals`: StudentGoalsResponse／`tab=tasks`: StudentTasksResponse|200|
+|GET|/api/v1/teacher/students/:id|StudentHandler.Show|id（path, required）、tab（query, optional）、`tab=goals`・`tab=tasks`では page / per_page（query, optional）|`tab`未指定: StudentDetailResponse／`tab=goals`: StudentGoalsResponse／`tab=tasks`: StudentTasksResponse|200|
 |POST|/api/v1/teacher/students|StudentHandler.Create|CreateStudentRequest|StudentCreateResponse|201|
 
 ## Errorケース
@@ -656,7 +657,6 @@ flowchart TD
 |-|-|-|
 |対象生徒が存在しない|404|`ErrStudentNotFound`|
 |対象生徒が権限範囲外（他校／担当学年外）|404|未存在の場合と同一のレスポンスとして扱う（②「17. Error設計」）|
-|pageパラメータが不正な形式|400（推測、17章参照）|バリデーションエラー|
 |CreateStudentRequestの必須項目欠落・メール形式不正・氏名カナがカタカナでない|422|Presentation Validationエラー|
 |登録先の学年・クラスが操作者の所属校でない、またはクラスが指定学年に属さない|422|`ErrEnrollmentTargetMismatch`|
 |登録先の学年が操作者の担当学年と一致しない|422|`ErrGradeOutOfScope`|
@@ -691,8 +691,7 @@ flowchart TD
 
 ## Presentation
 
-- `page`: 整数であることを検証する（②「15. Validation設計」「型チェック」）
-- `per_page`: 整数であることを検証する（②「19. API仕様」。正規化はApplication層で行う）
+- `page`・`per_page`: 整数に変換する。変換できない値は未指定（0）として扱い、エラーにしない（①「5. API / 処理詳細」、②「15. Validation設計」）。既定値・上限の正規化はApplication層で行う（②「19. API仕様」）
 - `id`: 詳細取得時、route由来の値が整数として解釈できることを検証する
 - `CreateStudentRequest`: `name`/`name_kana`/`email`/`grade_id`/`school_class_id`の必須チェック、`email`のフォーマットチェック、`name_kana`のカタカナ形式チェック（②「15. Validation設計」「必須チェック」「フォーマットチェック」。`user`は氏名カナの形式を検証しないため、本Contextが行う）
 
@@ -743,7 +742,6 @@ Transaction Script採用のため、application関数内のガード節で以下
 |`ErrEmailUsedByNonStudent`（生徒以外のアカウントで使用済み）|Application|422|
 |`ErrEmailAlreadyRegistered`（同校の既存生徒で使用済み）|Application|422|
 |Request DTOバリデーションエラー|Presentation|422|
-|pageパラメータ不正|Presentation|400（推測）|
 |未認証|Middleware|401（推測）|
 |teacherロール不一致|Middleware|403（推測）|
 |DB接続障害等|Infrastructure|500（推測）|
@@ -796,7 +794,8 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 |-|-|
 |`ListStudents`|担当学年権限を持たない教師が呼び出した場合、同校の全生徒が取得できること|
 |`ListStudents`|担当学年権限を持つ教師が呼び出した場合、担当学年の生徒のみ取得できること|
-|`ListStudents`|`per_page`未指定時に10件、上限（100件）を超える指定時に100件へ正規化されること|
+|`ListStudents`|`per_page`未指定・0以下のとき10件、上限（100件）を超える指定時に100件へ正規化されること。`page`が0以下のとき1ページ目になること|
+|`ShowStudentGoals`・`ShowStudentTasks`|`PerPage`未指定・0以下のとき10件、100件を超える指定時に100件へ正規化されること。`Page`が0以下のとき1ページ目になること|
 |`ListStudents`|該当生徒が0件の場合、空の一覧とページ情報が返ること|
 |`ShowStudent`|同校かつ権限範囲内の生徒IDを指定した場合、詳細情報が取得できること|
 |`ShowStudent`|他校・担当学年外・存在しない生徒IDを指定した場合、`ErrStudentNotFound`が返ること|
@@ -805,6 +804,7 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 |`CreateStudent`|指定クラスが指定学年に属さない場合、`ErrEnrollmentTargetMismatch`が返ること|
 |`ShowStudentGoals`|権限範囲外の生徒IDで`ErrStudentNotFound`が返ること|
 |`ShowStudentGoals`|目標が期限の昇順・同一期限ではIDの昇順で返ること|
+|`ShowStudentGoals`|`Page` / `PerPage`に応じた範囲の目標だけが返り、`Meta`に総件数・総ページ数が入ること|
 |`ShowStudentGoals`|目標ごとの完了件数・総件数・完了率が、紐づくタスクから正しく算出されること。タスクが0件の目標で完了率が0になること|
 |`ShowStudentTasks`|論理削除済みの目標に紐づくタスクが結果に含まれないこと|
 |`ShowStudentTasks`|タスク単位の進捗率・正答率が、単元ごとの率の平均ではなく件数の合計から算出されること|
@@ -882,14 +882,13 @@ Transaction Script読み替え: 「Domain Test」は対象外、「UseCase Test�
 | 1 | `internal/`配下のディレクトリ名を`internal/studentdirectory`とした | アーキテクチャ規約「4. Bounded Context構成」の「Contextディレクトリの命名」による。Context名`student-directory`から`-`を取り除いて連結した全小文字の名前であり、アンダースコア区切り・短縮はいずれも禁じられている。Context名から機械的に決まるため、②文書での対応付けは不要 | 規約適用による決定（推測ではない） |
 | 2 | ②「7. Value Object設計」のGradeScope・StudentEnrollmentTarget（Value Object）、②「8. Domain Service」のStudentEnrollmentPolicy（Domain Service）を独立した型・structとして実装せず、application関数内のガード節・非公開関数として表現することとした | 規約「3. 設計パターンごとの構造適用方針」のTransaction Script構造の方針に従った。②の設計判断（絞り込み条件・同校妥当性ルールという概念）自体は変更していない | 実装構造上の判断（規約に基づく） |
 | 3 | `StudentAccountCreator`インターフェースをTransaction Script側（`application`パッケージ）で定義し、`user`の`CreateStudentAccount`を呼ぶ薄い実装をDI配線で渡す構成とした | ②「3. Bounded Context」が`user`の`CreateStudentAccount`を直接呼ぶと定めているが、Transaction Script側からの具体的な呼び出し方式（DIの形）までは②に明記がない。`user`③が未作成のため、呼び出す関数の型は`user`③で確定する | 推測 |
-| 4 | `page`・`per_page`パラメータが不正な形式の場合の挙動（400を返す想定） | ②「15. Validation設計」では「型チェック」を行うことのみ記載され、具体的な失敗時挙動の記載がない | 推測 |
-| 5 | `per_page`のデフォルト値10・上限100件への正規化処理をApplication層（`ListStudents`関数内）に置いた | ②「19. API仕様」に数値自体は明記されているが、正規化を行う層はPresentation/Applicationのいずれかが②に明記されていない。業務ルール（デフォルト値・上限）に近いためApplication層に置いた | 推測 |
-| 6 | 生徒詳細レスポンス（`StudentDetailResponse`）の関連情報フィールドの具体的な内容を確定していない | ②「19. API仕様」は「生徒の基本情報と関連情報を維持する」とのみ記載し、具体的なフィールドはRails実装（①）に依存する。①は本書作成時点で未提供のため参照不可 | ①未提供のため参照不可 |
-| 7 | 学年は`master-data`の公開操作（`FindGrades`）、クラスは`school-class`の公開操作、担当学年の制限は`teacher-permission`の公開操作で取得し、`grades` / `school_classes`を本Contextが直接読まない構成とした | アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する手段を呼び出す」「相手Contextのテーブルを直接読まない」に従う。`master-data`の公開操作は共通マスタ参照機能③基盤編「8. Infrastructure層設計」で確定している。`teacher-permission`の公開操作は教師権限管理機能②「11. Repository設計」の「他Contextへ公開する参照手段」、同③「8. Infrastructure層設計」の「他Contextへ公開する参照手段」で確定している。`school-class`の公開操作はクラス編成機能②「11. Repository設計」、同③「6. Application層設計」の「他Contextへ公開する参照手段」で確定している | 規約適用による決定 |
-| 8 | 未認証時401・ロール不一致時403というHTTP Statusの割り当て | ②「19. API仕様」のStatus Code一覧に認証・認可失敗時の記載がない | 推測 |
-| 9 | `CreateStudent`は自身でトランザクションを開始せず、アカウントの保存と招待メール送信依頼の登録のトランザクションは`user`の`CreateStudentAccount`に任せ、学年・クラスの参照（事前確認）はそのトランザクションに含めない構成とした | 本Context自身の書き込みがなく、`user`の作成操作が呼び出し側のトランザクションがなければ自身で開始する（`user`②「14. Transaction設計」）ため | 推測 |
+| 4 | `per_page`のデフォルト値10・上限100件への正規化処理をApplication層（`ListStudents`・`ShowStudentGoals`・`ShowStudentTasks`の各関数内）に置いた | ②「19. API仕様」に数値自体は明記されているが、正規化を行う層はPresentation/Applicationのいずれかが②に明記されていない。業務ルール（デフォルト値・上限）に近いためApplication層に置いた | 推測 |
+| 5 | 生徒詳細レスポンス（`StudentDetailResponse`）の関連情報フィールドの具体的な内容を確定していない | ②「19. API仕様」は「生徒の基本情報と関連情報を維持する」とのみ記載し、具体的なフィールドはRails実装（①）に依存する。①は本書作成時点で未提供のため参照不可 | ①未提供のため参照不可 |
+| 6 | 学年は`master-data`の公開操作（`FindGrades`）、クラスは`school-class`の公開操作、担当学年の制限は`teacher-permission`の公開操作で取得し、`grades` / `school_classes`を本Contextが直接読まない構成とした | アーキテクチャ規約「5. Context間連携ルール」の「相手Contextが公開する手段を呼び出す」「相手Contextのテーブルを直接読まない」に従う。`master-data`の公開操作は共通マスタ参照機能③基盤編「8. Infrastructure層設計」で確定している。`teacher-permission`の公開操作は教師権限管理機能②「11. Repository設計」の「他Contextへ公開する参照手段」、同③「8. Infrastructure層設計」の「他Contextへ公開する参照手段」で確定している。`school-class`の公開操作はクラス編成機能②「11. Repository設計」、同③「6. Application層設計」の「他Contextへ公開する参照手段」で確定している | 規約適用による決定 |
+| 7 | 未認証時401・ロール不一致時403というHTTP Statusの割り当て | ②「19. API仕様」のStatus Code一覧に認証・認可失敗時の記載がない | 推測 |
+| 8 | `CreateStudent`は自身でトランザクションを開始せず、アカウントの保存と招待メール送信依頼の登録のトランザクションは`user`の`CreateStudentAccount`に任せ、学年・クラスの参照（事前確認）はそのトランザクションに含めない構成とした | 本Context自身の書き込みがなく、`user`の作成操作が呼び出し側のトランザクションがなければ自身で開始する（`user`②「14. Transaction設計」）ため | 推測 |
 
-| 10 | 担当学年の制限を`RequestingTeacher`（認証Middlewareが運ぶ値）に持たせず、application関数が`GradeRestrictionDirectory`で取得する構成とした | 制限の有無と対象学年は`teacher-permission`が所有する情報であり、認証の関心に混ぜない。教師お知らせ機能③_1が同じインターフェース（`FindGradeRestriction`）で同じ情報を取得しており、1つの情報の取得経路を2通りにしない | 規約・他機能③との整合による決定 |
-| 11 | 他Contextへの依存を宣言するインターフェースを`dependency.go`に置き、実装を`infrastructure/contextadapter/`に置く構成とした | アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」が置き場所を定めている。本書の旧版は`application/create_student.go`にインターフェースを置いていたが、同規約の定めに従って移した | 規約適用による決定 |
+| 9 | 担当学年の制限を`RequestingTeacher`（認証Middlewareが運ぶ値）に持たせず、application関数が`GradeRestrictionDirectory`で取得する構成とした | 制限の有無と対象学年は`teacher-permission`が所有する情報であり、認証の関心に混ぜない。教師お知らせ機能③_1が同じインターフェース（`FindGradeRestriction`）で同じ情報を取得しており、1つの情報の取得経路を2通りにしない | 規約・他機能③との整合による決定 |
+| 10 | 他Contextへの依存を宣言するインターフェースを`dependency.go`に置き、実装を`infrastructure/contextadapter/`に置く構成とした | アーキテクチャ規約「4. Bounded Context構成」の「ディレクトリ構成」が置き場所を定めている。本書の旧版は`application/create_student.go`にインターフェースを置いていたが、同規約の定めに従って移した | 規約適用による決定 |
 
 上記以外の設計判断（Bounded Context・設計パターン・Repository/UseCase設計・Transaction境界・Validation方針・Authorization方針・Error設計・API仕様・DB方針・テスト戦略の基本方針）はすべて②の記載をそのまま踏襲しており、変更・追加した業務ルールはない。

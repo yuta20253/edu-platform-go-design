@@ -18,7 +18,7 @@ Goalは`status`（`not_started` / `in_progress` / `completed`）を保持する�
 
 ## 本書が対象とする実装範囲
 
-②が設計した`goal-management` Bounded ContextのActive Record実装である。Model（Entity相当のstruct定義）、Store（永続化処理）、`GoalStatusPolicy`（状態の判定）、他Contextへの参照（`TaskDirectory`）、他Contextから呼ばれる公開操作（`ReevaluateGoalStatus`）、Presentation層（Handler / Request / Response / Routing）を対象とする。
+②が設計した`goal-management` Bounded ContextのActive Record実装である。Model（Entity相当のstruct定義）、Store（永続化処理）、`GoalStatusPolicy`（状態の判定）、他Contextへの参照（`TaskDirectory`）、他Contextから呼ばれる公開操作（`ReevaluateGoalStatus`・`FindGoalsInPeriod`・`FindUserGoal`）、Presentation層（Handler / Request / Response / Routing）を対象とする。
 
 ②「3. Bounded Context」の他Contextとの依存関係には、`task-management`に加えて`draft-task`（下書きタスク）への参照依存が記載されている（目標に下書きタスクが紐づき得るため。①「6. データモデル」の`has_many :draft_tasks`）。ただし②「12. UseCase設計」のShowGoalの出力は目標とタスク一覧のみであり、下書きタスクを含む入出力仕様は定義されていない。本書もこの範囲に従い、下書きタスクの参照実装は対象に含めない（詳細は「8. Infrastructure層設計」「17. ②からの補足事項」参照）。
 
@@ -65,7 +65,7 @@ internal/goalmanagement/
 
 ```
 internal/goalmanagement/context.go           # NewContext（依存関係の組み立て）
-internal/goalmanagement/dependency.go        # TaskDirectory（task-management Contextの参照用インターフェース）・TaskRef・TaskStatusSet
+internal/goalmanagement/dependency.go        # TaskDirectory（task-management Contextの参照用インターフェース）・UnitDirectory（curriculum Contextの参照用インターフェース）・TaskRef・UnitRef・TaskStatusSet
 internal/goalmanagement/goal.go              # Goal struct（Model）+ Validate() + CanDelete() + DecideStatus()
 internal/goalmanagement/goal_status.go       # GoalStatus型（整数の列挙型）
 internal/goalmanagement/goal_status_policy.go # GoalStatusPolicy（タスクの状態の集合から状態を判定する）
@@ -74,6 +74,7 @@ internal/goalmanagement/errors.go            # struct/Storeが返すエラー定
 internal/goalmanagement/goal_store.go        # GoalStore（永続化・検索・論理削除・状態更新）
 internal/goalmanagement/reevaluate_status.go # ReevaluateGoalStatus（他Contextから呼ばれる公開操作）
 internal/goalmanagement/infrastructure/contextadapter/task_directory.go  # TaskDirectoryの実装
+internal/goalmanagement/infrastructure/contextadapter/unit_directory.go  # UnitDirectoryの実装
 internal/goalmanagement/presentation/handler/goal_handler.go
 internal/goalmanagement/presentation/request/goal_request.go
 internal/goalmanagement/presentation/response/goal_response.go
@@ -82,7 +83,7 @@ internal/goalmanagement/presentation/routes.go
 
 ## 文書の分割
 
-本書は分割しない。実装ファイルは上記の14であり、テストが付くもの（Goal・GoalStatus・DueDate・GoalStatusPolicy・GoalStore・ReevaluateGoalStatus・TaskDirectoryの実装・GoalHandlerの8）を加えると22となるため、1文書あたり30〜35という範囲に収まる。
+本書は分割しない。実装ファイルは上記の15であり、テストが付くもの（Goal・GoalStatus・DueDate・GoalStatusPolicy・GoalStore・ReevaluateGoalStatus・TaskDirectoryの実装・UnitDirectoryの実装・GoalHandlerの9）を加えると24となるため、1文書あたり30〜35という範囲に収まる。
 
 **②からの補足**: 規約の構造適用方針の例示は`model.go`/`store.go`という単一ファイルの雛形だが、本機能はGoal（Model）・状態の判定（Policy）・他Contextの参照という複数の責務を扱うため、責務ごとにファイルを分割している。これはActive Record構造（domain/infrastructureレイヤーを分離しない、同一package内に置く）という②の設計方針自体は変更せず、同一package内でのファイル分割という実装レベルの整理にとどまる。
 
@@ -230,6 +231,11 @@ classDiagram
     }
     class TaskRef {
         <<read only>>
+        +[]uint UnitIDs
+    }
+    class UnitDirectory {
+        <<interface>>
+        +FindUnitsByIDs(ctx, []uint) ([]UnitRef, error)
     }
     class GoalStatusPolicy {
         +Decide(TaskStatusSet) GoalStatus
@@ -255,6 +261,7 @@ classDiagram
     class GoalHandler {
         -*GoalStore goalStore
         -TaskDirectory taskDirectory
+        -UnitDirectory unitDirectory
         +ListGoals(*gin.Context)
         +ShowGoal(*gin.Context)
         +CreateGoal(*gin.Context)
@@ -272,6 +279,7 @@ classDiagram
     GoalStore ..> GoalWithTasks : 返す
     GoalHandler --> GoalStore
     GoalHandler --> TaskDirectory
+    GoalHandler --> UnitDirectory
     TaskDirectory <|.. taskDirectory : contextadapterで実装
 ```
 
@@ -300,7 +308,7 @@ stateDiagram-v2
 
 # 6. Application層設計
 
-対象外（Active Record採用のため、usecase層を設けない。②「12. UseCase設計」に記載されたListGoals / ShowGoal / CreateGoal / UpdateGoal / DeleteGoalの業務操作（および他Contextから呼ばれる`ReevaluateGoalStatus`・`FindGoalsInPeriod`）は、HandlerがGoalStore・TaskDirectoryを直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する）。
+対象外（Active Record採用のため、usecase層を設けない。②「12. UseCase設計」に記載されたListGoals / ShowGoal / CreateGoal / UpdateGoal / DeleteGoalの業務操作（および他Contextから呼ばれる`ReevaluateGoalStatus`・`FindGoalsInPeriod`・`FindUserGoal`）は、HandlerがGoalStore・TaskDirectoryを直接呼び出す処理として実装する。処理順序は「9. Presentation層設計」のHandler処理順序に統合して記載する）。
 
 ## 他Contextから呼ばれる公開操作
 
@@ -310,8 +318,11 @@ HTTPを経由しない公開操作は、`Context`structのメソッドとして`
 |-|-|-|
 |`ReevaluateGoalStatus`|`(c *Context) ReevaluateGoalStatus(ctx context.Context, goalID uint) (GoalStatus, error)`|`TaskDirectory`（紐づくタスクの状態）→`GoalStatusPolicy`→`GoalStore.FindByID`・`UpdateStatus`|
 |`FindGoalsInPeriod`|`(c *Context) FindGoalsInPeriod(ctx context.Context, userID uint, from, to time.Time) ([]GoalSchedule, error)`|`GoalStore.FindByUserIDAndDueDateRange`|
+|`FindUserGoal`|`(c *Context) FindUserGoal(ctx context.Context, goalID, userID uint) (ref GoalRef, found bool, err error)`|`GoalStore.FindSummaryByIDAndUserID`|
 
 `GoalSchedule`（`goal.go`で定義する）は公開操作の戻り値で、`ID uint`・`Title string`・`DueDate time.Time`・`Status string`を持つ。`Goal`structそのものを返さないのは、呼び出し側（`calendar`）に本Contextの内部モデルを渡さないためである（規約「5. Context間連携ルール」）。状態は`string`で返し、呼び出し側が自身の型へ変換する。
+
+`GoalRef`（`goal.go`で定義する）は`FindUserGoal`の戻り値で、`ID uint`・`DueDate *time.Time`を持つ。期限日が未設定の目標があるため`DueDate`はポインタとする。`found`は、指定された識別子の目標が存在しない場合、論理削除済みの場合、操作者のものでない場合のいずれも`false`とし、エラーにしない。呼び出し側（`task-management`・`draft-task`）の`GoalDirectory`のアダプタは、この戻り値から`IsOwnedByUser`（`found`）と`FindDueDate`（`DueDate`と`found`）を組み立てる。
 
 **②からの補足**: `GoalSchedule`の名前とフィールドは②に明記がない。②「12. UseCase設計」`FindGoalsInPeriod`の出力（識別子・件名・期限日・状態）をGoの型に落としたものである。`DueDate`をポインタにしないのは、期限日の範囲で絞り込んだ結果であり未設定の目標が含まれないためである。
 
@@ -457,6 +468,7 @@ flowchart TD
 |`FindByUserID`|`ctx context.Context, userID uint, page, perPage int`|`([]GoalWithTasks, int64, error)`|user_idによる絞り込み、due_date昇順（同値はid昇順）ソート、ページネーション（LIMIT/OFFSET相当）、総件数取得。紐づくタスクを`Preload`で一括取得する（②「11. Repository設計」「21. DB操作仕様」）。`deleted_at IS NULL`は`gorm.DeletedAt`によりGORMが自動付与する|
 |`FindByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*GoalWithTasks, error)`|id・user_idの両方に一致する1件取得（`deleted_at IS NULL`はGORMが自動付与する）。紐づくタスクも一括取得する。一致しない場合はGoal不存在エラー（他ユーザーの目標を含む404相当。②「16. Authorization設計」の所有権チェックをクエリ条件として実現する）|
 |`FindByID`|`ctx context.Context, id uint`|`(*Goal, error)`|所有者を条件に含めず1件取得する。`ReevaluateGoalStatus`（他Contextから呼ばれる公開操作）が用いる。同操作は認可を行わないため所有者でスコープしない（②「16. Authorization設計」）|
+|`FindSummaryByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*Goal, error)`|id・user_idの両方に一致する1件を、紐づくタスクを取得せずに返す（`deleted_at IS NULL`はGORMが自動付与する）。一致しない場合はGoal不存在エラーを返す。`FindUserGoal`（他Contextから呼ばれる公開操作）が用いる。所有者でスコープする（②「16. Authorization設計」）|
 |`FindByUserIDAndDueDateRange`|`ctx context.Context, userID uint, from, to time.Time`|`([]Goal, error)`|user_idと`due_date`の範囲（両端を含む）による絞り込み。`FindGoalsInPeriod`（他Contextから呼ばれる公開操作）が用いる。紐づくタスクは取得しない。並び順は指定しない（②「12. UseCase設計」）。`deleted_at IS NULL`はGORMが自動付与する|
 |`Create`|`ctx context.Context, goal *Goal`|`error`|Goalレコードの新規作成。`status`は`GoalStatusNotStarted`（0）で作成する|
 |`Update`|`ctx context.Context, goal *Goal`|`error`|id（および所有権確認済みのuser_id）に一致するGoalレコードの`title`・`description`・`due_date`列を更新する|
@@ -464,6 +476,8 @@ flowchart TD
 |`SoftDelete`|`ctx context.Context, id uint`|`error`|対象レコードの`deleted_at`・`updated_at`の2列を更新する。物理削除は行わず、紐づくタスクの行も削除しない（①「5. API / 処理詳細」`#destroy`。「15. GORM / DBクエリ設計」）|
 
 各メソッドは`gormtx.DBFromContext(ctx, s.db)`で接続を取得する。トランザクション中であればその接続を、そうでなければ通常の接続を使う（「11. Transaction実装方針」）。
+
+`TaskRef`は、タスクに紐づく単元の識別子の一覧`UnitIDs []uint`を持つ。`FindByUserID`・`FindByIDAndUserID`は、取得したタスクの識別子をまとめた1クエリで`task_units`を読み、`UnitIDs`へ詰める（読み取り専用。②「11. Repository設計」の「UnitDirectory」）。
 
 `GoalWithTasks`（`goal.go`で定義する）は、目標とその紐づくタスクを一括取得した結果を表す型である。目標ごとにタスクを個別に問い合わせるN+1を避けるために設ける（Gorm規約「0. 本プロジェクトでの採用方針」の「リレーションの取得とN+1対策」、②「21. DB操作仕様」）。フィールドは`Goal *Goal`と`Tasks []TaskRef`である。
 
@@ -482,13 +496,28 @@ flowchart TD
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`FindTaskStatusesByGoalID`|`ctx context.Context, goalID uint`|`(TaskStatusSet, error)`|指定目標に紐づくタスクの状態の集合を返す。論理削除の可否判定（`Goal.CanDelete`）と状態の再評価（`GoalStatusPolicy`）が入力として用いる（②「11. Repository設計」の「他Contextの参照手段」）|
+|`FindTaskStatusesByGoalID`|`ctx context.Context, goalID uint`|`(TaskStatusSet, error)`|`task-management`の公開操作`FindTaskStatusesByGoalID`に委譲し、返された状態の文字列を`TaskStatusSet`へ変換する。指定目標に紐づくタスクの状態の集合を返す。論理削除の可否判定（`Goal.CanDelete`）と状態の再評価（`GoalStatusPolicy`）が入力として用いる（②「11. Repository設計」の「他Contextの参照手段」）|
 
 `TaskStatusSet`（`dependency.go`で定義する）は、タスクの状態の集合を表す型である。保持するのは状態の値のみで、タスクの識別子や内容は持たない。判定に必要な事実だけを受け取る形にすることで、`Goal`と`GoalStatusPolicy`がDBや他Contextの呼び出しに依存せずテストできる（②「8. Domain Service」）。
 
 一覧・詳細の表示に用いるタスクの情報（`TaskRef`）は、画面向けの一覧であるため`GoalStore`が`goals`との結合で取得する。一方、業務ルールの判定に用いる状態の集合は、判断の前提となる事実であるため`TaskDirectory`経由で`task-management` Contextに委ねる（②「21. DB操作仕様」）。
 
 **②からの補足**: `task-management` Contextが公開する参照手段の具体的なシグネチャは、同機能の③で確定する。本書では消費者側のインターフェース（`TaskDirectory`）をコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。バッチ3には`task-management`が含まれるため、同機能の③の追随時にシグネチャを合わせる。
+
+### UnitDirectoryの実装（`infrastructure/contextadapter/unit_directory.go`）
+
+`dependency.go`で宣言した`UnitDirectory`の実装である。`curriculum` Contextが公開する`FindUnitsByIDs`へ委譲し、本Contextから`units`・`courses`へクエリを発行しない（アーキテクチャ規約「5. Context間連携ルール」、②「11. Repository設計」の「UnitDirectory」）。
+
+|項目|内容|
+|-|-|
+|struct名|非公開struct（例: `unitDirectory`）＋コンストラクタ`NewUnitDirectory(curriculumContext *curriculum.Context) goalmanagement.UnitDirectory`|
+|配置|GORMに依存せず相手Contextの公開操作を呼ぶアダプタであるため`infrastructure/contextadapter/`に置く（規約「4. Bounded Context構成」）|
+
+|メソッド|引数|戻り値|責務|
+|-|-|-|-|
+|`FindUnitsByIDs`|`ctx context.Context, unitIDs []uint`|`([]UnitRef, error)`|`curriculum`の公開操作`FindUnitsByIDs`（`[]UnitInfo`を返す。コース参照機能③「8. Infrastructure層設計」）に委譲し、`UnitInfo`を`UnitRef`へ変換する。空のスライスを渡された場合は問い合わせず空を返す|
+
+`UnitRef`（`dependency.go`で定義する）は、レスポンスに含める単元の情報を受け取る型で、`ID`・`CourseID`・`UnitName`・`CourseLevelNumber`・`CourseLevelName`を持つ。相手Contextの内部structをそのまま受け取らない（アーキテクチャ規約「5. Context間連携ルール」）。
 
 ### ReevaluateGoalStatus（`reevaluate_status.go`）
 
@@ -547,8 +576,9 @@ flowchart TD
 1. `c.Request.Context()`からcurrent user（認証Middlewareが格納したstudentユーザー）を取得する（②「16. Authorization設計」）
 2. クエリパラメータ`page` / `per_page`を読み取る。未指定・不正な形式のときは既定値に置き換え、`per_page`が上限を超える場合は上限値にする（既定値5・上限100。①「5. API / 処理詳細」`#index`）
 3. `goalStore.FindByUserID`をcurrent userのIDとページ指定で呼び出し、`[]GoalWithTasks`と総件数を受け取る（②「12. UseCase設計」ListGoals）
-4. 取得結果を`GoalListResponse`へ変換する。`meta`は総件数・`per_page`から算出する
-5. 200 OKで返す
+4. 取得結果に含まれるすべてのタスクの`UnitIDs`をまとめ、`unitDirectory.FindUnitsByIDs`を1回だけ呼んで単元の情報を取得する。目標ごと・タスクごとには呼ばない（②「11. Repository設計」の「UnitDirectory」）
+5. 取得結果と単元の情報を`GoalListResponse`へ変換する。`meta`は総件数・`per_page`から算出する
+6. 200 OKで返す
 
 ### ShowGoal
 
@@ -556,8 +586,9 @@ flowchart TD
 2. パスパラメータ`id`を読み取る
 3. `goalStore.FindByIDAndUserID`をid・current userのIDで呼び出す。紐づくタスクも同時に受け取る（②「16. Authorization設計」の所有権チェックをクエリ条件として実現する。一致しなければ`ErrGoalNotFound`）
 4. `ErrGoalNotFound`を404のAppErrorへ変換して`c.Error(err)`で返す（「14. Error実装方針」）
-5. 取得結果を`GoalResponse`へ変換する
-6. 200 OKで返す
+5. 取得結果に含まれるタスクの`UnitIDs`をまとめ、`unitDirectory.FindUnitsByIDs`を1回だけ呼んで単元の情報を取得する
+6. 取得結果と単元の情報を`GoalResponse`へ変換する
+7. 200 OKで返す
 
 ### CreateGoal
 
@@ -631,6 +662,13 @@ flowchart TD
 ||Status|`string`|`status`|
 ||CompletedAt|`*string`|`completed_at`（`YYYY/MM/DD`）|
 ||Units|`[]UnitRefResponse`|`units`|
+|`UnitRefResponse`|ID|`uint`|`id`|
+||CourseID|`uint`|`course_id`|
+||UnitName|`string`|`unit_name`|
+||Course|`UnitCourseResponse`|`course`|
+|`UnitCourseResponse`|ID|`uint`|`id`|
+||LevelNumber|`int`|`level_number`|
+||LevelName|`string`|`level_name`|
 |`GoalListResponse`|Goals|`[]GoalResponse`|`goals`|
 ||Meta|`MetaResponse`|`meta`|
 |`MetaResponse`|CurrentPage|`int`|`current_page`|
@@ -646,7 +684,7 @@ flowchart TD
 - `TaskRefResponse`の項目は①「5. API / 処理詳細」`#index`のとおり、Rails現行の`TaskSerializer`に合わせる
 - エラーレスポンスは専用structを本書で定義しない。形式はいずれも`{"errors": [...]}`であり、集中エラーハンドリングミドルウェアが組み立てる（「14. Error実装方針」、Gin規約「8. エラーハンドリングミドルウェア」）
 
-**②からの補足**: `UnitRefResponse`（タスクに紐づく単元）の項目は、`curriculum` Context（コース参照機能・単元参照機能が共有する）が扱う単元の表現であり、本機能では`task-management` Contextから受け取った値をそのまま入れる。項目の確定は単元参照機能の③に委ねる（バッチ3の対象外）。
+`UnitRefResponse`の項目は、Rails現行の`UnitSerializer`に合わせる（目標管理①「5. API / 処理詳細」`#index`が`units`を`UnitSerializer`とし、その項目はタスク管理機能①「5. API / 処理詳細」`#index`の`id`・`course_id`・`unit_name`・`course`（`id`・`level_number`・`level_name`）である）。`UnitCourseResponse.ID`は`course_id`と同じ値である。値は`unitDirectory.FindUnitsByIDs`が返す`UnitRef`から作る。`FindUnitsByIDs`が返さなかった単元は`units`に含めない（**推測**。①②に該当する記述がない。`curriculum`③の`FindUnitsByIDs`は返さない単元をエラーにしない）。
 
 ## Routing（`presentation/routes.go`）
 
@@ -782,6 +820,7 @@ Active Record採用のため、Goal（Model）の`Validate()`メソッドで検�
 - Store／Modelで行う処理（Active Record採用時）: `GoalStore.FindByIDAndUserID`がid・user_idの両方一致を検索条件とすることで所有権チェックを実現する。Goal（Model）自体はUserIDフィールドを保持し、所有権確認の材料を提供するのみで、判定ロジックは持たない（②「16. Authorization設計」Domain節「Goal Entityが所有者（user_id）を保持し、Handler側からの所有権確認の材料を提供する」に対応）
 - CSRF: `POST` / `PATCH` / `DELETE`はCookieで認可される状態変更であるため、CSRF検証Middlewareの対象に含める（Gin規約「5. CSRF対策」の「適用範囲」）。GETの一覧・詳細は対象外である
 - `ReevaluateGoalStatus`は他Contextから直接呼ばれる公開操作であり、HTTPリクエストを経由しない。認可は呼び出し側Context（タスクの着手・問題の提出）が行い、本操作では所有者でスコープしない（②「16. Authorization設計」）
+- `FindUserGoal`は他Contextから直接呼ばれる公開操作である。呼び出し側が渡す操作者の識別子を検索条件に含め、所有者でスコープする。所有者でない目標は存在しない目標と同じく`found=false`とする（②「16. Authorization設計」）
 
 ---
 
@@ -837,7 +876,7 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 - カラム対応はGorm規約の既定命名規則（フィールド名のsnake_case）に従う。`ID`→`id`、`UserID`→`user_id`、`Title`→`title`、`Description`→`description`、`DueDate`→`due_date`、`Status`→`status`、`CreatedAt`→`created_at`、`UpdatedAt`→`updated_at`
 - `DeletedAt`は`gorm.DeletedAt`型でマッピングする（Gorm規約「0. 本プロジェクトでの採用方針」の論理削除）。`Find`系が`deleted_at IS NULL`を自動付与するため、Storeの各検索メソッドでこの条件を明示しない。Railsの`default_scope`と同じ絞り込みになる（①「6. データモデル」）
 - 論理削除は`Delete`ではなく`deleted_at`・`updated_at`の2列を更新する形で行う。GORMの`Delete`は`deleted_at`のみを設定し`updated_at`を更新しないが、Rails現行は`update_columns`で両列を更新しているためである（①「5. API / 処理詳細」`#destroy`）。物理削除（`Unscoped`）は用いない
-- `TaskRef`structは、参照先の`tasks`テーブル（`task-management` Contextが所有するスキーマ）に対応する読み取り専用モデルとして扱う。書き込みは行わない。`GoalWithTasks`の`Preload`先として用いる
+- `TaskRef`structは、参照先の`tasks`テーブル（`task-management` Contextが所有するスキーマ）に対応する読み取り専用モデルとして扱う。書き込みは行わない。`GoalWithTasks`の`Preload`先として用いる。`UnitIDs`は`tasks`の列ではなく、`task_units`（同Contextが所有）から詰める値であり、GORMの列としては扱わない（`gorm:"-"`）
 
 `DueDate`・`GoalStatus`は独立したValue Object層を持たず、Goalのフィールド型として存在するため、GORMがカラムとして読み書きできる必要がある。
 
@@ -851,6 +890,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 - `GoalStore.FindByUserIDAndDueDateRange`: `user_id`と`due_date BETWEEN ? AND ?`で絞り込む（両端を含む）。`ORDER BY`を付けない。紐づくタスクの`Preload`も行わない（②「12. UseCase設計」`FindGoalsInPeriod`）
 - `GoalStore.FindByUserID`: `user_id`で絞り込み（`deleted_at IS NULL`はGORMが自動付与する）、`due_date`昇順（同値は`id`昇順）でソートし、`page`・`per_page`に基づくページネーションを行う。総件数は同じ絞り込み条件で`COUNT`を発行する。順序を決定的にするため第2ソートキーに`id`を置く（①「5. API / 処理詳細」`#index`の業務ルール、②「21. DB操作仕様」）
 - `GoalStore.FindByIDAndUserID`: `id`・`user_id`に一致する1件を取得する
+- `GoalStore.FindSummaryByIDAndUserID`: `id`・`user_id`に一致する1件を取得する。紐づくタスクの`Preload`は行わない（②「12. UseCase設計」`FindUserGoal`）
 - 紐づくタスクは`Preload`で一括取得する。目標ごとにタスクを問い合わせるN+1を避けるためである（Railsは`GoalsQuery.includes_tasks`で同じことを行っている。①「5. API / 処理詳細」`#index`）
 - `GoalStore.SoftDelete`: `deleted_at`・`updated_at`のみを更新する。`tasks`には触らない
 - `GoalStore.UpdateStatus`: `status`列のみを更新する
@@ -913,6 +953,9 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`GoalStore.FindByIDAndUserID`|他ユーザーのGoalを指定した場合に`ErrGoalNotFound`が返ること|
 |`GoalStore.FindByIDAndUserID`|論理削除済みのGoalを指定した場合に`ErrGoalNotFound`が返ること|
 |`GoalStore.FindByID`|所有者を問わず取得できること|
+|`GoalStore.FindByUserID` / `FindByIDAndUserID`|各タスクの`UnitIDs`が`task_units`から詰められること。単元が紐づかないタスクで空になること。`task_units`の取得がタスク数に比例して増えないこと|
+|`GoalStore.FindSummaryByIDAndUserID`|id・user_idの両方に一致する目標が取得でき、他のユーザーの目標・論理削除済みの目標では不存在エラーが返ること。紐づくタスクを取得しないこと|
+|`FindUserGoal`|操作者自身の目標で`found=true`と期限日が返ること。期限日が未設定の目標で`DueDate`が`nil`になること。他のユーザーの目標・存在しない目標・論理削除済みの目標で`found=false`になり、エラーにならないこと|
 |`GoalStore.Create`|Goalが作成され、IDが採番され、`status`が0で保存されること|
 |`GoalStore.Create`|DueDateが未設定の場合に`due_date`がNULLで保存されること|
 |`GoalStore.Update`|`title`・`description`・`due_date`が更新され、`status`が変わらないこと|
@@ -933,7 +976,9 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`GoalHandler.ListGoals`|正常系: `page`に0以下・数値以外を指定したとき1ページ目が返ること|
 |`GoalHandler.ListGoals`|正常系: 目標が0件のとき`goals`が空配列で200が返ること|
 |`GoalHandler.ListGoals`|正常系: 各要素の`status`が`not_started`等の文字列で返ること|
+|`GoalHandler.ListGoals`|正常系: 各タスクの`units`が返ること。目標・タスクの数にかかわらず`UnitDirectory.FindUnitsByIDs`の呼び出しが1回であること（N+1にならないこと）|
 |`GoalHandler.ShowGoal`|正常系: 目標とタスク一覧が200で返ること|
+|`GoalHandler.ShowGoal`|正常系: 各タスクの`units`が`id`・`course_id`・`unit_name`・`course`（`id`・`level_number`・`level_name`）で返ること|
 |`GoalHandler.ShowGoal`|異常系: 存在しない・他ユーザーのGoalを指定した場合に404と`{"errors": ["目標が見つかりません"]}`が返ること|
 |`GoalHandler.CreateGoal`|正常系: 目標が作成され識別子が201で返ること|
 |`GoalHandler.CreateGoal`|正常系: 作成された目標の`status`が`not_started`であること|
@@ -968,12 +1013,13 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |-|-|-|
 |Active Record構造を`goal.go` / `goal_status.go` / `due_date.go` / `goal_status_policy.go` / `errors.go` / `goal_store.go`等に分割した|②が扱う対象（Goal本体・状態・期限・判定・参照専用のTask）が複数あり、責務ごとにファイルを分けた方が可読性が高いと判断したため。Active Record構造（レイヤー分離をしない、同一package内に置く）という設計方針自体は変更していない|実装レベルの整理（②の設計判断と矛盾しない）|
 |`TaskStatusSet`（タスクの状態の集合）という型を本Contextに定義した|`Goal.CanDelete`・`GoalStatusPolicy.Decide`が判定に必要とするのはタスクの状態だけであり、タスクの識別子や内容を受け取る必要がないため。判定をDBや他Contextの呼び出しから切り離してテストできる形にした|補足（②「8. Domain Service」の責務分担を型として表したもの）|
-|`TaskDirectory`インターフェースの具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、`task-management`側が公開する操作の形は同機能の③で確定する|要確認（`task-management`機能の③の追随時にシグネチャを合わせる）|
+|`TaskDirectory`インターフェースの具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、`task-management`側が公開する操作の形は同機能の③で確定する|補足（`task-management`の③が公開する`FindTaskStatusesByGoalID(ctx, goalID uint) ([]string, error)`に、アダプタが委譲する。戻り値の文字列を`TaskStatusSet`へ変換するのはアダプタの責務である）|
+|`FindUserGoal`の名前・戻り値の型`GoalRef`・`GoalStore.FindSummaryByIDAndUserID`は②に明記がない|②「12. UseCase設計」`FindUserGoal`の入出力（目標の識別子・操作者の識別子→目標の識別子・期限日、見つからない場合はその旨）をGoの型に落としたものである。`FindByIDAndUserID`は紐づくタスクを一括取得するため、期限日しか要らない本操作には用いず、タスクを取得しないStoreメソッドを別に設けた|補足（②の入出力をGoの型に落としたもの）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が標準パターンとして定める方式であるため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る|補足（Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」に一致）|
 |論理削除を`Delete`ではなく`deleted_at`・`updated_at`の2列更新として行う|Gorm規約の論理削除は`gorm.DeletedAt`型の使用を定めているが、GORMの`Delete`は`updated_at`を更新しない。Rails現行は`update_columns`で両列を更新している（①「5. API / 処理詳細」`#destroy`）ため、現行の挙動に合わせた|補足（①の実体に基づく）|
 |`DeleteGoal`の削除可否判定をトランザクションの外に置いた（②「14. Transaction設計」のとおりトランザクションは`SoftDelete`の内側のみ）|②が`DeleteGoal`も「Handlerの処理単位に対応するStoreメソッド内で開始する」としており、Rails現行の`Goal#soft_delete!`も判定と`update_columns`を囲んでいないため、現行の挙動に合わせた。ただし判定と削除の間に別のタスクが着手されると、`not_started`以外のタスクが紐づいた目標が削除され得る（Rails現行にも同じ競合がある）|要確認（現行踏襲とするか、判定を含めて囲むかは②側で決める事項。囲む場合は②「14. Transaction設計」の変更が必要）|
 |②「3. Bounded Context」の`draft-task` Context（下書きタスク）への参照依存を、具体的な参照手段・Response DTOとしては実装対象に含めなかった|②は参照依存を概念レベルで記載しているが、②「12. UseCase設計」ShowGoalの出力定義（目標とタスク一覧）に下書きタスクが含まれておらず、`TaskDirectory`に相当する参照手段も②「11. Repository設計」に存在しない。②に記載のない出力項目を本書側で新設しないため見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|
-|`TaskRefResponse`に含める`units`（`UnitRefResponse`）の項目を確定しなかった|単元の表現は`curriculum` Context（コース参照機能・単元参照機能が共有する）が所有する。本機能は`task-management`から受け取った値をそのまま返すため、項目の確定は単元参照機能の③に委ねる|要確認（単元参照機能の③で確定する。バッチ3の対象外）|
+|`TaskRef`に`UnitIDs`を持たせ、`task_units`をタスクIDまとめの1クエリで読む。`UnitDirectory`・`UnitRef`を本Contextに定義した|②「11. Repository設計」の「UnitDirectory」は単元の情報を`curriculum`の参照に委ねると定めるが、タスクと単元の紐づきの取得方法は定めていない。`tasks`と同じく画面向けの参照モデルとして、紐づき（`task_units`）を本Contextが読む。相手Contextの内部structをそのまま受け取らないため`UnitRef`を設けた|補足（②の方針を実装手段に落としたもの）|
 
 上記以外の項目（Bounded Context・Aggregate・Entity/Model構成・Repository（Store）責務・Handler処理の内容・Transaction境界・Validation方針・Authorization方針・Error設計・API互換方針・DB方針・テスト戦略の大枠）は②の記載内容をそのまま実装レベルに落とし込んだものであり、追加の判断は行っていない。
 

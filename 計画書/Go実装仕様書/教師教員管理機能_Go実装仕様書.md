@@ -632,7 +632,7 @@ Active Record採用のためDomain Errorに相当する層がなく、Model/Stor
 |`Show`における権限情報の取得を、共有する`TeacherPermissionStore.FindByUserID`で行う構成とした|②の出力仕様は「権限・担当学年を含む」だが、「呼び出すStore」に権限を扱うStoreが含まれない|推測|
 |`users`・`teacher_permissions`・`teacher_grades`テーブルの詳細カラム名|Rails `db/schema.rb`で確認済み（`users`: `name_kana`〔100文字以内〕・`deleted_at`・`high_school_id`・`user_role_id`等、`teacher_permissions`: `user_id`・`grade_scope`・`manage_other_teachers`、`teacher_grades`: `user_id`・`grade_id`）。教員であることの判定は`users.user_role_id`から`user_roles.name`を参照する形であり、`users`にロール名の列はない（管理者教員管理機能_Go実装仕様書「17. ②からの補足事項」参照）|確認済み（Rails `db/schema.rb`）|
 |Response DTOの詳細フィールド構成（一覧・詳細）|Rails側のSerializer実装（①）が未提供|推測|
-|`page`が不正な場合は1ページ目、`per_page`が不正な場合は既定値20件（上限100件）として扱い、エラー（422）にしない|②「12. UseCase設計」ListTeachers・「16. API互換方針」に記載のとおり、Rails現行の`ApplicationController`の共通設定（`DEFAULT_PER_PAGE` = 20、`MAX_PER_PAGE` = 100、`sanitized_page` / `sanitized_per_page`）に合わせる|Rails現行の挙動の反映（推測ではない）|
+|`page`が不正な場合は1ページ目、`per_page`が不正な場合は既定値20件（上限100件）として扱い、エラー（422）にしない|②「12. UseCase設計」ListTeachersに記載のとおり、Rails現行の`ApplicationController`の共通設定（`DEFAULT_PER_PAGE` = 20、`MAX_PER_PAGE` = 100、`sanitized_page` / `sanitized_per_page`）に合わせる|Rails現行の挙動の反映（推測ではない）|
 |新規教員作成時のパスワード・招待フローはCreateTeacherの入力・処理から除外した（仮パスワードの発行は`user` Contextの`CreateTeacherAccount`が行い、作成時にメールは送らない）|Rails現行の`Teacher::CreateTeacherForm`は作成時にメールを送らず、招待待ちで作成する。招待メールは教員招待通知機能（teacher-notification Context）が`user` Contextの`RequestInvitationEmail`を呼んで後から送る（②「3. Bounded Context」「18. Domain Event」、`user`②「12. UseCase設計」経路ごとの指定値）|②に準拠（新規の推測ではない）|
 
 ---

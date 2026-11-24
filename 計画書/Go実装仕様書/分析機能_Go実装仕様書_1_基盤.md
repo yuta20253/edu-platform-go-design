@@ -389,7 +389,7 @@ GORMを用いる実装を一切持たないため、`*gorm.DB`を受け取る構
 
 率を含めず件数で受け取るのは、百分率にするか小数第何位で丸めるかが分析の表現の問題であり、所有Contextの関心ではないためである（②「3. Bounded Context」「24. 採用しなかった設計」）。
 
-`FirstAnsweredAt`を受け取るのは、`understanding_score`の並び順を「最初に解答した順」として定めたためである（②「19. API仕様」の「Railsとの差分」1）。
+`FirstAnsweredAt`を受け取るのは、`understanding_score`のコース・単元の並び順を「最初に解答した順」として定めたためである（②「19. API仕様」の「Railsとの差分」1）。
 
 ユーザーIDの型は`uint`とする。他機能の③（目標管理機能③「3. Domain層設計」等）と揃える。
 

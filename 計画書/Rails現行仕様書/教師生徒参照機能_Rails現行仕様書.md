@@ -66,8 +66,8 @@
 |項目|必須|型|説明|
 |-|-|-|-|
 |`keyword`|任意|string|氏名・氏名（カナ）の一部。部分一致で絞り込む|
-|`page`|任意|integer|ページ番号（未指定時は1ページ目扱い）|
-|`per_page`|任意|integer|1ページあたりの件数（未指定時は10件、最大100件）|
+|`page`|任意|integer|ページ番号（未指定・0以下・数値以外は1ページ目扱い。エラーにしない）|
+|`per_page`|任意|integer|1ページあたりの件数（未指定・0以下・数値以外は10件。100件を超える値は100件として扱う。エラーにしない）|
 
 ### 処理内容
 
@@ -115,14 +115,14 @@
 |-|-|-|-|
 |`id`|必須|integer|生徒の ID|
 |`tab`|任意|string|表示内容の切り替え。`goals` / `tasks` のいずれか。未指定および上記以外の値はプロフィールを返す|
-|`page`|任意|integer|`tab=tasks`のときのページ番号（未指定時は1ページ目扱い）|
-|`per_page`|任意|integer|`tab=tasks`のときの1ページあたりの件数（未指定時は10件、最大100件）|
+|`page`|任意|integer|`tab=goals` / `tab=tasks`のときのページ番号（未指定・0以下・数値以外は1ページ目扱い。エラーにしない）|
+|`per_page`|任意|integer|`tab=goals` / `tab=tasks`のときの1ページあたりの件数（未指定・0以下・数値以外は10件。100件を超える値は100件として扱う。エラーにしない）|
 
 ### 処理内容
 
 1. `before_action :set_student` で `students_scope.find(params[:id])` により対象生徒を検索する。`students_scope`は同校かつ生徒ロールに限定し、操作者が担当学年のみの権限区分であれば担当学年にも限定する（`TeacherStudentsScope`）。
 2. `params[:tab]` で分岐する。
-    - `goals`: `GoalsQuery.new(@student.goals).due_soon.includes_tasks.result` で目標を取得し、`Teacher::StudentGoalSerializer` で返却する。`due_soon`は`due_date`昇順・`id`昇順。ページネーションは行わない。
+    - `goals`: `GoalsQuery.new(@student.goals).due_soon.includes_tasks.paginate(...).result` で目標を取得し、`Teacher::StudentGoalSerializer` で返却する。`due_soon`は`due_date`昇順・`id`昇順。ページネーションを行い、`meta`を返す。
     - `tasks`: `TasksQuery.new(@student.tasks).with_active_goal.due_soon.includes_units.paginate(...).result` でタスクを取得し、`Common::TaskProgressService`で解答状況を集計して`Teacher::StudentTaskSerializer`で返却する。`with_active_goal`は`goals`との`joins`であり、`Goal`の`default_scope`により論理削除済みの目標に紐づくタスクは除外される。
     - それ以外（未指定含む）: `StudentSerializer` で返却する。
 
@@ -154,7 +154,8 @@
       "progress": { "task_completed_count": 0, "task_total_count": 0, "completion_rate": 0 },
       "tasks": [ { "id": 1, "title": "...", "status": "...", "due_date": "..." } ]
     }
-  ]
+  ],
+  "meta": { "current_page": 1, "total_pages": 1, "total_count": 0, "per_page": 10 }
 }
 ```
 

@@ -73,6 +73,7 @@ internal/taskmanagement/task_unit_link_store.go         # TaskUnitLinkStore（�
 internal/taskmanagement/start_task.go                   # StartTask（他Contextから呼ばれる公開操作）
 internal/taskmanagement/update_task_status.go           # UpdateTaskStatus（他Contextから呼ばれる公開操作）
 internal/taskmanagement/find_tasks_in_period.go         # FindTasksInPeriod（他Contextから呼ばれる公開操作）
+internal/taskmanagement/find_task_statuses_by_goal_id.go # FindTaskStatusesByGoalID（他Contextから呼ばれる公開操作）
 internal/taskmanagement/count_task_stats.go             # CountTasks / CountTasksByDueDate / CountTasksForUsers（他Contextから呼ばれる公開操作）
 internal/taskmanagement/infrastructure/contextadapter/goal_directory.go          # GoalDirectoryの実装
 internal/taskmanagement/infrastructure/contextadapter/unit_directory.go          # UnitDirectoryの実装
@@ -86,11 +87,11 @@ internal/taskmanagement/presentation/routes.go
 
 ## 文書の分割
 
-本書は分割しない。実装ファイルは上記の23であり、テストが付くもの（Task・TaskStatus・Priority・DueDate・TaskUnitRelationPolicy・TaskStore・TaskUnitLinkStore・StartTask・UpdateTaskStatus・FindTasksInPeriod・CountTaskStats・4つのアダプタ・TaskHandlerの16）を加えると39となり、③自動生成プロンプト「文書の分割（1文書あたり30〜35ファイル）」の目安を超える。それでも1文書に保つ理由は次のとおりである。
+本書は分割しない。実装ファイルは上記の24であり、テストが付くもの（Task・TaskStatus・Priority・DueDate・TaskUnitRelationPolicy・TaskStore・TaskUnitLinkStore・StartTask・UpdateTaskStatus・FindTasksInPeriod・FindTaskStatusesByGoalID・CountTaskStats・4つのアダプタ・TaskHandlerの17）を加えると41となり、③自動生成プロンプト「文書の分割（1文書あたり30〜35ファイル）」の目安を超える。それでも1文書に保つ理由は次のとおりである。
 
 - 本Contextに属するHandlerは`TaskHandler`の1つのみであり、原則であるHandlerスライス分割ができない
 - レイヤーで割ると、Model・Store・公開操作が同一packageに属するActive Recordの構造（アーキテクチャ規約「3. 設計パターンごとの構造適用方針」）が3文書に分かれ、どの文書を読めば1つの操作が追えるのかが分かりにくくなる
-- 目安を超えている分は、他Contextから呼ばれる公開操作の4ファイルとそのテストである。これらはいずれも`TaskStore`へ条件を組み立てて渡す薄い関数であり、`TaskHandler`を経由するエンドポイント群とは独立している。実装を分けて進める場合は、エンドポイント群と公開操作群で区切れる
+- 目安を超えている分は、他Contextから呼ばれる公開操作の5ファイルとそのテストである。これらはいずれも`TaskStore`へ条件を組み立てて渡す薄い関数であり、`TaskHandler`を経由するエンドポイント群とは独立している。実装を分けて進める場合は、エンドポイント群と公開操作群で区切れる
 
 ---
 
@@ -125,7 +126,7 @@ internal/taskmanagement/presentation/routes.go
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`(t *Task) Validate() error`|なし|`error`|Title・Contentの必須チェック、Titleの長さ（100文字以内）、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。ロジックの実装内容は本書では規定しない|
+|`(t *Task) Validate() error`|なし|`error`|Title・Contentの必須チェック、Titleの長さ（100文字以内）、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。最初の失敗で打ち切らず、検出したすべてのエラーを`errors.Join`でまとめて返す（「9. Presentation層設計」の「検証結果の集約」）。ロジックの実装内容は本書では規定しない|
 |`(t *Task) ApplyStatus(s TaskStatus)`|`s TaskStatus`|なし|状態を反映し、同時に完了日時を整合させる。`TaskStatusCompleted`なら現在時刻を設定し、それ以外なら`nil`にする（①「7. 状態管理」の`sync_completed_at`と`TaskStatusUpdaterService`の双方に対応）|
 |`(t Task) IsNotStarted() bool`|なし|`bool`|未着手かを判定する。`StartTask`が「未着手のときだけ進行中にする」を判断するために用いる（①「5. API / 処理詳細」の「タスクの着手」）|
 
@@ -249,6 +250,7 @@ DBにも他Contextの呼び出しにも依存せず、与えられた3つの集�
 |`ErrInvalidPriority`|`ParsePriority`に定義されていない優先度名が渡された場合|`優先度は一覧にありません`（422へ変換する。「14. Error実装方針」）|
 |`ErrInvalidTaskStatus`|`ParseTaskStatus`・`Validate()`時に許容値外の場合|—（内部エラー。APIの入力でStatusを受け取らないため、通常は発生しない）|
 |`ErrGoalNotOwned`|指定された目標が操作者自身のものでない（存在しない場合を含む）|`目標が不正です`|
+|`ErrDueDateAfterGoalDueDate`|タスクの期限が、紐づく目標の期限より後である場合（目標の期限が未設定の場合は発生しない）|`期限は目標の期限以前にしてください`|
 |`ErrUnitNotFound`|指定された単元のいずれかが存在しない|`単元に不正な値が含まれています`|
 |`ErrStartedUnitCannotBeRemoved`|`Decide`時に、外す対象に学習開始済みの単元が含まれていた場合|`単元 学習開始済みの単元は削除できません`|
 |`ErrTaskNotFound`|`TaskStore`が指定ID・所有者に一致するTaskを取得できなかった場合（他の生徒のタスクを指定した場合を含む）|—（「14. Error実装方針」で404へ変換する）|
@@ -320,6 +322,7 @@ classDiagram
     class GoalDirectory {
         <<interface>>
         +IsOwnedByUser(ctx, goalID, userID) (bool, error)
+        +FindDueDate(ctx, goalID, userID) (*time.Time, bool, error)
     }
     class UnitDirectory {
         <<interface>>
@@ -419,6 +422,8 @@ sequenceDiagram
     H->>UD: ExistsAll(unitIDs)
     UD-->>H: 可否 / ErrUnitNotFound
     H->>H: Taskを組み立て Validate()
+    H->>GD: FindDueDate(goalID, userID)
+    GD-->>H: 目標の期限 / ErrDueDateAfterGoalDueDate（期限が目標の期限より後のとき）
     H->>TX: RunInTx(ctx, fn)
     TX->>TS: Create(ctx, task)
     TS-->>TX: error
@@ -452,6 +457,8 @@ sequenceDiagram
         P-->>H: add, remove / ErrStartedUnitCannotBeRemoved
     end
     H->>H: Taskへ反映し Validate()
+    H->>GD: FindDueDate(task.GoalID, userID)
+    GD-->>H: 目標の期限 / 目標なし / ErrDueDateAfterGoalDueDate（期限が目標の期限より後のとき）
     H->>TX: RunInTx(ctx, fn)
     TX->>TS: Update(ctx, task)
     TX->>TULS: Add / Remove
@@ -553,6 +560,7 @@ flowchart TD
 |`Create`|`ctx context.Context, task *Task`|`error`|Taskレコードの新規作成。`status`は`TaskStatusNotStarted`（0）、`estimated_time`は`0`で作成する（①「5. API / 処理詳細」`#create`）|
 |`Update`|`ctx context.Context, task *Task`|`error`|idに一致するTaskレコードの`title`・`content`・`priority`・`due_date`・`memo`列を更新する。`goal_id`・`status`・`completed_at`は更新しない（①「5. API / 処理詳細」`#update`）|
 |`UpdateStatus`|`ctx context.Context, id uint, status TaskStatus, completedAt *time.Time`|`error`|対象レコードの`status`・`completed_at`列のみを更新する（公開操作が用いる）|
+|`FindStatusesByGoalID`|`ctx context.Context, goalID uint`|`([]TaskStatus, error)`|`goal_id`で絞り込み、`status`列のみを取得する。`FindTaskStatusesByGoalID`（他Contextから呼ばれる公開操作）が用いる。所有者でスコープしない。`deleted_at IS NULL`はGORMが自動付与する。並び順は指定しない|
 |`FindByUserIDAndDueDateRange`|`ctx context.Context, userID uint, from, to time.Time`|`([]Task, error)`|user_idと`due_date`の範囲（両端を含む）による絞り込み。`FindTasksInPeriod`が用いる。**状態による絞り込みを行わない**。紐づく単元は取得しない。並び順は指定しない（②「12. UseCase設計」）|
 |`CountStats`|`ctx context.Context, cond TaskCountCondition`|`(TaskCountStats, error)`|総件数と完了件数を1回のクエリで集計する。`cond`は`UserID *uint`・`UserIDs []uint`・`DueDateFrom *time.Time`・`DueDateTo *time.Time`を持ち、指定されたものだけを条件に加える。`CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`が用いる|
 
@@ -591,13 +599,14 @@ flowchart TD
 
 |インターフェース|相手Context|メソッド|責務|
 |-|-|-|-|
-|`GoalDirectory`|`goal-management`|`IsOwnedByUser(ctx context.Context, goalID, userID uint) (bool, error)`|指定の目標が操作者自身のものかを返す。作成時の`goal_id`の検証に用いる（①「5. API / 処理詳細」`#create`）|
+|`GoalDirectory`|`goal-management`|`IsOwnedByUser(ctx context.Context, goalID, userID uint) (bool, error)`|`goal-management`の公開操作`FindUserGoal`に委譲し、`found`を返す。指定の目標が操作者自身のものかを返す。作成時の`goal_id`の検証に用いる（①「5. API / 処理詳細」`#create`）|
+||`goal-management`|`FindDueDate(ctx context.Context, goalID, userID uint) (dueDate *time.Time, found bool, err error)`|操作者自身の目標の期限を返す。目標が操作者のものでない・存在しない場合は`found=false`、期限が未設定の場合は`dueDate=nil`で`found=true`を返す。作成・更新時の「タスクの期限は目標の期限以前」の検証に用いる（①「5. API / 処理詳細」`#create`・`#update`）|
 |`UnitDirectory`|`curriculum`|`ExistsAll(ctx context.Context, unitIDs UnitIDSet) (bool, error)`|指定された単元がすべて存在するかを返す|
 ||`curriculum`|`FindUnitsByIDs(ctx context.Context, unitIDs UnitIDSet) ([]UnitRef, error)`|レスポンスに含める単元の情報を返す|
 |`StartedUnitDirectory`|`question-answering`|`FindStartedUnitIDsByTaskID(ctx context.Context, taskID, userID uint) (UnitIDSet, error)`|そのタスクで学習を開始済みの単元の識別子の集合を返す。詳細の`started`と、更新時の「学習開始済みの単元は外せない」判定に用いる（①「5. API / 処理詳細」`#show`・`#update`）|
 |`GoalStatusReevaluator`|`goal-management`|`ReevaluateGoalStatus(ctx context.Context, goalID uint) error`|目標の状態を再評価する。`StartTask`が状態を変えたときに呼ぶ（①「7. 状態管理」）|
 
-`UnitRef`（`dependency.go`で定義する）は、レスポンスに含める単元の情報を受け取る型である。フィールドは識別子・所属コースの識別子・単元名と、所属コースの情報（識別子・レベル番号・レベル名）である（①「5. API / 処理詳細」`#index`）。相手Contextの内部structをそのまま受け取らず、本Contextが必要とする項目だけを持つ型で受け取る（アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）。
+`UnitRef`（`dependency.go`で定義する）は、レスポンスに含める単元の情報を受け取る型である。フィールドは識別子・所属コースの識別子・単元名と、所属コースの情報（識別子・レベル番号・レベル名・教科名）である（①「5. API / 処理詳細」`#index`・`#show`）。教科名は詳細のレスポンスだけが使う。`contextadapter/unit_directory.go`は、`curriculum`の`FindUnitsByIDs`で得た単元のコース識別子を`FindCourseSubjects`へ渡して教科名を取得し、`UnitRef`へ詰める。`FindCourseSubjects`が行を返さなかったコースの教科名は空文字とする（**②からの補足**。Rails現行は`belongs_to :subject`が必須のため、教科が取得できない状態は通常発生しない）。相手Contextの内部structをそのまま受け取らず、本Contextが必要とする項目だけを持つ型で受け取る（アーキテクチャ規約「5. Context間連携ルール」の「相手Contextの内部Entity・Value Object・Infrastructure実装に直接依存しない」）。
 
 **②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
 
@@ -655,6 +664,24 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 `TaskSchedule`（`task.go`で定義する）は`ID uint`・`Title string`・`DueDate time.Time`・`Status string`を持つ。`Task`structそのものを返さないのは、呼び出し側（`calendar`）に本Contextの内部モデルを渡さないためである（規約「5. Context間連携ルール」）。
 
 **②からの補足**: `TaskSchedule`の名前とフィールドは②に明記がない。②「12. UseCase設計」`FindTasksInPeriod`の出力（識別子・件名・期限日・状態）をGoの型に落としたものである。`DueDate`をポインタにしないのは、期限日の範囲で絞り込んだ結果であり未設定のタスクが含まれないためである。
+
+## FindTaskStatusesByGoalID（`find_task_statuses_by_goal_id.go`）
+
+他Contextから呼ばれる公開操作である（②「12. UseCase設計」）。
+
+|項目|内容|
+|-|-|
+|関数|`FindTaskStatusesByGoalID(ctx context.Context, goalID uint) ([]string, error)`|
+|受け取る依存|`*TaskStore`|
+
+処理ステップ:
+
+1. `TaskStore.FindStatusesByGoalID`で、目標に紐づくタスクの状態を取得する
+2. 各状態を`TaskStatus.String()`で文字列（`not_started` / `in_progress` / `completed`）へ変換し、タスクごとに1件ずつ返す。該当がなければ空のスライス（`nil`ではない）を返す
+
+状態を`string`で返すのは、呼び出し側（`goal-management`）に本Contextの内部型を渡さないためである（規約「5. Context間連携ルール」）。呼び出し側は自身の`TaskStatusSet`へ変換する（目標管理機能③「8. Infrastructure層設計」の`TaskDirectory`）。接続は`gormtx.DBFromContext`が返すため、呼び出し側がトランザクションを開始していればそれに参加する（「11. Transaction実装方針」）。
+
+**②からの補足**: 関数名と戻り値の型（`[]string`）は②に明記がない。②「12. UseCase設計」`FindTaskStatusesByGoalID`の出力（タスクの状態の一覧）を、`TaskSchedule.Status`と同じく文字列で表したものである。
 
 ## CountTasks / CountTasksByDueDate / CountTasksForUsers（`count_task_stats.go`）
 
@@ -726,13 +753,15 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 
 1. current userを取得する
 2. `CreateTaskRequest`へバインドする（`task`キーでネストした本文。②「15. Validation設計」）
-3. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`（①「5. API / 処理詳細」`#create`）
-4. `unitDirectory.ExistsAll`で指定された単元がすべて存在するか確認する。偽なら`ErrUnitNotFound`（「3. Domain層設計」のDomain Error）
+3. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`を検証結果に加える（①「5. API / 処理詳細」`#create`）
+4. `unitDirectory.ExistsAll`で指定された単元がすべて存在するか確認する。偽なら`ErrUnitNotFound`を検証結果に加える（「3. Domain層設計」のDomain Error）
 5. `ParsePriority`で優先度を変換する
 6. Request DTOからTaskを組み立てる。`UserID`はcurrent userのID、`Status`は`TaskStatusNotStarted`、`EstimatedTime`は`0`とする
-7. `task.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
-8. `gormtx.RunInTx`でトランザクションを開始し、`taskStore.Create`と`linkStore.Add`を順に呼ぶ（②「14. Transaction設計」）
-9. `{"message": "タスクが作成されました。"}`を**201 Created**で返す（①「5. API / 処理詳細」`#create`）
+7. `task.Validate()`で業務ルール検証を行い、返された個々のエラーを検証結果に加える
+8. `goalDirectory.FindDueDate`で目標の期限を取得し、`found`かつ`dueDate`が設定済みで、タスクの期限が`dueDate`より後の場合は`ErrDueDateAfterGoalDueDate`を検証結果に加える。比較は暦日で行い、同日は許容する。手順7でDueDateに関するエラーがあった場合、または手順3で目標が操作者のものでないと分かった場合はこの検証を行わない（①「5. API / 処理詳細」`#create`）
+9. 手順3〜8の検証結果が1件以上ある場合は、全件のメッセージを持つ422のAppErrorを`c.Error(err)`で返し、手順10以降に進まない。手順3〜8は、いずれも失敗した時点で打ち切らず、すべて実行したうえで集約する（下記「検証結果の集約」）
+10. `gormtx.RunInTx`でトランザクションを開始し、`taskStore.Create`と`linkStore.Add`を順に呼ぶ（②「14. Transaction設計」）
+11. `{"message": "タスクが作成されました。"}`を**201 Created**で返す（①「5. API / 処理詳細」`#create`）
 
 ### UpdateTask
 
@@ -740,15 +769,26 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 2. パスパラメータ`id`と`UpdateTaskRequest`へバインドする
 3. `taskStore.FindByIDAndUserID`で対象Taskを取得する（所有権の確認。一致しなければ`ErrTaskNotFound`→404）
 4. `unit_ids`が渡されている場合:
-   1. `unitDirectory.ExistsAll`で存在確認する。偽なら`ErrUnitNotFound`
+   1. `unitDirectory.ExistsAll`で存在確認する。偽なら`ErrUnitNotFound`を検証結果に加える
    2. `linkStore.FindUnitIDsByTaskID`で現在の紐づけを取得する
    3. `startedUnitDirectory.FindStartedUnitIDsByTaskID`で開始済みの単元を取得する
-   4. `policy.Decide`で追加・削除の差分と可否を判定する。`ErrStartedUnitCannotBeRemoved`なら422へ変換する
+   4. `policy.Decide`で追加・削除の差分と可否を判定する。`ErrStartedUnitCannotBeRemoved`なら検証結果に加える
 5. `ParsePriority`で優先度を変換する
 6. 取得したTaskに`title`・`content`・`priority`・`due_date`・`memo`を反映する。`goal_id`・`status`・`completed_at`は変更しない
-7. `task.Validate()`で業務ルール検証を行う
-8. `gormtx.RunInTx`でトランザクションを開始し、`taskStore.Update`と、差分があれば`linkStore.Add` / `linkStore.Remove`を呼ぶ
-9. `{"message": "タスクが更新されました。"}`を200 OKで返す
+7. `task.Validate()`で業務ルール検証を行い、返された個々のエラーを検証結果に加える
+8. `goalDirectory.FindDueDate`をTaskの`GoalID`・current userのIDで呼び、目標の期限を取得する。`found`かつ`dueDate`が設定済みで、タスクの期限が`dueDate`より後の場合は`ErrDueDateAfterGoalDueDate`を検証結果に加える。`found=false`（目標が存在しない）の場合はこの検証を行わない。手順7でDueDateに関するエラーがあった場合も行わない（①「5. API / 処理詳細」`#update`）
+9. 手順4・7・8の検証結果が1件以上ある場合は、全件のメッセージを持つ422のAppErrorを`c.Error(err)`で返し、手順10以降に進まない。各検証は失敗した時点で打ち切らず、すべて実行したうえで集約する（下記「検証結果の集約」）
+10. `gormtx.RunInTx`でトランザクションを開始し、`taskStore.Update`と、差分があれば`linkStore.Add` / `linkStore.Remove`を呼ぶ
+11. `{"message": "タスクが更新されました。"}`を200 OKで返す
+
+### 検証結果の集約
+
+`CreateTask` / `UpdateTask`は、Presentation・Model・他Contextの参照手段による検証の失敗を、最初の1件で打ち切らずにすべて集め、1つのレスポンスにまとめて返す。Rails現行のFormが全検証を実行して全件を返すためである（①「6. データモデル」の「エラーレスポンスの本文」、②「17. Error設計」）。
+
+- `task.Validate()`は、検出したすべてのエラーを`errors.Join`でまとめて返す（コーディング規約「18. エラーハンドリング」の「複数のエラーをまとめる」）。Handlerは内包された個々のエラーを取り出し、メッセージを検証結果に加える
+- 検証結果は、`Messages`（アーキテクチャ規約「12. Error変換パターン（AppError）」の「複数のメッセージを同時に返すエラー」）を実装する422の`AppError`に詰め、`c.Error(err)`を1回だけ呼ぶ。ミドルウェアが`errors`配列に全件を入れる（Gin規約「8. エラーハンドリングミドルウェア」）
+- 目標の期限との比較（手順8）は、`due_date`に関するエラー（未入力・日付として解釈できない）がある場合は行わない（Rails現行が`errors[:due_date]`の有無で判定している）
+- **推測**: Request DTOのバインドで必須項目の失敗が検出された場合も、そのメッセージを検証結果に加える。同じ項目について`Validate()`が同じメッセージを返す場合は重複させない。Rails現行は必須の検証も他の検証と同じFormで全件集約するため、挙動を合わせる意図である（実装手段は①②に記載がない）
 
 `unit_ids`が渡されなかった場合は、4の各手順と`linkStore`の呼び出しを行わない。現在の紐づけを変更しない（①「5. API / 処理詳細」`#update`）。
 
@@ -804,9 +844,12 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 ||Course|`CourseResponse`|`course`|
 |`UnitDetailResponse`|（`UnitResponse`と同じ項目に加えて）|||
 ||Started|`bool`|`started`|
+||Course|`CourseDetailResponse`|`course`（`UnitResponse`の`Course`に代えてこちらを返す）|
 |`CourseResponse`|ID|`uint`|`id`|
 ||LevelNumber|`int`|`level_number`|
 ||LevelName|`string`|`level_name`|
+|`CourseDetailResponse`|（`CourseResponse`と同じ項目に加えて）|||
+||SubjectName|`string`|`subject_name`|
 |`TaskListResponse`|Tasks|`[]TaskResponse`|`tasks`|
 ||Meta|`MetaResponse`|`meta`|
 |`MetaResponse`|CurrentPage|`int`|`current_page`|
@@ -884,6 +927,7 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 |`priority`に定義されていない優先度名（例: `urgent`）|422|`ErrInvalidPriority`|
 |`title`が100文字を超える|422|`ErrTitleTooLong`|
 |指定された目標が操作者自身のものでない（存在しない場合を含む）|422|`ErrGoalNotOwned`|
+|`due_date`が目標の期限より後である|422|`ErrDueDateAfterGoalDueDate`|
 |指定された単元のいずれかが存在しない|422|`ErrUnitNotFound`|
 
 ### PATCH /api/v1/student/tasks/:id
@@ -894,6 +938,7 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 |`title` / `content` / `due_date` / `priority`の未入力、`due_date`が日付として解釈できない|422|バリデーションエラー|
 |`priority`に定義されていない優先度名|422|`ErrInvalidPriority`|
 |`title`が100文字を超える|422|`ErrTitleTooLong`|
+|`due_date`が紐づく目標の期限より後である|422|`ErrDueDateAfterGoalDueDate`|
 |指定された単元のいずれかが存在しない|422|`ErrUnitNotFound`|
 |学習開始済みの単元を紐づけから外そうとした|422|`ErrStartedUnitCannotBeRemoved`|
 
@@ -953,6 +998,7 @@ Model単体では完結しない検証は、Handlerが他Contextの参照手段�
 |検証|呼び出す先|
 |-|-|
 |指定された目標が操作者自身のものか|`GoalDirectory.IsOwnedByUser`|
+|タスクの期限が目標の期限以前か|`GoalDirectory.FindDueDate`|
 |指定された単元がすべて存在するか|`UnitDirectory.ExistsAll`|
 |学習開始済みの単元を外していないか|`StartedUnitDirectory.FindStartedUnitIDsByTaskID` + `TaskUnitRelationPolicy.Decide`|
 
@@ -1000,10 +1046,11 @@ DB接続失敗・永続化失敗（GORMが返すその他のエラー）は、`f
 |-|-|-|
 |`ErrTaskNotFound`（他の生徒のTaskを含む）|Store → Application（変換）|404|
 |バリデーションエラー（Presentation: 型・必須）|Presentation（Request DTOバインド）|422|
-|`ErrTitleRequired` / `ErrTitleTooLong` / `ErrContentRequired` / `ErrDueDateRequired` / `ErrPriorityRequired`|Model|422|
+|`ErrTitleRequired` / `ErrTitleTooLong` / `ErrContentRequired` / `ErrDueDateRequired` / `ErrPriorityRequired`|Model|422（複数同時に失敗した場合は全件を1つのレスポンスに集約する。「9. Presentation層設計」の「検証結果の集約」）|
 |`ErrInvalidDueDate`|Model|422|
 |`ErrInvalidPriority`（定義されていない優先度名）|Model|422|
 |`ErrGoalNotOwned`|Handler（`GoalDirectory`経由）|422|
+|`ErrDueDateAfterGoalDueDate`|Handler（`GoalDirectory`経由）|422|
 |`ErrUnitNotFound`|Handler（`UnitDirectory`経由）|422|
 |`ErrStartedUnitCannotBeRemoved`|Domain（`TaskUnitRelationPolicy`）|422|
 |`ErrInvalidTaskStatus`|Model|500（APIの入力でStatusを受け取らないため、通常は発生しない）|
@@ -1036,11 +1083,12 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 
 ## 主要クエリの条件・ソート・ページネーション方針
 
+- `TaskStore.FindStatusesByGoalID`: `goal_id`で絞り込み、`status`列のみを取得する（`Select`で列を限定する）。`ORDER BY`を付けない。`deleted_at IS NULL`はGORMが自動付与する（②「12. UseCase設計」`FindTaskStatusesByGoalID`）
 - `TaskStore.FindByUserIDAndDueDateRange`: `user_id`と`due_date BETWEEN ? AND ?`で絞り込む（両端を含む）。状態の条件を付けず、`ORDER BY`も付けない。単元の`Preload`も行わない（②「12. UseCase設計」`FindTasksInPeriod`）
 - `TaskStore.CountStats`: `COUNT(*)`と`SUM(CASE WHEN status = completed THEN 1 ELSE 0 END)`相当を1回のクエリで取得する。条件は`user_id`単独・`user_id IN (?)`・`user_id`＋`due_date`の範囲のいずれかであり、指定のないものは条件に加えない。`deleted_at IS NULL`はGORMが自動付与する（②「12. UseCase設計」の3つの集計操作）
 - `TaskStore.FindByUserID`: `user_id`で絞り込み（`deleted_at IS NULL`はGORMが自動付与する）、状態で絞り込み、`due_date`昇順（同値は`id`昇順）でソートし、`page`・`per_page`に基づくページネーションを行う。総件数は同じ絞り込み条件で`COUNT`を発行する
 - 状態の絞り込みは、指定がある場合はその値、ない場合は「未着手または進行中」（`status IN (0, 1)`）を条件とする（①「5. API / 処理詳細」`#index`の`by_status`）
-- 期日が同じタスクの第2ソートキーに`id`を置く。Rails現行は第2の並び順を指定しておらず順序が保証されていないが、ページネーションを行う以上、順序が決定的でないとページ間で重複・欠落が起きるためである（②「21. DB操作仕様」）
+- 期日が同じタスクの第2ソートキーに`id`を置く。Rails現行も`due_date`昇順・`id`昇順であり、ページネーションを行う以上、順序が決定的でないとページ間で重複・欠落が起きるためである（②「21. DB操作仕様」）
 - `TaskStore.FindByIDAndUserID`: `id`・`user_id`に一致する1件を取得する
 - 紐づく単元の識別子は`Preload`で一括取得する。タスクごとに問い合わせるN+1を避けるためである（Railsは`includes(units: :course)`で同じことを行っている。①「5. API / 処理詳細」`#index`）
 - `TaskStore.Update`: `title`・`content`・`priority`・`due_date`・`memo`列のみを更新する
@@ -1075,6 +1123,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`DueDate.String`|`YYYY/MM/DD`形式を返し、未設定で空文字列を返すこと|
 |`Task.Validate`|Title・Contentが空の場合にそれぞれのエラーを返すこと|
 |`Task.Validate`|DueDateが未設定の場合に`ErrDueDateRequired`を返すこと|
+|`Task.Validate`|複数の項目が同時に不正な場合（例: Titleが空でDueDateが未設定）、すべてのエラーが`errors.Is`で判別できる形でまとめて返ること|
 |`Task.Validate`|すべての項目が妥当な場合にエラーにならないこと|
 |`Task.ApplyStatus`|`TaskStatusCompleted`を渡すと`CompletedAt`が設定されること|
 |`Task.ApplyStatus`|`TaskStatusCompleted`以外を渡すと`CompletedAt`が`nil`になること|
@@ -1115,6 +1164,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`StartTask`|進行中・完了のタスクでは何も更新されず、再評価も呼ばれないこと|
 |`StartTask`|呼び出し側が開始したトランザクションに参加すること（ロールバックで更新が巻き戻ること）|
 |`FindTasksInPeriod`|`TaskSchedule`へ変換して返すこと／該当0件のとき空のスライスを返すこと|
+|`FindTaskStatusesByGoalID`|目標に紐づくタスクの状態が件数を保って返ること／論理削除済みのタスクが含まれないこと／他の目標のタスクが含まれないこと／該当0件のとき空のスライスを返すこと／呼び出し側のトランザクションの接続で読むこと|
 |`CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`|それぞれ`TaskCountCondition`の該当フィールドだけを設定して`CountStats`を呼ぶこと／`CountTasksForUsers`に空のスライスを渡した場合に問い合わせず0件を返すこと|
 |`UpdateTaskStatus`|指定した状態が反映され、完了なら`completed_at`が設定されること|
 |`UpdateTaskStatus`|目標の状態の再評価を呼ばないこと|
@@ -1135,8 +1185,10 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`TaskHandler.CreateTask`|正常系: 201と`{"message": "タスクが作成されました。"}`が返ること|
 |`TaskHandler.CreateTask`|正常系: 作成されたタスクの`status`が`not_started`、`estimated_time`が0であること|
 |`TaskHandler.CreateTask`|異常系: 必須項目の未入力時に422と`{"errors": [...]}`が返ること|
+|`TaskHandler.CreateTask`|異常系: 複数の検証が同時に失敗した場合（例: タイトルが未入力で、存在しない単元を指定し、他の生徒の目標を指定した）、失敗したすべてのメッセージが`errors`配列に含まれて422が返ること。永続化が行われないこと|
 |`TaskHandler.CreateTask`|異常系: 他の生徒の目標を指定した場合に422が返ること|
 |`TaskHandler.CreateTask`|異常系: 存在しない単元を指定した場合に422が返ること|
+|`TaskHandler.CreateTask`|異常系: `due_date`が目標の期限より後の場合に422と`期限は目標の期限以前にしてください`が返ること。同日・目標の期限が未設定の場合は作成できること。`due_date`が日付として解釈できない場合はこの検証を行わず`期限は正しい日付を入力してください`のみが返ること|
 |`TaskHandler.CreateTask`|異常系: `priority`に定義されていない数値・優先度名のいずれも422が返ること|
 |`TaskHandler.CreateTask`|異常系: `title`が100文字を超えた場合に422が返ること|
 |`TaskHandler.UpdateTask`|正常系: 200と`{"message": "タスクが更新されました。"}`が返ること|
@@ -1145,6 +1197,8 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`TaskHandler.UpdateTask`|正常系: `unit_ids`を空配列で渡した場合に紐づけがすべて外れること（開始済みの単元がない場合）|
 |`TaskHandler.UpdateTask`|異常系: 存在しない・他の生徒のTaskを指定した場合に404が返ること|
 |`TaskHandler.UpdateTask`|異常系: 学習開始済みの単元を外そうとした場合に422が返ること|
+|`TaskHandler.UpdateTask`|異常系: 複数の検証が同時に失敗した場合（例: タイトルが未入力で、学習開始済みの単元を外そうとした）、失敗したすべてのメッセージが`errors`配列に含まれて422が返ること|
+|`TaskHandler.UpdateTask`|異常系: `due_date`が紐づく目標の期限より後の場合に422と`期限は目標の期限以前にしてください`が返ること。同日・目標の期限が未設定の場合は更新できること。`due_date`が日付として解釈できない場合はこの検証を行わず`期限は正しい日付を入力してください`のみが返ること|
 
 ## Integration Test
 
@@ -1169,6 +1223,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`UnitIDSet`（単元の識別子の集合）という型を本Contextに定義した|`TaskUnitRelationPolicy.Decide`が判定に必要とするのは識別子の集合だけであり、単元の実体を受け取る必要がないため。判定をDBや他Contextの呼び出しから切り離してテストできる形にした|補足（②「8. Domain Service」の責務分担を型として表したもの）|
 |`UnitRef`（レスポンスに含める単元の情報）という型を本Contextに定義した|相手Contextの内部structをそのまま受け取らないため（アーキテクチャ規約「5. Context間連携ルール」）。項目は①「5. API / 処理詳細」`#index`のレスポンスに合わせた|補足|
 |`GoalDirectory` / `UnitDirectory` / `GoalStatusReevaluator`の具体的なシグネチャ|②「11. Repository設計」は他Contextの参照手段の存在を示すのみで、相手側が公開する操作の形は各機能の③で確定する。コーディング規約「7. インターフェース」のとおり利用側で定め、相手側が別の形を公開している場合はアダプタが差を吸収する|補足（`goal-management`の③は確定済み。`curriculum`の③はバッチ4で作成する）|
+|`GoalDirectory.FindDueDate`を設けた|②「12. UseCase設計」の`CreateTask`・`UpdateTask`が、目標の期限との比較のために目標の期限を取得する必要があるため。所有者の確認と同じ`goalID, userID`を取り、目標が存在しない・操作者のものでない場合を`found=false`で表す。`ErrDueDateAfterGoalDueDate`をHandlerで返す位置づけは`ErrGoalNotOwned`と同じ|補足（`goal-management`が公開する`FindUserGoal`（目標管理機能③「6. Application層設計」）に、アダプタが委譲する。`IsOwnedByUser`は`found`、`FindDueDate`は`DueDate`と`found`にそれぞれ対応する）|
 |`StartedUnitDirectory`のシグネチャに`userID`を含めた|解答履歴は生徒ごとに記録されるため、タスクの識別子だけでは対象が決まらない。`question-answering`が公開する`FindStartedUnitIDs(ctx, userID, taskID)`に対応する（問題解答機能③「8. Infrastructure層設計」）|補足（相手Contextの③で確定した形に合わせた）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が標準パターンとして定める方式であるため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る|補足（Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」に一致）|
 |`Priority`を`iota + 1`で宣言した|`tasks.priority`の整数値が1から始まり0を使っていないため（①「6. データモデル」）。`iota`をそのまま使うと既存データと食い違う|補足（①の実体に基づく）|
