@@ -479,7 +479,7 @@ var _ schooldirectory.TeacherCountDirectory = (*userCountDirectory)(nil)
 
 **②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
 
-`user`が公開する集計操作は、絞り込み条件と無効化の扱い・集計の単位を受け取る形である（ユーザー基盤機能③「3. 公開操作の定義」の`CountUsers`・`SearchCondition`・`AggregateUnit`）。アダプタは次のように変換する。
+`user`が公開する集計操作は、絞り込み条件と無効化の扱い・集計の単位を受け取る形である（ユーザー基盤機能③「6. Application層設計」の`CountUsers`・`SearchCondition`・`AggregateUnit`）。アダプタは次のように変換する。
 
 |本Contextのメソッド|`user`への引数|
 |-|-|
@@ -634,10 +634,10 @@ var _ schooldirectory.TeacherCountDirectory = (*userCountDirectory)(nil)
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|`prefecture_id`が符号なし整数として解釈できない|422|`{"errors": ["都道府県の指定が不正です"]}`|
-|`page`・`per_page`が整数として解釈できない|422|`{"errors": ["ページの指定が不正です"]}`|
+|`prefecture_id`が整数に変換できない|200|エラーにしない。どの都道府県にも一致しない値として扱い、結果は空の配列|
+|`page`・`per_page`が整数に変換できない|200|エラーにしない。既定値を使う（①「5. API / 処理詳細」`#index`）|
 |`page`・`per_page`が0以下|200|エラーにしない。既定値を使う（①「5. API / 処理詳細」`#index`）|
-|パスパラメータが符号なし整数として解釈できない|422|`{"errors": ["高校の指定が不正です"]}`|
+|パスパラメータが整数に変換できない|404|`{"errors": ["高校が見つかりません"]}`（存在しないIDと同じ扱い）|
 |指定された高校が存在しない|404|`{"errors": ["高校が見つかりません"]}`|
 |`master-data`・`user`の参照手段の呼び出しに失敗|500|`{"errors": ["internal server error"]}`|
 |本Contextの参照の失敗|500|同|
@@ -669,10 +669,10 @@ var _ schooldirectory.TeacherCountDirectory = (*userCountDirectory)(nil)
 
 |フィールド|struct名|バリデーションタグ|エラーメッセージ|
 |-|-|-|-|
-|`PrefectureID`|`ListHighSchoolsRequest`|なし（`*uint`へのバインド失敗で検出）|都道府県の指定が不正です|
-|`Page`|`ListHighSchoolsRequest`|なし（`*int`へのバインド失敗で検出）|ページの指定が不正です|
-|`PerPage`|`ListHighSchoolsRequest`|なし（同）|ページの指定が不正です|
-|`id`（パスパラメータ）|-|Handlerで符号なし整数として解釈|高校の指定が不正です|
+|`PrefectureID`|`ListHighSchoolsRequest`|なし（整数に変換できない値は0件になる）|—（エラーにしない）|
+|`Page`|`ListHighSchoolsRequest`|なし（変換できない値・0以下は既定値として扱う）|—（エラーにしない）|
+|`PerPage`|`ListHighSchoolsRequest`|なし（同）|—（エラーにしない）|
+|`id`（パスパラメータ）|-|Handlerで整数に変換する。変換できない値は存在しないIDとして扱う|高校が見つかりません（404）|
 
 `binding`タグを使わず型へのバインド失敗で検出するのは、`page=0`のような値をエラーにせず既定値として扱う必要があるためである（「9. Presentation層設計」）。
 
@@ -732,7 +732,8 @@ Transaction Script採用のため、application関数内のガード節で検証
 |業務シナリオ|Error変数名／型|発生層|HTTP Status|
 |-|-|-|-|
 |指定された高校が存在しない|`ErrHighSchoolNotFound`（`application/errors.go`）|Application|404|
-|クエリ・パスパラメータが整数として解釈できない|Request DTOのバインド失敗をバリデーションエラーへ変換したもの|Presentation|422|
+|`prefecture_id`が整数に変換できない|エラーにしない（結果は0件）|—|200|
+|`id`・`high_school_id`が整数に変換できない|`ErrHighSchoolNotFound`と同じ扱い|Application|404|
 |`master-data`・`user`の参照手段の呼び出しに失敗|包まずそのまま返す|Infrastructure|500|
 |本Contextの参照の失敗|同|Infrastructure|500|
 |未認証|認証ミドルウェアが返す|Middleware|401|
@@ -930,7 +931,7 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 ## 3. 人数の集計を高校の識別子の集合で1回呼ぶ
 
 - 判断した内容: 人数の集計を高校ごとに1回ずつ呼ばず、取得したページの高校の識別子の集合を1回で渡す
-- 判断理由: 1ページあたり最大100件の高校について人数を集計するため、単一指定では100回の問い合わせが必要になる。ユーザー基盤機能③「3. 公開操作の定義」の`SearchCondition`は所属校の絞り込みを`HighSchoolIDs []uint`（複数指定）としており、集合を1回で渡せる。Rails現行も`by_high_school(school_ids)`として識別子の集合で1回のクエリにまとめている（①「5. API / 処理詳細」`#index`）
+- 判断理由: 1ページあたり最大100件の高校について人数を集計するため、単一指定では100回の問い合わせが必要になる。ユーザー基盤機能③「6. Application層設計」の`SearchCondition`は所属校の絞り込みを`HighSchoolIDs []uint`（複数指定）としており、集合を1回で渡せる。Rails現行も`by_high_school(school_ids)`として識別子の集合で1回のクエリにまとめている（①「5. API / 処理詳細」`#index`）
 - 推測かどうか: 推測ではない。②「12. UseCase設計」が識別子の集合に対して集計を呼ぶ手順を定めており、`user`の公開操作がその形を持つ
 
 ## 4. ページ情報のResponse DTOの置き場所

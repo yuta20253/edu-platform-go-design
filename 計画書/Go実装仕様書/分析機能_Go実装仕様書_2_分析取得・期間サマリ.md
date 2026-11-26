@@ -625,7 +625,7 @@ flowchart TD
 `Index`の処理順序:
 
 1. `IndexRequest`へ`ShouldBindQuery`でバインドする。失敗した場合は`c.Error`にバリデーションエラーを積んで戻る（Gin規約「6. Model BindingとValidation」）
-2. `Type`が`nil`の場合は「分析タイプを指定してください」のバリデーションエラーを`c.Error`に積んで戻る（400）
+2. `Type`が`nil`の場合は「必須パラメータ「analytics」がありません」のバリデーションエラーを`c.Error`に積んで戻る（400）
 3. `context.Context`から操作者のユーザーIDを取り出す。リクエストから受け取らない（②「16. Authorization設計」）
 4. `AnalyticsQuery`を組み立て、`analyticsService.GetAnalytics`を呼ぶ
 5. エラーの場合は`c.Error(err)`を呼んで戻る。ステータスとレスポンス本文への変換は`ErrorHandler`が行う（Gin規約「8. エラーハンドリングミドルウェア」）
@@ -768,9 +768,9 @@ flowchart TD
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|`analytics[type]`のキーが存在しない|400|`{"errors": ["分析タイプを指定してください"]}`|
+|`analytics[type]`のキーが存在しない|400|`{"errors": ["必須パラメータ「analytics」がありません"]}`|
 |既知でない分析タイプを指定した|400|`{"errors": ["指定された分析タイプ（{指定値}）は存在しません。"]}`|
-|`course_id`・`unit_id`が符号なし整数として解釈できない|422|`{"errors": ["コースの指定が不正です"]}` / `{"errors": ["単元の指定が不正です"]}`|
+|`course_id`・`unit_id`が整数に変換できない|200|エラーにしない。一致するデータが無いものとして扱い、順位は該当なし、人数は0（①「5. API / 処理詳細」`#index`）|
 |`grade_average`で生徒に学年が設定されていない|500|`{"errors": ["internal server error"]}`|
 |他Contextの参照手段の呼び出しに失敗|500|同|
 |未認証|401|認証ミドルウェアの応答|
@@ -808,9 +808,9 @@ flowchart TD
 
 |フィールド|struct名|バリデーションタグ|エラーメッセージ|
 |-|-|-|-|
-|`Type`|`IndexRequest`|なし（`nil`判定をHandlerで行う）|分析タイプを指定してください|
-|`CourseID`|`IndexRequest`|なし（`*uint`へのバインド失敗で検出）|コースの指定が不正です|
-|`UnitID`|`IndexRequest`|なし（`*uint`へのバインド失敗で検出）|単元の指定が不正です|
+|`Type`|`IndexRequest`|なし（`nil`判定をHandlerで行う）|必須パラメータ「analytics」がありません|
+|`CourseID`|`IndexRequest`|なし（整数に変換できない値は一致するデータ無しとして扱う）|—（エラーにしない）|
+|`UnitID`|`IndexRequest`|なし（整数に変換できない値は一致するデータ無しとして扱う）|—（エラーにしない）|
 |`From`|`ShowRequest`|`omitempty,datetime=2006-01-02`|開始日は正しい日付を入力してください|
 |`To`|`ShowRequest`|`omitempty,datetime=2006-01-02`|終了日は正しい日付を入力してください|
 
@@ -958,10 +958,10 @@ Rails現行（①「5. API / 処理詳細」`#show`のErrorケース）と同じ
 |対象|テストケース|
 |-|-|
 |`AnalyticsHandler.Index`|`analytics[type]`をクエリから受け取り、`AnalyticsQuery.Type`へ渡す|
-||`analytics[type]`のキーがないとき400と「分析タイプを指定してください」を返す|
+||`analytics[type]`のキーがないとき400と「必須パラメータ「analytics」がありません」を返す|
 ||`analytics[type]`が空文字のとき400にせず、application層へ空文字を渡す|
 ||`course_id`・`unit_id`を`*uint`として受け取り、未指定のとき`nil`を渡す|
-||`course_id`が整数として解釈できないとき422を返す|
+||`course_id`が整数に変換できないとき、エラーにならず、順位が該当なしで返る|
 ||操作者のユーザーIDを`context.Context`から取り出し、クエリから受け取らない|
 ||`Type`ごとに対応するResponse DTOへ変換する（4種すべて）|
 ||`rank`が該当なしのとき`null`で返る|

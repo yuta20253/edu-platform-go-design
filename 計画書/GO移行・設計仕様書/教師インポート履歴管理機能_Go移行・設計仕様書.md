@@ -464,7 +464,7 @@ flowchart TD
 |sort|Domain|許可値（created_at/total_count/success_count/error_count/status）以外は`created_at`にフォールバック|（形式エラーとしては扱わない）|
 |order|Domain|`asc`/`desc`以外は`desc`にフォールバック|（形式エラーとしては扱わない）|
 |page / per_page|Presentation|0以下・数値以外は既定値を使用（`per_page`の既定は20件、上限は100件）|（形式エラーとしては扱わない。規約15章「ページネーション」）|
-|import_history_id（詳細・エクスポート）|Presentation|必須。整数形式であること|「対象インポート履歴のIDが不正です」|
+|import_history_id（詳細・エクスポート）|Presentation|整数に変換できない値は、存在しないIDとして扱う|404「インポート履歴が見つかりません」|
 |対象履歴の範囲|Domain|実行者本人の生徒インポートの履歴であること（他の教師の履歴・問題インポートの履歴・論理削除済みの履歴のIDを指定した場合は取得不可）|（存在しないものとして404を返す）|
 
 ## 責務分離

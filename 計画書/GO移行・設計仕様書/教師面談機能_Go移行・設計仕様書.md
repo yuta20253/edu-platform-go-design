@@ -503,7 +503,7 @@ flowchart TD
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
 |student_id（新規申請）|Presentation|必須・整数|「生徒を指定してください」相当|
-|reason_detail|Presentation|必須・2000文字以内|「申請理由を入力してください」相当|
+|reason_detail|Presentation|必須・2000文字以内|「相談内容を入力してください」「相談内容は2000文字以内で入力してください」|
 |reason_detail の対象生徒|Domain|教師の閲覧権限範囲内の生徒であること|`errors`（担当外の生徒への申請不可）|
 |同一生徒・教師の重複申請|Domain|進行中の面談が既に存在しないこと|`errors`（重複申請不可）|
 |status（更新）|Presentation|必須・confirmed/completedのいずれか|「指定できないステータスです」|
@@ -516,7 +516,7 @@ flowchart TD
 |from / to（一覧）|Presentation|`YYYY-MM-DD` 形式の実在する日付|`errors`（正しい日付の入力を促す）|
 |from と to の前後関係|Presentation|from が to 以前であること|`errors`（from以降の日付の指定を促す）|
 |期間の長さ|Presentation|92日以内|`errors`（取得期間の上限を示す）|
-|body（メッセージ）|Presentation|必須・2000文字以内|「本文を入力してください」相当|
+|body（メッセージ）|Presentation|必須・2000文字以内|「メッセージを入力してください」|
 |メッセージ投稿時の面談状態|Domain|進行中であること|`errors`（進行中でない面談への投稿不可）|
 
 ---
@@ -575,6 +575,8 @@ flowchart TD
 ## 判断理由
 
 業務ルール違反（Domain）とリソース未存在・競合（Application）を区別することで、HTTPステータス変換（422 / 404 / 409）を一貫した基準で行える。楽観ロック競合は、Domainの業務ルール違反ではなく「同時実行環境における実行タイミングの衝突」であるため、Application Errorとして扱い、409に変換する。
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`interview_request`・`interview_request_message`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## エラー仕様
 

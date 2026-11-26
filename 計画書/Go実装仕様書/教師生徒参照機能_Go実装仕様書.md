@@ -729,6 +729,8 @@ Transaction Script採用のため、application関数内のガード節で以下
 
 # 14. Error実装方針
 
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`user`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
+
 - Domain Error → Application Error変換方針: 対象外（Domain層を設けないため）。application関数が返すエラーをApplication Error相当として扱う（規約「7. 横断的関心事の置き場所」）
 - Application Error → HTTPレスポンス変換方針: `ErrStudentNotFound`を`404`へ、`ErrEnrollmentTargetMismatch`・`ErrGradeOutOfScope`・`ErrEmailUsedByOtherHighSchool`・`ErrEmailUsedByNonStudent`・`ErrEmailAlreadyRegistered`を`422`へ変換する（②「17. Error設計」・16章）
 - Infrastructure Errorのハンドリング方針: DB接続失敗等のInfrastructure Errorは、Handlerでラップし`500`として扱う（②に個別の記載はなく、一般的なエラーハンドリング方針として補った）

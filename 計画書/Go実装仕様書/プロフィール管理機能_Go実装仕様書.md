@@ -524,11 +524,11 @@ type ProfileSummary struct {
 |フィールド|struct名|バリデーションタグ|エラーメッセージ|
 |-|-|-|-|
 |`Name`|`UpdateProfileRequest`|`binding:"required"`（必須チェック）|「氏名を入力してください」|
-|`NameKana`|`UpdateProfileRequest`|`binding:"required"`（必須チェック、フォーマットはDomain側）|「氏名カナを入力してください」（未指定時）／「氏名カナの形式が不正です」（Domain側で判定）|
-|`Gender`|`UpdateProfileRequest`|`binding:"required"`（必須チェック、列挙値判定はDomain側）|「性別を指定してください」（未指定時）／「性別の指定が不正です」（Domain側で判定）|
+|`NameKana`|`UpdateProfileRequest`|`binding:"required"`（必須チェック、フォーマットはDomain側）|「氏名カナを入力してください」（未指定時）／「氏名カナはカタカナで入力してください」（Domain側で判定）|
+|`Gender`|`UpdateProfileRequest`|`binding:"required"`（必須チェック、列挙値判定はDomain側）|「性別は一覧にありません」（未指定時・列挙値外とも。Domain側で判定）|
 |`AddressID`|`UpdateProfileRequest`|`binding:"omitempty"`|-|
-|`PhoneNumber`|`UpdateProfileRequest`|`binding:"omitempty"`（型チェックのみ、フォーマットはDomain側）|「電話番号の形式が不正です」（Domain側で判定）|
-|`Birthday`|`UpdateProfileRequest`|`binding:"omitempty"`（`YYYY-MM-DD`形式の日付文字列）|「生年月日の形式が不正です」（Presentation層でのパース失敗時）|
+|`PhoneNumber`|`UpdateProfileRequest`|`binding:"omitempty"`（型チェックのみ、フォーマットはDomain側）|「電話番号が不正です」（Domain側で判定）|
+|`Birthday`|`UpdateProfileRequest`|`binding:"omitempty"`（`YYYY-MM-DD`形式の日付文字列）|—（エラーにしない。日付に変換できない値は未指定として扱う。Rails現行と同じ。①「5. API / 処理詳細」）|
 
 ## 業務ルール検証（Active Record採用のためModelのメソッドで検証する内容）
 
@@ -629,7 +629,7 @@ Active Record採用のため、Domain Error相当の層は存在しない（ア�
 
 # 16. テストケース設計
 
-②「22. テスト戦略」を、規約「16. テストケース設計」のActive Record読み替え（「Domain Test」→「Model Test」、「UseCase Test」→「対象外」、「Repository Test」→「Store Test」）に従って具体化する。
+②「22. テスト戦略」を、アーキテクチャ規約「3. 設計パターンごとの構造適用方針」の読み替えルール（「Domain Test」→「Model Test」、「UseCase Test」→「対象外」、「Repository Test」→「Store Test」）に従って具体化する。
 
 ## Model Test
 

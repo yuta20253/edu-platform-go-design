@@ -252,7 +252,7 @@ DBにも他Contextの呼び出しにも依存せず、与えられた3つの集�
 |`ErrGoalNotOwned`|指定された目標が操作者自身のものでない（存在しない場合を含む）|`目標が不正です`|
 |`ErrDueDateAfterGoalDueDate`|タスクの期限が、紐づく目標の期限より後である場合（目標の期限が未設定の場合は発生しない）|`期限は目標の期限以前にしてください`|
 |`ErrUnitNotFound`|指定された単元のいずれかが存在しない|`単元に不正な値が含まれています`|
-|`ErrStartedUnitCannotBeRemoved`|`Decide`時に、外す対象に学習開始済みの単元が含まれていた場合|`単元 学習開始済みの単元は削除できません`|
+|`ErrStartedUnitCannotBeRemoved`|`Decide`時に、外す対象に学習開始済みの単元が含まれていた場合|`単元のうち学習開始済みのものは削除できません`|
 |`ErrTaskNotFound`|`TaskStore`が指定ID・所有者に一致するTaskを取得できなかった場合（他の生徒のタスクを指定した場合を含む）|—（「14. Error実装方針」で404へ変換する）|
 
 メッセージの項目名は①のとおり日本語訳が定義されている（②「17. Error設計」の「エラーレスポンスの本文」）。
@@ -560,7 +560,7 @@ flowchart TD
 |`Create`|`ctx context.Context, task *Task`|`error`|Taskレコードの新規作成。`status`は`TaskStatusNotStarted`（0）、`estimated_time`は`0`で作成する（①「5. API / 処理詳細」`#create`）|
 |`Update`|`ctx context.Context, task *Task`|`error`|idに一致するTaskレコードの`title`・`content`・`priority`・`due_date`・`memo`列を更新する。`goal_id`・`status`・`completed_at`は更新しない（①「5. API / 処理詳細」`#update`）|
 |`UpdateStatus`|`ctx context.Context, id uint, status TaskStatus, completedAt *time.Time`|`error`|対象レコードの`status`・`completed_at`列のみを更新する（公開操作が用いる）|
-|`FindStatusesByGoalID`|`ctx context.Context, goalID uint`|`([]TaskStatus, error)`|`goal_id`で絞り込み、`status`列のみを取得する。`FindTaskStatusesByGoalID`（他Contextから呼ばれる公開操作）が用いる。所有者でスコープしない。`deleted_at IS NULL`はGORMが自動付与する。並び順は指定しない|
+|`FindStatusesByGoalID`|`ctx context.Context, goalID uint, forUpdate bool`|`([]TaskStatus, error)`|`goal_id`で絞り込み、`status`列のみを取得する。`forUpdate`が真のとき`SELECT ... FOR UPDATE`（GORMの`clause.Locking{Strength: "UPDATE"}`）で行をロックする。`FindTaskStatusesByGoalID`（他Contextから呼ばれる公開操作）が用いる。所有者でスコープしない。`deleted_at IS NULL`はGORMが自動付与する。並び順は指定しない|
 |`FindByUserIDAndDueDateRange`|`ctx context.Context, userID uint, from, to time.Time`|`([]Task, error)`|user_idと`due_date`の範囲（両端を含む）による絞り込み。`FindTasksInPeriod`が用いる。**状態による絞り込みを行わない**。紐づく単元は取得しない。並び順は指定しない（②「12. UseCase設計」）|
 |`CountStats`|`ctx context.Context, cond TaskCountCondition`|`(TaskCountStats, error)`|総件数と完了件数を1回のクエリで集計する。`cond`は`UserID *uint`・`UserIDs []uint`・`DueDateFrom *time.Time`・`DueDateTo *time.Time`を持ち、指定されたものだけを条件に加える。`CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`が用いる|
 
@@ -671,12 +671,12 @@ Rails現行は開始済みの単元を`Task#started_unit_ids`として`question_
 
 |項目|内容|
 |-|-|
-|関数|`FindTaskStatusesByGoalID(ctx context.Context, goalID uint) ([]string, error)`|
+|関数|`FindTaskStatusesByGoalID(ctx context.Context, goalID uint, forUpdate bool) ([]string, error)`|
 |受け取る依存|`*TaskStore`|
 
 処理ステップ:
 
-1. `TaskStore.FindStatusesByGoalID`で、目標に紐づくタスクの状態を取得する
+1. `TaskStore.FindStatusesByGoalID`で、目標に紐づくタスクの状態を取得する。`forUpdate`が真のときは、対象のタスクの行を排他ロックして読む（呼び出し側のトランザクションの内側で呼ばれる前提）
 2. 各状態を`TaskStatus.String()`で文字列（`not_started` / `in_progress` / `completed`）へ変換し、タスクごとに1件ずつ返す。該当がなければ空のスライス（`nil`ではない）を返す
 
 状態を`string`で返すのは、呼び出し側（`goal-management`）に本Contextの内部型を渡さないためである（規約「5. Context間連携ルール」）。呼び出し側は自身の`TaskStatusSet`へ変換する（目標管理機能③「8. Infrastructure層設計」の`TaskDirectory`）。接続は`gormtx.DBFromContext`が返すため、呼び出し側がトランザクションを開始していればそれに参加する（「11. Transaction実装方針」）。
@@ -1023,6 +1023,8 @@ Model単体では完結しない検証は、Handlerが他Contextの参照手段�
 
 Active Record採用のためDomain Errorに相当する層がなく、`errors.go`のセンチネルエラーをそのままApplication Error相当として扱う（アーキテクチャ規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。センチネルエラーから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
 
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`task`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
+
 ## Application Error → HTTPレスポンスへの変換方針
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
@@ -1164,7 +1166,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`StartTask`|進行中・完了のタスクでは何も更新されず、再評価も呼ばれないこと|
 |`StartTask`|呼び出し側が開始したトランザクションに参加すること（ロールバックで更新が巻き戻ること）|
 |`FindTasksInPeriod`|`TaskSchedule`へ変換して返すこと／該当0件のとき空のスライスを返すこと|
-|`FindTaskStatusesByGoalID`|目標に紐づくタスクの状態が件数を保って返ること／論理削除済みのタスクが含まれないこと／他の目標のタスクが含まれないこと／該当0件のとき空のスライスを返すこと／呼び出し側のトランザクションの接続で読むこと|
+|`FindTaskStatusesByGoalID`|目標に紐づくタスクの状態が件数を保って返ること／論理削除済みのタスクが含まれないこと／他の目標のタスクが含まれないこと／該当0件のとき空のスライスを返すこと／呼び出し側のトランザクションの接続で読むこと／`forUpdate`が真のとき、対象のタスクの行が排他ロックされること|
 |`CountTasks` / `CountTasksByDueDate` / `CountTasksForUsers`|それぞれ`TaskCountCondition`の該当フィールドだけを設定して`CountStats`を呼ぶこと／`CountTasksForUsers`に空のスライスを渡した場合に問い合わせず0件を返すこと|
 |`UpdateTaskStatus`|指定した状態が反映され、完了なら`completed_at`が設定されること|
 |`UpdateTaskStatus`|目標の状態の再評価を呼ばないこと|

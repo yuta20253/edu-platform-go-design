@@ -414,7 +414,8 @@ CSVエクスポートのResponse DTOは設けない（ファイルストリー�
 |-|-|-|
 |未認証|401|認証エラー（②に明記なし。推測）|
 |adminロールでない|403|権限エラー（②に明記なし。推測）|
-|`unit_id`/`course_id`/`user_id`/`page`/`per_page`が数値でない、`from`/`to`が日付形式でない|400|Request DTOバリデーションエラー|
+|`unit_id`/`course_id`/`user_id`が整数に変換できない|200|エラーにしない。一致するデータ無しとして扱い、結果は0件（①「5. API / 処理詳細」）|
+|`page`/`per_page`が整数に変換できない、`from`/`to`が日付として解釈できない|200|エラーにしない。`page`/`per_page`は既定値、`from`/`to`は無視して絞り込まない|
 |対象インポート履歴が存在しない、または生徒インポートの履歴である（詳細・エクスポート）|404|`ErrImportHistoryNotFound`（②「17. Error設計」）|
 |DB接続失敗・CSV生成失敗|500|Infrastructure Error|
 
@@ -484,7 +485,6 @@ Handler側で`errors.Is(err, domainerrors.ErrImportHistoryNotFound)`により判
 |Error種別|発生層|HTTP Status|
 |-|-|-|
 |`ErrImportHistoryNotFound`|Application（UseCase）|404|
-|Request DTOバリデーションエラー|Presentation|400|
 |DB接続失敗・CSV生成失敗|Infrastructure|500|
 
 ## Infrastructure Errorのハンドリング方針
@@ -549,7 +549,7 @@ Repository実装が返すDBエラー（接続失敗・クエリ失敗）は`fmt.
 
 |対象|テストケース|
 |-|-|
-|`ImportHistoryHandler.Search`|クエリパラメータの解釈が正しいこと／不正な`from`/`to`で400が返ること／正常系で200が返ること|
+|`ImportHistoryHandler.Search`|クエリパラメータの解釈が正しいこと／日付として解釈できない`from`/`to`が無視され、エラーにならず200が返ること／正常系で200が返ること|
 |`ImportHistoryHandler.Show`|存在しない`id`で404が返ること／正常系で200が返ること|
 |`ImportHistoryHandler.Export`|正常系で200とContent-Type: text/csvが返ること／存在しない`id`で404が返ること|
 

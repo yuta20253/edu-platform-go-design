@@ -206,7 +206,7 @@ classDiagram
 
 該当する住所がない場合は空スライスを返す。エラーにしない（②「12. UseCase設計」）。
 
-**論理削除済みの住所も結果に含まれる。** 検索が除外しないためである（基盤編「8. Infrastructure層設計」）。本関数で除外し直さない。
+**論理削除済みの住所は結果に含まれない。** 検索が`deleted_at IS NULL`で除外するためである（基盤編「8. Infrastructure層設計」）。本関数で除外を重ねない。
 
 `StreetAddress`を出力に含めない。Rails現行のレスポンスに含まれない（①「5. API / 処理詳細」`Api::V1::AddressesController#index`）。
 
@@ -337,9 +337,7 @@ flowchart TD
     A -- はい --> B[SearchAddressesRequestへバインド]
     B --> P{prefecture_idの指定があるか}
     P -- いいえ --> E400[400 / 都道府県は必須です。]
-    P -- はい --> T{符号なし整数として解釈できるか}
-    T -- いいえ --> E422[422 / 都道府県の指定が不正です]
-    T -- はい --> Q[SearchAddressesを呼ぶ]
+    P -- はい --> Q[SearchAddressesを呼ぶ<br/>整数に変換できない値は0件になる]
     Q --> OUT[200 / 住所の配列]
 ```
 
@@ -572,8 +570,8 @@ JSONキーが`csv_managed`である点に注意する。Goのフィールド名`
 |条件|Status Code|Error内容|
 |-|-|-|
 |住所検索で`prefecture_id`が未指定・空文字|**400**|`{"errors": ["都道府県は必須です。"]}`|
-|`prefecture_id`が符号なし整数として解釈できない|422|`{"errors": ["都道府県の指定が不正です"]}`|
-|パスパラメータ`id`が符号なし整数として解釈できない|422|`{"errors": ["高校の指定が不正です"]}`|
+|`prefecture_id`が整数に変換できない|200|エラーにしない。どの都道府県にも一致しない値として扱い、結果は空の配列（Rails現行は`= NULL`で絞り込む）|
+|パスパラメータ`id`が整数に変換できない|200|エラーにしない。どの高校にも一致しない値として扱い、結果は空の配列（学年一覧は高校の実在を確認しない）|
 |住所検索で未認証|401|認証ミドルウェアの応答|
 |DBアクセスの失敗|500|`{"errors": ["internal server error"]}`|
 |高校検索で`prefecture_id`が未指定|200|エラーにしない。空の配列を返す|
@@ -603,11 +601,11 @@ JSONキーが`csv_managed`である点に注意する。Goのフィールド名`
 |フィールド|struct名|バリデーションタグ|エラーメッセージ|Status|
 |-|-|-|-|-|
 |`PrefectureID`|`SearchAddressesRequest`|なし（`nil`判定をHandlerで行う）|都道府県は必須です。|**400**|
-|`PrefectureID`|`SearchAddressesRequest`|なし（`*uint`へのバインド失敗で検出）|都道府県の指定が不正です|422|
+|`PrefectureID`|`SearchAddressesRequest`|なし（整数に変換できない値は0件になる）|—（エラーにしない）|—|
 |`City`・`Town`|`SearchAddressesRequest`|なし|-|-|
-|`PrefectureID`|`SearchHighSchoolsRequest`|なし（`*uint`へのバインド失敗で検出）|都道府県の指定が不正です|422|
+|`PrefectureID`|`SearchHighSchoolsRequest`|なし（整数に変換できない値は0件になる）|—（エラーにしない）|—|
 |`Keyword`|`SearchHighSchoolsRequest`|なし|-|-|
-|`id`（パスパラメータ）|-|Handlerで符号なし整数として解釈|高校の指定が不正です|422|
+|`id`（パスパラメータ）|-|Handlerで整数に変換する。変換できない値は0件になる|—（エラーにしない）|—|
 
 `binding:"required"`を使わない理由は「9. Presentation層設計」に記載のとおりである。必須チェックの失敗を`400`で返す必要があるためである。
 
@@ -699,7 +697,7 @@ Response DTOに`school_code`を含めない。公開操作でのみ返す値で�
 ||`Town`が未設定の住所で`nil`になること|
 ||`StreetAddress`を出力に含めないこと|
 ||0件のとき空スライスを返すこと（エラーにしないこと）|
-||論理削除済みの住所が結果に含まれること|
+||論理削除済みの住所が結果に含まれないこと|
 |`SearchHighSchools`|検索へ`limit`に`20`を渡すこと|
 ||**`PrefectureID`が`nil`のまま検索へ渡ること**（`nil`を弾かず、絞り込みを省かないこと）|
 ||`Keyword`が空文字のときもそのまま渡ること|
@@ -759,7 +757,7 @@ Response DTOに`school_code`を含めない。公開操作でのみ返す値で�
 |認証|都道府県一覧・高校検索・学年一覧が、ロールによって結果が変わらないこと|
 |都道府県一覧|全件が取得できること|
 |住所検索|都道府県で絞り込めること、市区町村・町域が部分一致で絞り込めること|
-|住所検索|**論理削除済みの住所が結果に含まれること**|
+|住所検索|**論理削除済みの住所が結果に含まれないこと**|
 |住所検索|都道府県が未設定の住所で`prefecture`が`null`になること|
 |高校検索|都道府県で絞り込めること、キーワードが部分一致で絞り込めること|
 |高校検索|**`prefecture_id`を指定しないと空の配列が返ること**|

@@ -238,14 +238,14 @@ Aggregate Rootである（②「5. Aggregate設計」）。
 |`UpdateContent`|`title, content *string`|`error`|件名・本文を更新する。**`nil`の項目は変更しない**（部分更新のため）|
 |`ChangeStatus`|`status valueobject.AnnouncementStatus, scheduledAt valueobject.ScheduledAt`|`error`|状態と予約日時を変更する。遷移の可否と予約日時の整合を検証し、配信済みになるときは配信日時を設定する。**現在と同じ状態が渡された場合は遷移の判定を行わず、予約日時のみを変更する**|
 |`PublishManually`|-|`error`|手動配信する。既に配信済みなら拒否する。配信日時を設定し、**予約日時を消す**|
-|`PublishByScheduler`|-|`error`|自動切替で配信する。配信日時を設定し、**予約日時を消さない**|
+|`PublishByScheduler`|-|`error`|自動切替で配信する。配信日時を設定し、**予約日時を消す**|
 |`ReplaceTargets`|`targets []*AnnouncementTarget`|`error`|配信先を全件入れ替える。1件以上であることを検証する|
 |`EnsureEditable`|-|`error`|配信済みなら`ErrNotEditable`を返す。更新の前に呼ぶ|
 |`EnsureDeletable`|-|`error`|配信済みなら`ErrNotDeletable`を返す。削除の前に呼ぶ|
 
 `UpdateContent`が`*string`を取るのは、管理者お知らせ管理機能の更新が部分更新であるためである（管理者お知らせ管理機能②「12. UseCase設計」）。教師お知らせ機能の更新は全項目を渡すが、同じメソッドを使う。
 
-`PublishManually`と`PublishByScheduler`を分けるのは、予約日時の扱いが異なるためである（②「10. 状態遷移図」）。
+`PublishManually`と`PublishByScheduler`を分けるのは、既に配信済みのときの扱いが異なるためである（②「10. 状態遷移図」）。どちらも配信日時を設定し、予約日時を消す。
 
 **`ChangeStatus`に現在と同じ状態が渡された場合を遷移として扱わない。** `AnnouncementStatus.CanTransitionTo`は同じ状態への遷移を偽とするが、これは「配信済みから配信済みへの再配信を通さない」ための規則である（「3. Domain層設計」の`AnnouncementStatus`）。一方、予約のお知らせの予約日時だけを変更する操作は正当であり、このとき状態は予約のまま渡される。遷移の判定を行うと`ErrInvalidStatusTransition`になってしまう。同じ状態が渡された場合は予約日時の整合（予約状態なら設定済みかつ未来日時）のみを検証する。配信済みの場合は`ErrNotEditable`が先に返るため、再配信の経路は塞がれたままである。
 
@@ -253,7 +253,7 @@ Aggregate Rootである（②「5. Aggregate設計」）。
 
 `EnsureEditable`を`IsEditable`と別に設けるのは、呼び出し側が真偽値を見て自分でエラーを組み立てる形を避けるためである。エラーの文言を1か所に保つ。
 
-`EnsureDeletable`を`EnsureEditable`と別に設けるのは、同じ「配信済みでない」という条件に対してRails現行のメッセージが異なるためである（「配信済みのため編集できません」と「配信済みのため削除できません」。管理者お知らせ管理機能①「5. API / 処理詳細」`#update`・`#destroy`）。判定は同じでも返すエラーが異なるため、呼び出し側で選べる形にする。
+`EnsureDeletable`を`EnsureEditable`と別に設けるのは、同じ「配信済みでない」という条件に対してRails現行のメッセージが異なるためである（「配信済みのお知らせは編集できません」と「配信済みのお知らせは削除できません」。管理者お知らせ管理機能①「5. API / 処理詳細」`#update`・`#destroy`）。判定は同じでも返すエラーが異なるため、呼び出し側で選べる形にする。
 
 検証の内容:
 
@@ -410,7 +410,7 @@ Aggregate Rootである（②「5. Aggregate設計」）。
 |`AdminSearchCondition`|同|`PublisherRoleID uint`・`Keyword string`・`Status *valueobject.AnnouncementStatus`|
 |`DeliveredAnnouncement`|同|`Announcement *entity.Announcement`・`PublisherName string`・`PublisherNameKana string`|
 
-`ViewerScope`の識別子を`*uint`にするのは、`users.user_role_id`・`grade_id`・`high_school_id`がいずれも未設定を許すためである（ユーザー基盤機能①「6. データモデル」）。未設定の利用者には、その項目を使う配信先が一致しない。
+`ViewerScope`の識別子を`*uint`にするのは、`users.user_role_id`・`grade_id`・`high_school_id`がいずれも未設定を許すためである（認証機能①「6. データモデル」の`users`）。未設定の利用者には、その項目を使う配信先が一致しない。
 
 `DeliveredAnnouncement`が発行者の氏名を含むのは、レスポンスに必要であり、お知らせごとに`user`へ問い合わせるとN+1になるためである（お知らせ機能②「11. Repository設計」）。**Entityに発行者の氏名を持たせない。** 他Contextが所有するデータであり、Entityの属性にすると`announcement` Contextがユーザーの情報を抱えることになる。
 
@@ -507,7 +507,7 @@ Aggregate Rootである（②「5. Aggregate設計」）。
 
 `ErrNotEditable`と`ErrNotEditableForEdit`を分けるのは、同じ状態に対して経路によってステータスが異なるためである。更新は`422`、編集フォームの取得は`404`である（②「17. Error設計」）。
 
-`ErrNotDeletable`を`ErrNotEditable`と分けるのは、Rails現行のメッセージが異なるためである（「配信済みのため編集できません」と「配信済みのため削除できません」。管理者お知らせ管理機能①「5. API / 処理詳細」）。
+`ErrNotDeletable`を`ErrNotEditable`と分けるのは、Rails現行のメッセージが異なるためである（「配信済みのお知らせは編集できません」と「配信済みのお知らせは削除できません」。管理者お知らせ管理機能①「5. API / 処理詳細」）。
 
 `ErrHighSchoolNotFound`・`ErrAnnouncementOperationForbidden`は業務ルール違反ではなく、対象の不存在と権限の不足を表す。管理者お知らせ管理機能②「17. Error設計」がApplication Errorに分類しているが、**宣言の置き場所は`domain/errors.go`に揃える。** Context内でセンチネルエラーの定義を1ファイルに集めることで、同じ条件に対して層ごとに別のエラーが生まれることを避ける（管理者お知らせ管理機能③「14. Error実装方針」）。
 
@@ -641,8 +641,7 @@ stateDiagram-v2
     note right of AnnouncementStatusPublished
         EnsureEditable が ErrNotEditable
         Delete は ErrNotDeletable
-        PublishManually なら scheduledAt が空
-        PublishByScheduler なら scheduledAt が残る
+        PublishManually でも PublishByScheduler でも scheduledAt が空
     end note
 ```
 
@@ -654,12 +653,12 @@ stateDiagram-v2
 |`AnnouncementStatusPublished`|任意|同|
 |同じ状態への遷移|同じ状態|同|
 
-`PublishManually`と`PublishByScheduler`の違い:
+`PublishManually`と`PublishByScheduler`の違い（既に配信済みのときの扱い）:
 
 |メソッド|`publishedAt`|`scheduledAt`|既に配信済みのとき|
 |-|-|-|-|
 |`PublishManually`|未設定なら現在時刻を設定|**空にする**|`ErrAlreadyPublished`|
-|`PublishByScheduler`|同|**変更しない**|何もしない（`PublishIfScheduled`が0件を返すため呼ばれない）|
+|`PublishByScheduler`|同|**空にする**(同)|何もしない（`PublishIfScheduled`が0件を返すため呼ばれない）|
 
 ---
 
@@ -736,10 +735,10 @@ sequenceDiagram
     participant DB as MySQL
 
     U->>R: PublishIfScheduled(ctx, id, now)
-    R->>DB: UPDATE announcements SET status=published, published_at=now<br/>WHERE id=? AND status=scheduled AND scheduled_at <= now
+    R->>DB: UPDATE announcements SET status=published, published_at=now, scheduled_at=NULL<br/>WHERE id=? AND status=scheduled AND scheduled_at <= now
     DB-->>R: 更新された行数
     R-->>U: 行数
-    Note over R,DB: Entity を経由しない。scheduled_at は更新しない
+    Note over R,DB: Entity を経由しない。scheduled_at を NULL にする
 ```
 
 ## 処理フロー図
@@ -809,7 +808,7 @@ Entity ⇔ GORMモデルの変換はこのpackage内で行う。Entityは非公�
 |`FindByPublisherRole`|`users`と結合して発行者の`user_role_id`が一致するものに絞る。`title`の部分一致（指定時）、`status`（指定時）。`created_at`降順・`id`降順、`LIMIT`/`OFFSET`。総件数も取得する。**配信先を一括取得する**|
 |`FindByHighSchool`|`announcement_targets`の`high_school_id`が一致するものに絞り、重複を除く。`created_at`降順・`id`降順、`LIMIT`/`OFFSET`。総件数も取得する。**配信先を一括取得する**|
 |`FindDuePublications`|`status`が予約、`scheduled_at`が引数の時刻以前。`id`のみを取得する|
-|`PublishIfScheduled`|`id`・`status`が予約・`scheduled_at`が引数の時刻以前を条件に、`status`を配信済み、`published_at`を引数の時刻へ更新する。**`scheduled_at`を更新しない。** 更新された行数を返す|
+|`PublishIfScheduled`|`id`・`status`が予約・`scheduled_at`が引数の時刻以前を条件に、`status`を配信済み、`published_at`を引数の時刻へ、`scheduled_at`を`NULL`へ更新する。**`scheduled_at`を`NULL`にする。** 更新された行数を返す|
 |`Delete`|`announcement_targets`を`announcement_id`で全件削除し、`announcements`を`id`で削除する|
 
 ### 配信範囲の突き合わせの実装
@@ -1375,7 +1374,7 @@ Repository実装・アダプタは、DBや相手Contextが返したエラーを�
 ||配信日時が設定されること|
 ||既に配信済みで`ErrAlreadyPublished`を返すこと|
 |`Announcement.PublishByScheduler`|予約から配信できること|
-||**予約日時が残ること**|
+||**予約日時が消えること**|
 ||配信日時が設定されること|
 |`Announcement.ReplaceTargets`|配信先が入れ替わること|
 ||0件で`ErrTargetsRequired`を返すこと|

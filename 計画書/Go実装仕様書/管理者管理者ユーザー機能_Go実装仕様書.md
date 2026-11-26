@@ -652,7 +652,7 @@ flowchart TD
 
 ### AdminAccountRepository実装（`infrastructure/gormrepo/admin_account_repository.go`）
 
-- 実装struct名: 非公開struct（例: `adminAccountRepository`）+ コンストラクタ`NewAdminAccountRepository`で公開する構成（規約「9. 命名規約」の「`Impl`接尾辞を付けない」方針に従う。認証機能の実装仕様と同一の方式）
+- 実装struct名: 非公開struct（例: `adminAccountRepository`）+ コンストラクタ`NewAdminAccountRepository`で公開する構成（アーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」の「`Impl`接尾辞を付けない」方針に従う。認証機能の実装仕様と同一の方式）
 - 対応するGORMモデル: `UserModel`（`infrastructure/gormrepo/user_model.go`）
 - 各メソッドで発行するクエリ内容:
 
@@ -917,7 +917,7 @@ CreateAdminUseCaseは`AdminAccountCreator`（`user` Contextの`CreateAdminAccoun
 
 ## Domain Error → Application Errorへの変換方針
 
-各UseCaseは、`domain/errors`のセンチネルエラーを`errors.Is`で判定し、必要に応じてApplication層独自のラップ（`fmt.Errorf("...: %w", err)`、コーディング規約「6. エラーのラップ」準拠）を行った上でHandlerへ伝播させる。「対象管理者未存在」「住所候補検索のprefecture_id未指定」は②「17. Error設計」によりApplication Errorとして扱うため、`application/usecase/errors.go`に`ErrAdminNotFound` / `ErrPrefectureIDRequired`をセンチネルエラー変数として定義する（②に配置場所の明記はないため推測）。
+各UseCaseは、`domain/errors`のセンチネルエラーを`errors.Is`で判定し、必要に応じてApplication層独自のラップ（`fmt.Errorf("...: %w", err)`、コーディング規約「18. エラーハンドリング」準拠）を行った上でHandlerへ伝播させる。「対象管理者未存在」「住所候補検索のprefecture_id未指定」は②「17. Error設計」によりApplication Errorとして扱うため、`application/usecase/errors.go`に`ErrAdminNotFound` / `ErrPrefectureIDRequired`をセンチネルエラー変数として定義する（②に配置場所の明記はないため推測）。
 
 ## Application Error → HTTPレスポンスへの変換方針
 

@@ -212,14 +212,15 @@ interview_requests
 
 |条件|HTTP Status|内容|
 |-|-|-|
+|`interview_request` パラメータ自体が存在しない|400|`{"errors": ["必須パラメータ「interview_request」がありません"]}`|
 |必須項目の未入力|422|`生徒を入力してください`・`相談内容を入力してください`|
-|申請先の生徒が閲覧権限範囲外|422|`生徒 担当外の生徒です`|
+|申請先の生徒が閲覧権限範囲外|422|`生徒は担当外の生徒です`|
 |申請理由が2000文字を超える|422|`相談内容は2000文字以内で入力してください`|
 |進行中の面談が既に存在する|422|`この生徒との進行中の面談が既に存在します`|
 
 **重複申請の検出は2段ある。** Modelの検証（`no_duplicate_active_request_for_pair`）が先に働き、同時申請などで検証をすり抜けた場合は `interview_requests.active_pair_key` の一意索引違反（`ActiveRecord::RecordNotUnique`）をFormが捕まえる（「6. データモデル」参照）。教員側はいずれの段でも同じメッセージになる。
 
-メッセージは「項目名 + 半角スペース + メッセージ本体」の形で組み立てられ、本Formの項目名は日本語訳が定義されている。`base` に追加されるメッセージ（重複申請）は項目名が付かない。
+メッセージは「項目名 + メッセージ本体」の形で組み立てられ、項目名と本文の間にスペースは入らず（`errors.format`が`%{attribute}%{message}`）、本Formの項目名は日本語訳が定義されている。`base` に追加されるメッセージ（重複申請）は項目名が付かない。
 
 ## `Api::V1::Teacher::InterviewRequestsController#update`
 
@@ -414,6 +415,7 @@ interview_requests
 
 |条件|HTTP Status|内容|
 |-|-|-|
+|`interview_request_message` パラメータ自体が存在しない|400|`{"errors": ["必須パラメータ「interview_request_message」がありません"]}`|
 |本文未入力、当事者でない、面談が進行中でない等|422|`errors` を返却|
 |対象の面談が存在しない、または自身が担当教師でない|404|対象面談なし|
 

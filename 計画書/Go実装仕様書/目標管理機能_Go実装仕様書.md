@@ -115,7 +115,7 @@ internal/goalmanagement/presentation/routes.go
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`(g *Goal) Validate() error`|なし|`error`|Title必須チェック、DueDateの妥当性、Statusの許容値チェックを行う（②「15. Validation設計」）。ロジックの実装内容は本書では規定しない|
+|`(g *Goal) Validate() error`|なし|`error`|Title必須チェック、DueDateの妥当性、Statusの許容値チェックを行う（②「15. Validation設計」）。最初の失敗で打ち切らず、検出したすべてのエラーを`errors.Join`でまとめて返す（「9. Presentation層設計」の「検証結果の集約」）。ロジックの実装内容は本書では規定しない|
 |`(g Goal) CanDelete(taskStatuses TaskStatusSet) error`|`taskStatuses TaskStatusSet`|`error`|論理削除してよいかを判定する。`not_started`以外のタスクが1件でもあれば`ErrGoalHasActiveTasks`を返す（②「6. Entity設計」、①「5. API / 処理詳細」`#destroy`）|
 |`(g Goal) DecideStatus(taskStatuses TaskStatusSet) GoalStatus`|`taskStatuses TaskStatusSet`|`GoalStatus`|与えられたタスクの状態の集合から、あるべき状態を返す。判定は`GoalStatusPolicy`に委ねる（②「8. Domain Service」）|
 |`(g *Goal) ApplyStatus(s GoalStatus)`|`s GoalStatus`|なし|再評価の結果を反映する|
@@ -146,7 +146,7 @@ internal/goalmanagement/presentation/routes.go
 |生成方法|文字列から生成するコンストラクタ相当の関数（引数・戻り値のみ規定し、パース処理の実装内容は本書では規定しない）|
 |公開メソッド|`String() string`（`YYYY/MM/DD`形式の表示用文字列を返す。未設定なら空文字列。②「7. Value Object設計」）、`IsZero() bool`（未設定かを判定する）、比較用メソッド（Before/After等、期限の前後比較を提供する）|
 
-入力はRailsと同じく**文字列**で受け取り、日付として解釈できるかを検証する。Rails現行は`DueDateValidatable`が`Date.parse`で検証しており、特定のフォーマットに限定していない（①「10. Rails実装対応表」）。したがって本書でも単一のフォーマットに固定せず、日付として解釈できることを条件とする。解釈できない場合は`ErrInvalidDueDate`を返し、メッセージは`Due date は正しい日付を入力してください`を踏襲する（①「6. データモデル」の「エラーレスポンスの本文」）。
+入力はRailsと同じく**文字列**で受け取り、日付として解釈できるかを検証する。Rails現行は`DueDateValidatable`が`Date.parse`で検証しており、特定のフォーマットに限定していない（①「10. Rails実装対応表」）。したがって本書でも単一のフォーマットに固定せず、日付として解釈できることを条件とする。解釈できない場合は`ErrInvalidDueDate`を返し、メッセージは`期限は正しい日付を入力してください`を踏襲する（①「6. データモデル」の「エラーレスポンスの本文」）。
 
 型としては未設定（`nil`）を許容する。`goals.due_date`がNULL可で既存データに未設定の目標が存在しうるためである。一方、作成・更新のRequest DTOでは必須とする（①のFormが`presence: true`であるため。②「15. Validation設計」）。
 
@@ -245,6 +245,7 @@ classDiagram
         -*gorm.DB db
         +FindByUserID(ctx, uint, int, int) ([]GoalWithTasks, int64, error)
         +FindByIDAndUserID(ctx, uint, uint) (*GoalWithTasks, error)
+        +FindByIDAndUserIDForUpdate(ctx, uint, uint) (*Goal, error)
         +FindByID(ctx, uint) (*Goal, error)
         +Create(ctx, *Goal) error
         +Update(ctx, *Goal) error
@@ -253,7 +254,7 @@ classDiagram
     }
     class TaskDirectory {
         <<interface>>
-        +FindTaskStatusesByGoalID(ctx, uint) (TaskStatusSet, error)
+        +FindTaskStatusesByGoalID(ctx, uint, bool) (TaskStatusSet, error)
     }
     class taskDirectory {
         -*taskmanagement.Context taskContext
@@ -345,18 +346,17 @@ sequenceDiagram
     participant G as Goal
 
     C->>H: DELETE /api/v1/student/goals/:id
-    H->>GS: FindByIDAndUserID(ctx, id, userID)
-    GS-->>H: *GoalWithTasks / ErrGoalNotFound
-    H->>TD: FindTaskStatusesByGoalID(ctx, id)
+    H->>TX: RunInTx(ctx, fn)
+    TX->>GS: FindByIDAndUserIDForUpdate(ctx, id, userID)
+    GS-->>TX: *Goal（行を排他ロック）/ ErrGoalNotFound
+    TX->>TD: FindTaskStatusesByGoalID(ctx, id, forUpdate=true)
     TD->>TC: 公開参照操作
-    TC-->>TD: タスクの状態
-    TD-->>H: TaskStatusSet
-    H->>G: CanDelete(taskStatuses)
-    G-->>H: nil / ErrGoalHasActiveTasks
-    H->>GS: SoftDelete(ctx, id)
-    GS->>TX: RunInTx（Storeメソッド内で開始）
-    TX-->>GS: commit / rollback
-    GS-->>H: error
+    TC-->>TD: タスクの状態（タスクの行を排他ロック）
+    TD-->>TX: TaskStatusSet
+    TX->>G: CanDelete(taskStatuses)
+    G-->>TX: nil / ErrGoalHasActiveTasks
+    TX->>GS: SoftDelete(ctx, id)
+    TX-->>H: commit / rollback
     H-->>C: 204 No Content / AppError
 ```
 
@@ -392,7 +392,7 @@ sequenceDiagram
     Note over Caller,R: 呼び出し側のトランザクションに参加する<br/>（DBFromContextがctxのtxを見つける）
     R->>GS: FindByID(ctx, goalID)
     GS-->>R: *Goal
-    R->>TD: FindTaskStatusesByGoalID(ctx, goalID)
+    R->>TD: FindTaskStatusesByGoalID(ctx, goalID, forUpdate=false)
     TD-->>R: TaskStatusSet
     R->>P: Decide(taskStatuses)
     P-->>R: GoalStatus
@@ -412,10 +412,10 @@ flowchart TD
     B -- いいえ --> E422[422 バリデーションエラー]
     B -- はい --> D{id・user_idに一致する<br/>未削除のGoalがあるか}
     D -- いいえ --> E404[404 ErrGoalNotFound]
-    D -- はい --> F[TaskDirectoryでタスクの状態を取得]
+    D -- はい --> F[トランザクション内で目標とタスクの行をロックし<br/>TaskDirectoryでタスクの状態を取得]
     F --> G{not_started以外の<br/>タスクが1件以上あるか}
     G -- はい --> E422[422 ErrGoalHasActiveTasks]
-    G -- いいえ --> H[SoftDelete<br/>deleted_at・updated_atを更新<br/>トランザクションはStore内]
+    G -- いいえ --> H[SoftDelete<br/>deleted_at・updated_atを更新<br/>判定と同じトランザクション]
     H --> J[204 No Content]
 ```
 
@@ -467,6 +467,7 @@ flowchart TD
 |-|-|-|-|
 |`FindByUserID`|`ctx context.Context, userID uint, page, perPage int`|`([]GoalWithTasks, int64, error)`|user_idによる絞り込み、due_date昇順（同値はid昇順）ソート、ページネーション（LIMIT/OFFSET相当）、総件数取得。紐づくタスクを`Preload`で一括取得する（②「11. Repository設計」「21. DB操作仕様」）。`deleted_at IS NULL`は`gorm.DeletedAt`によりGORMが自動付与する|
 |`FindByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*GoalWithTasks, error)`|id・user_idの両方に一致する1件取得（`deleted_at IS NULL`はGORMが自動付与する）。紐づくタスクも一括取得する。一致しない場合はGoal不存在エラー（他ユーザーの目標を含む404相当。②「16. Authorization設計」の所有権チェックをクエリ条件として実現する）|
+|`FindByIDAndUserIDForUpdate`|`ctx context.Context, id, userID uint`|`(*Goal, error)`|id・user_idの両方に一致する1件を、紐づくタスクを取得せずに排他ロックして取得する（`SELECT ... FOR UPDATE`。`deleted_at IS NULL`はGORMが自動付与する）。一致しない場合はGoal不存在エラー。`DeleteGoal`が用いる。呼び出し側のトランザクションの内側で呼ぶ|
 |`FindByID`|`ctx context.Context, id uint`|`(*Goal, error)`|所有者を条件に含めず1件取得する。`ReevaluateGoalStatus`（他Contextから呼ばれる公開操作）が用いる。同操作は認可を行わないため所有者でスコープしない（②「16. Authorization設計」）|
 |`FindSummaryByIDAndUserID`|`ctx context.Context, id, userID uint`|`(*Goal, error)`|id・user_idの両方に一致する1件を、紐づくタスクを取得せずに返す（`deleted_at IS NULL`はGORMが自動付与する）。一致しない場合はGoal不存在エラーを返す。`FindUserGoal`（他Contextから呼ばれる公開操作）が用いる。所有者でスコープする（②「16. Authorization設計」）|
 |`FindByUserIDAndDueDateRange`|`ctx context.Context, userID uint, from, to time.Time`|`([]Goal, error)`|user_idと`due_date`の範囲（両端を含む）による絞り込み。`FindGoalsInPeriod`（他Contextから呼ばれる公開操作）が用いる。紐づくタスクは取得しない。並び順は指定しない（②「12. UseCase設計」）。`deleted_at IS NULL`はGORMが自動付与する|
@@ -496,7 +497,7 @@ flowchart TD
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`FindTaskStatusesByGoalID`|`ctx context.Context, goalID uint`|`(TaskStatusSet, error)`|`task-management`の公開操作`FindTaskStatusesByGoalID`に委譲し、返された状態の文字列を`TaskStatusSet`へ変換する。指定目標に紐づくタスクの状態の集合を返す。論理削除の可否判定（`Goal.CanDelete`）と状態の再評価（`GoalStatusPolicy`）が入力として用いる（②「11. Repository設計」の「他Contextの参照手段」）|
+|`FindTaskStatusesByGoalID`|`ctx context.Context, goalID uint, forUpdate bool`|`(TaskStatusSet, error)`|`task-management`の公開操作`FindTaskStatusesByGoalID`に委譲し、`forUpdate`が真のとき対象タスクの行を排他ロックして読む（呼び出し側のトランザクションの内側で呼ぶ。`DeleteGoal`が真、`ReevaluateGoalStatus`が偽を渡す）。返された状態の文字列を`TaskStatusSet`へ変換する。指定目標に紐づくタスクの状態の集合を返す。論理削除の可否判定（`Goal.CanDelete`）と状態の再評価（`GoalStatusPolicy`）が入力として用いる（②「11. Repository設計」の「他Contextの参照手段」）|
 
 `TaskStatusSet`（`dependency.go`で定義する）は、タスクの状態の集合を表す型である。保持するのは状態の値のみで、タスクの識別子や内容は持たない。判定に必要な事実だけを受け取る形にすることで、`Goal`と`GoalStatusPolicy`がDBや他Contextの呼び出しに依存せずテストできる（②「8. Domain Service」）。
 
@@ -531,7 +532,7 @@ flowchart TD
 処理ステップ:
 
 1. `GoalStore.FindByID`で対象目標を取得する（所有者でスコープしない。②「16. Authorization設計」）
-2. `TaskDirectory.FindTaskStatusesByGoalID`でタスクの状態の集合を取得する
+2. `TaskDirectory.FindTaskStatusesByGoalID(forUpdate=false)`でタスクの状態の集合を取得する（ロックしない）
 3. `Goal.DecideStatus`（内部で`GoalStatusPolicy`に委ねる）であるべき状態を決める
 4. 現在の状態と異なる場合、`GoalStore.UpdateStatus`で更新する
 5. 再評価後の状態を返す
@@ -595,7 +596,7 @@ flowchart TD
 1. current userを取得する
 2. `CreateGoalRequest`へバインドする（`goal`キーでネストした本文。②「15. Validation設計」Presentation節）
 3. Request DTOからGoalを組み立てる。`UserID`はcurrent userのID、`Status`は`GoalStatusNotStarted`とする（`status`は入力に含めない。①「6. データモデル」のカラム既定値`0`に合わせる）
-4. `goal.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
+4. `goal.Validate()`で業務ルール検証を行う。返された個々のエラーをすべて集約し、1件以上あれば全件のメッセージを持つ422のAppErrorを返す（下記「検証結果の集約」）
 5. `goalStore.Create`を呼び出す（②「14. Transaction設計」のとおり1トランザクション）
 6. 作成された目標の識別子を201 Createdで返す（①「5. API / 処理詳細」`#create`）
 
@@ -605,21 +606,29 @@ flowchart TD
 2. パスパラメータ`id`と`UpdateGoalRequest`へバインドする
 3. `goalStore.FindByIDAndUserID`で対象Goalを取得する（所有権チェック。一致しなければ`ErrGoalNotFound`→404）
 4. 取得したGoalに`title`・`description`・`due_date`を反映する。`status`は変更しない
-5. `goal.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
+5. `goal.Validate()`で業務ルール検証を行う。返された個々のエラーをすべて集約し、1件以上あれば全件のメッセージを持つ422のAppErrorを返す（下記「検証結果の集約」）
 6. `goalStore.Update`を呼び出す（②「14. Transaction設計」のとおり1トランザクション）
 7. 更新された目標の識別子を200 OKで返す（①「5. API / 処理詳細」`#update`）
+
+### 検証結果の集約
+
+`CreateGoal` / `UpdateGoal`は、`goal.Validate()`が検出した複数の失敗を、最初の1件で打ち切らずにすべて1つのレスポンスにまとめて返す。Rails現行のFormが全検証を実行して全件を返すためである（①「6. データモデル」の「エラーレスポンスの本文」、②「17. Error設計」）。
+
+- `goal.Validate()`は、検出したすべてのエラーを`errors.Join`でまとめて返す（コーディング規約「18. エラーハンドリング」の「複数のエラーをまとめる」）。Handlerは内包された個々のエラーを取り出してメッセージを集める
+- 集めたメッセージは、`Messages`（アーキテクチャ規約「12. Error変換パターン（AppError）」の「複数のメッセージを同時に返すエラー」）を実装する422の`AppError`に詰め、`c.Error(err)`を1回だけ呼ぶ。ミドルウェアが`errors`配列に全件を入れる（Gin規約「8. エラーハンドリングミドルウェア」）
 
 ### DeleteGoal
 
 1. current userを取得する
 2. パスパラメータ`id`を読み取る
-3. `goalStore.FindByIDAndUserID`で対象Goalを取得する（所有権チェック。一致しなければ`ErrGoalNotFound`→404）
-4. `taskDirectory.FindTaskStatusesByGoalID`で紐づくタスクの状態の集合を取得する
-5. `goal.CanDelete(taskStatuses)`で削除の可否を判定する。`ErrGoalHasActiveTasks`なら422のAppErrorへ変換して返す（①「5. API / 処理詳細」`#destroy`、②「17. Error設計」）
-6. `goalStore.SoftDelete`で`deleted_at`・`updated_at`を更新する。タスクの行は削除しない
-7. 204 No Contentで返す（本文なし）
+3. `gormtx.RunInTx`でトランザクションを開始する（②「14. Transaction設計」）。以降の4〜7はトランザクションの内側で行う
+4. `goalStore.FindByIDAndUserIDForUpdate`で対象Goalを排他ロックして取得する（所有権チェック。一致しなければ`ErrGoalNotFound`→404）
+5. `taskDirectory.FindTaskStatusesByGoalID(forUpdate=true)`で、紐づくタスクの行をロックして状態の集合を取得する
+6. `goal.CanDelete(taskStatuses)`で削除の可否を判定する。`ErrGoalHasActiveTasks`なら422のAppErrorへ変換して返す（ロールバックされる。①「5. API / 処理詳細」`#destroy`、②「17. Error設計」）
+7. `goalStore.SoftDelete`で`deleted_at`・`updated_at`を更新する。タスクの行は削除しない
+8. コミットし、204 No Contentで返す（本文なし）
 
-3〜5は読み取りと判定であり、トランザクションは`goalStore.SoftDelete`の内側で開始・終了する（②「14. Transaction設計」）。Rails現行の`Goal#soft_delete!`も判定と`update_columns`をトランザクションで囲んでいない（①「5. API / 処理詳細」`#destroy`）。判定と削除の間に別のタスクが着手された場合の扱いについては「17. ②からの補足事項」に要確認として記載する。
+判定と削除は、同じトランザクションの内側で行う。目標の行と紐づくタスクの行を排他ロックしてから判定するため、判定から削除までの間にタスクの状態が更新されることはない（②「14. Transaction設計」。Rails現行の`Goal#soft_delete!`も同じ形である。①「5. API / 処理詳細」`#destroy`）。`SoftDelete`の内側の`RunInTx`は、呼び出し側のトランザクションに参加する（「11. Transaction実装方針」）。
 
 ## Request / Response DTO
 
@@ -684,7 +693,7 @@ flowchart TD
 - `TaskRefResponse`の項目は①「5. API / 処理詳細」`#index`のとおり、Rails現行の`TaskSerializer`に合わせる
 - エラーレスポンスは専用structを本書で定義しない。形式はいずれも`{"errors": [...]}`であり、集中エラーハンドリングミドルウェアが組み立てる（「14. Error実装方針」、Gin規約「8. エラーハンドリングミドルウェア」）
 
-`UnitRefResponse`の項目は、Rails現行の`UnitSerializer`に合わせる（目標管理①「5. API / 処理詳細」`#index`が`units`を`UnitSerializer`とし、その項目はタスク管理機能①「5. API / 処理詳細」`#index`の`id`・`course_id`・`unit_name`・`course`（`id`・`level_number`・`level_name`）である）。`UnitCourseResponse.ID`は`course_id`と同じ値である。値は`unitDirectory.FindUnitsByIDs`が返す`UnitRef`から作る。`FindUnitsByIDs`が返さなかった単元は`units`に含めない（**推測**。①②に該当する記述がない。`curriculum`③の`FindUnitsByIDs`は返さない単元をエラーにしない）。
+`UnitRefResponse`の項目は、Rails現行の`UnitSerializer`に合わせる（目標管理①「5. API / 処理詳細」`#index`が`units`を`UnitSerializer`とし、その項目はタスク管理機能①「5. API / 処理詳細」`#index`の`id`・`course_id`・`unit_name`・`course`（`id`・`level_number`・`level_name`）である）。`UnitCourseResponse.ID`は`course_id`と同じ値である。値は`unitDirectory.FindUnitsByIDs`が返す`UnitRef`から作る。論理削除済みの単元も`units`に含める。Rails現行は`Unit`・`Course`に`default_scope`を持たず、`task.units`が論理削除済みの単元も返すためであり、`curriculum`③の`FindUnitsByIDs`も`deleted_at`を条件に含めないので結果が一致する（Rails実体で確認）。`FindUnitsByIDs`が返さなかった単元（`task_units`が指す単元が存在しない場合。通常は発生しない）は`units`に含めない（**推測**。①②に該当する記述がない）。
 
 ## Routing（`presentation/routes.go`）
 
@@ -830,6 +839,8 @@ Active Record採用のため、Goal（Model）の`Validate()`メソッドで検�
 
 Active Record採用のためDomain Errorに相当する層がなく、`errors.go`のセンチネルエラー（Goal不存在・不正なDueDate・不正なStatus・進行中タスクあり）をそのままApplication Error相当として扱う（アーキテクチャ規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。センチネルエラーから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
 
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`goal`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
+
 ## Application Error → HTTPレスポンスへの変換方針
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
@@ -922,6 +933,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`DueDate.IsZero`|未設定のときtrueを返すこと|
 |`Goal.Validate`|Titleが空の場合に`ErrTitleRequired`を返すこと|
 |`Goal.Validate`|DueDateが未設定の場合に`ErrDueDateRequired`を返すこと|
+|`Goal.Validate`|複数の項目が同時に不正な場合（例: Titleが空でDueDateが未設定）、すべてのエラーが`errors.Is`で判別できる形でまとめて返ること|
 |`Goal.Validate`|すべての項目が妥当な場合にエラーにならないこと|
 |`Goal.CanDelete`|タスクが0件のとき削除できること|
 |`Goal.CanDelete`|すべて`not_started`のとき削除できること|
@@ -951,6 +963,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`GoalStore.FindByUserID`|紐づくタスクが一括取得されること（目標が複数件でもタスクのクエリが1回であること）|
 |`GoalStore.FindByIDAndUserID`|所有者本人のGoalが紐づくタスクとともに取得できること|
 |`GoalStore.FindByIDAndUserID`|他ユーザーのGoalを指定した場合に`ErrGoalNotFound`が返ること|
+|`GoalStore.FindByIDAndUserIDForUpdate`|所有者本人のGoalが、紐づくタスクを取得せずに取得できること。他ユーザー・論理削除済みのGoalで`ErrGoalNotFound`が返ること。呼び出し側のトランザクションの内側で行がロックされること|
 |`GoalStore.FindByIDAndUserID`|論理削除済みのGoalを指定した場合に`ErrGoalNotFound`が返ること|
 |`GoalStore.FindByID`|所有者を問わず取得できること|
 |`GoalStore.FindByUserID` / `FindByIDAndUserID`|各タスクの`UnitIDs`が`task_units`から詰められること。単元が紐づかないタスクで空になること。`task_units`の取得がタスク数に比例して増えないこと|
@@ -982,7 +995,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`GoalHandler.ShowGoal`|異常系: 存在しない・他ユーザーのGoalを指定した場合に404と`{"errors": ["目標が見つかりません"]}`が返ること|
 |`GoalHandler.CreateGoal`|正常系: 目標が作成され識別子が201で返ること|
 |`GoalHandler.CreateGoal`|正常系: 作成された目標の`status`が`not_started`であること|
-|`GoalHandler.CreateGoal`|異常系: `title` / `due_date`未入力時に422と`{"errors": [...]}`が返ること|
+|`GoalHandler.CreateGoal`|異常系: `title` / `due_date`未入力時に422と`{"errors": [...]}`が返ること。両方が未入力のとき、2件のメッセージが`errors`配列に含まれること|
 |`GoalHandler.CreateGoal`|異常系: `due_date`が日付として解釈できない場合に422が返ること|
 |`GoalHandler.UpdateGoal`|正常系: 目標が更新され識別子が200で返ること|
 |`GoalHandler.UpdateGoal`|正常系: `status`が変更されないこと|
@@ -1017,7 +1030,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`FindUserGoal`の名前・戻り値の型`GoalRef`・`GoalStore.FindSummaryByIDAndUserID`は②に明記がない|②「12. UseCase設計」`FindUserGoal`の入出力（目標の識別子・操作者の識別子→目標の識別子・期限日、見つからない場合はその旨）をGoの型に落としたものである。`FindByIDAndUserID`は紐づくタスクを一括取得するため、期限日しか要らない本操作には用いず、タスクを取得しないStoreメソッドを別に設けた|補足（②の入出力をGoの型に落としたもの）|
 |Value Object（`DueDate`）のGORM永続化方式として`Scanner`／`driver.Valuer`の実装を採った|Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」が標準パターンとして定める方式であるため。Store側に変換を書く方式では列を読み書きする全箇所に同じ変換が散る|補足（Gorm規約「13. Value Objectの永続化（Scanner/Valuer）」に一致）|
 |論理削除を`Delete`ではなく`deleted_at`・`updated_at`の2列更新として行う|Gorm規約の論理削除は`gorm.DeletedAt`型の使用を定めているが、GORMの`Delete`は`updated_at`を更新しない。Rails現行は`update_columns`で両列を更新している（①「5. API / 処理詳細」`#destroy`）ため、現行の挙動に合わせた|補足（①の実体に基づく）|
-|`DeleteGoal`の削除可否判定をトランザクションの外に置いた（②「14. Transaction設計」のとおりトランザクションは`SoftDelete`の内側のみ）|②が`DeleteGoal`も「Handlerの処理単位に対応するStoreメソッド内で開始する」としており、Rails現行の`Goal#soft_delete!`も判定と`update_columns`を囲んでいないため、現行の挙動に合わせた。ただし判定と削除の間に別のタスクが着手されると、`not_started`以外のタスクが紐づいた目標が削除され得る（Rails現行にも同じ競合がある）|要確認（現行踏襲とするか、判定を含めて囲むかは②側で決める事項。囲む場合は②「14. Transaction設計」の変更が必要）|
+|`DeleteGoal`の判定と削除を同じトランザクションで行い、`TaskDirectory.FindTaskStatusesByGoalID`に`forUpdate bool`を設けた|②「14. Transaction設計」は、判定と削除を1つのトランザクションで扱い、目標とタスクの行をロックして判定すると定める（Rails現行の`Goal#soft_delete!`と同じ）。タスクの行は`task-management`が所有するため、ロック付きで状態を読む手段を、公開操作の引数（`forUpdate`）として表した|補足（**推測**: ロックの要求を引数で表す方法は②に記載がない。②「11. Repository設計」の「他Contextの参照手段」の範囲で、本書が定めた）|
 |②「3. Bounded Context」の`draft-task` Context（下書きタスク）への参照依存を、具体的な参照手段・Response DTOとしては実装対象に含めなかった|②は参照依存を概念レベルで記載しているが、②「12. UseCase設計」ShowGoalの出力定義（目標とタスク一覧）に下書きタスクが含まれておらず、`TaskDirectory`に相当する参照手段も②「11. Repository設計」に存在しない。②に記載のない出力項目を本書側で新設しないため見送った|補足（②の記載範囲を超えて実装対象を拡張しないための判断）|
 |`TaskRef`に`UnitIDs`を持たせ、`task_units`をタスクIDまとめの1クエリで読む。`UnitDirectory`・`UnitRef`を本Contextに定義した|②「11. Repository設計」の「UnitDirectory」は単元の情報を`curriculum`の参照に委ねると定めるが、タスクと単元の紐づきの取得方法は定めていない。`tasks`と同じく画面向けの参照モデルとして、紐づき（`task_units`）を本Contextが読む。相手Contextの内部structをそのまま受け取らないため`UnitRef`を設けた|補足（②の方針を実装手段に落としたもの）|
 

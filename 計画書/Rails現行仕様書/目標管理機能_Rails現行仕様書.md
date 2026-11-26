@@ -114,13 +114,14 @@
 ### 処理内容
 
 1. `GoalsQuery.new(current_user.goals).find(params[:id])` で対象目標を取得する。
-2. `Goal#soft_delete!` を呼ぶ。進行中または完了のタスク（`status` が `not_started` 以外のタスク）が存在する場合は `Goal::HasActiveTasksError` を発生させ、削除しない。
-3. 存在しない場合は `deleted_at` と `updated_at` を更新する（`update_columns`。バリデーション・コールバックを走らせない）。
+2. `Goal#soft_delete!` を呼ぶ。メソッドはトランザクションの中で、目標の行（`lock!`）と、紐づくタスクの行（`tasks.lock`）を先に排他ロックする。目標の行のロックだけでは、既存タスクの状態更新（未着手→進行中）を止められないためである。
+3. ロックしたタスクの中に、進行中または完了のタスク（`status` が `not_started` 以外のタスク）が存在する場合は `Goal::HasActiveTasksError` を発生させ、削除しない。
+4. 存在しない場合は `deleted_at` と `updated_at` を更新する（`update_columns`。バリデーション・コールバックを走らせない）。判定から更新までは同じトランザクションの中で行う。
 
 ### 業務ルール
 
 - 生徒自身の目標のみ削除できる。
-- **進行中または完了のタスクが紐づく目標は削除できない。** 判定は `status` が `not_started` 以外のタスクが存在するかで行う（`Goal#active_tasks`）。
+- **進行中または完了のタスクが紐づく目標は削除できない。** 判定は、ロックした紐づくタスクの `status` が `not_started` 以外のものがあるかで行う。判定から削除までの間に、タスクの状態が更新されても削除は成立しない（更新側がロックの解放を待つ）。
 - 物理削除ではなく論理削除である。タスク側の行は削除しない。
 
 ### Database変更
@@ -229,6 +230,7 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
+|`goal` パラメータ自体が存在しない|400|`{"errors": ["必須パラメータ「goal」がありません"]}`|
 |バリデーション失敗|422|`{"errors": ["メッセージ", ...]}`（`form.errors.full_messages`）|
 
 ## `Api::V1::Student::GoalsController#update`
@@ -314,7 +316,9 @@
 |`Pundit::NotAuthorizedError`|403|`{"errors": ["この操作を行う権限がありません"]}`|
 |`Goal::HasActiveTasksError`|422|`{"errors": ["進行中または完了のタスクがあるため削除できません"]}`（`Api::V1::Student::BaseController` の `rescue_from`）|
 
-422 のメッセージは「項目名 + メッセージ本体」の形で組み立てられる。この機能の Form（`Student::CreateGoalForm` / `UpdateGoalForm`）の項目名は日本語訳が定義されているため、項目名・メッセージ本体ともに日本語で出力される。
+Form は全項目の検証を実行し、失敗したすべてのメッセージを `errors` 配列に含める（最初の失敗で打ち切らない）。たとえばタイトルと期限がともに未入力なら、両方のメッセージが返る。
+
+422 のメッセージは「項目名 + メッセージ本体」の形で組み立てられ、項目名と本文の間にスペースは入らない（`errors.format`が`%{attribute}%{message}`。例: `タイトルを入力してください`）。この機能の Form（`Student::CreateGoalForm` / `UpdateGoalForm`）の項目名は日本語訳が定義されているため、項目名・メッセージ本体ともに日本語で出力される。
 
 |条件|メッセージ|
 |-|-|

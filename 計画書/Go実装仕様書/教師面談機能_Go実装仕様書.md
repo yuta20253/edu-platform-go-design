@@ -430,7 +430,7 @@ flowchart TD
   2. Request DTOのバリデーションタグによる検証
   3. Middlewareで確定済みのcurrent user（teacher）情報をcontextから取得する
   4. 対応するUseCaseのCommand/Queryへ変換して`Execute`を呼び出す。`List`は、`From`・`To`がいずれも空なら`Period`を`nil`とし、両方が指定されていれば次の順で検証したうえで`repository.Period`へ変換する
-     1. `From`が`To`より後であれば`To はfrom以降の日付を指定してください`を返す（422）
+     1. `From`が`To`より後であれば`終了日はfrom以降の日付を指定してください`を返す（422）
      2. `To`と`From`の差が92日を超えていれば`取得期間は92日以内で指定してください`を返す（422）。両端を含めて92日までを許容する（①「5. API / 処理詳細」`#index`）
   5. 戻り値のエラーは`c.Error(err)`でgin.Contextへ登録し、共通のエラーハンドリングミドルウェア（Gin規約「8. エラーハンドリングミドルウェア」）に委ねる
   6. 成功時はResult DTOをResponse DTOへ変換してJSONで返す
@@ -521,9 +521,9 @@ EntityであるInterviewRequest／InterviewRequestMessageをそのまま返さ�
 |未認証|401|認証エラー（Middleware）|
 |teacher以外のロール|403|認可エラー（Middleware）|
 |Request DTOの型・必須・フォーマット不正|422|Presentation Validationエラー|
-|一覧で`from`・`to`の一方のみを指定|422|`From を入力してください` / `To を入力してください`（①「5. API / 処理詳細」`#index`）|
-|一覧で`from`・`to`が`YYYY-MM-DD`形式でない、または実在しない日付|422|`From は正しい日付を入力してください` / `To は正しい日付を入力してください`|
-|一覧で`from`が`to`より後|422|`To はfrom以降の日付を指定してください`|
+|一覧で`from`・`to`の一方のみを指定|422|`開始日を入力してください` / `終了日を入力してください`（①「5. API / 処理詳細」`#index`）|
+|一覧で`from`・`to`が`YYYY-MM-DD`形式でない、または実在しない日付|422|`開始日は正しい日付を入力してください` / `終了日は正しい日付を入力してください`|
+|一覧で`from`が`to`より後|422|`終了日はfrom以降の日付を指定してください`|
 |一覧で期間が92日を超える|422|`取得期間は92日以内で指定してください`|
 |対象生徒が閲覧権限範囲外（`ErrStudentOutOfEligibleScope`）|422|業務ルール違反（②「17. Error設計」）|
 |同一生徒・教師で進行中の面談が重複（`ErrDuplicateActiveInterview`）|422|業務ルール違反|
@@ -568,11 +568,11 @@ Error Response方針: 面談機能_Go実装仕様書「10. API仕様」と同一
 |フィールド|struct名|バリデーションタグ|エラーメッセージ方針|
 |-|-|-|-|
 |student_id|CreateInterviewRequestRequest|`binding:"required"`|「生徒を指定してください」相当|
-|reason_detail|CreateInterviewRequestRequest|`binding:"required,max=2000"`|「申請理由を入力してください」相当|
+|reason_detail|CreateInterviewRequestRequest|`binding:"required,max=2000"`|「相談内容を入力してください」「相談内容は2000文字以内で入力してください」|
 |status|UpdateInterviewRequestStatusRequest|`binding:"required,oneof=confirmed completed"`|「指定できないステータスです」|
 |lock_version|UpdateInterviewRequestStatusRequest / CancelInterviewRequestRequest|`binding:"required"`|「lock_versionは必須です」|
 |scheduled_at|UpdateInterviewRequestStatusRequest|`binding:"required_if=Status confirmed"`|「指定できない操作です」|
-|body|PostInterviewRequestMessageRequest|`binding:"required,max=2000"`|「本文を入力してください」相当|
+|body|PostInterviewRequestMessageRequest|`binding:"required,max=2000"`|「メッセージを入力してください」|
 
 ## 業務ルール検証
 
@@ -624,6 +624,8 @@ Domain Model採用のため、以下は共有Domain層（面談機能_Go実装�
 ## Domain Error → Application Errorへの変換方針
 
 UseCaseは、共有Domain層（面談機能_Go実装仕様書で定義済み）から返されたエラーを`errors.Is`で判別し、`AppError`を実装した型へ変換して返す（規約「12. Error変換パターン（AppError）」Domain Model採用時の変換）。
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`interview_request`・`interview_request_message`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## Application Error → HTTPレスポンスへの変換方針（Status Code対応表）
 
@@ -703,7 +705,7 @@ GORMが返すDB接続エラー等は、Repository実装内（面談機能_Go実�
 
 |対象|テストケース|
 |-|-|
-|`InterviewRequestHandler.List`|`from`・`to`をいずれも指定しないとき期間の絞り込みなしで200が返ること／一方のみ指定で422となること／`from`が`to`より後のとき422と`To はfrom以降の日付を指定してください`が返ること／期間が92日のとき200、93日のとき422と`取得期間は92日以内で指定してください`が返ること|
+|`InterviewRequestHandler.List`|`from`・`to`をいずれも指定しないとき期間の絞り込みなしで200が返ること／一方のみ指定で422となること／`from`が`to`より後のとき422と`終了日はfrom以降の日付を指定してください`が返ること／期間が92日のとき200、93日のとき422と`取得期間は92日以内で指定してください`が返ること|
 |`InterviewRequestHandler.Create`|student_id/reason_detail欠落時に422が返ること|
 |`InterviewRequestHandler.UpdateStatus`|不正なstatus値でバインドエラー（422）になること／lock_version不一致で409が返ること|
 |`InterviewRequestHandler.Cancel`|正常系で200が返ること／lock_version未指定で422が返ること／lock_version不一致で409が返ること（②「19. API仕様」DELETE：lock_versionは必須）|

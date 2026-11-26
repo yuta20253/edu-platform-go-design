@@ -188,7 +188,7 @@ type AnnouncementSummary struct {
 |`AnnouncementSummary`|同じく`dependency.go`で定義|Query（出力の内包型）|
 
 - `GetDashboardSummary`関数への入力は無い（current admin userの識別は認可のみに用いられ、集計条件には使われない。②「12. UseCase設計」「16. Authorization設計」）
-- 人数を`int64`とするのは、`user`の公開操作が返す件数の型に合わせるためである（ユーザー基盤③「3. 公開操作の定義」の`CountResult.Count`）
+- 人数を`int64`とするのは、`user`の公開操作が返す件数の型に合わせるためである（ユーザー基盤③「6. Application層設計」の`CountResult.Count`）
 - `ActiveStudentPeriodDays`・`GeneratedAt`は、レスポンスの`meta`に対応する（①「5. API / 処理詳細」`#show`）
 
 **②からの補足**: DTOのフィールド構成は①「5. API / 処理詳細」`#show`のResponse定義（`stats`の7項目、`recent_imports`、`recent_announcements`、`meta`の2項目）から導出した。②はフィールドの型までは定めていないため、実装のために補った。
@@ -221,7 +221,7 @@ type AnnouncementSummary struct {
 
 **手順5で空の集合を渡さない理由**: 条件が空になって全ユーザーを数える結果になることを防ぐためである（②「12. UseCase設計」。分析機能③基盤編「17. ②からの補足事項」5と同じ扱い）。
 
-**②からの補足**: 手順2・3で同じメソッドを2回呼ぶのは、`user`の公開操作が招待完了状態を絞り込み条件として受け取る形であり（ユーザー基盤③「3. 公開操作の定義」の`SearchCondition.InvitationCompleted`）、1回の集計で受諾済みと招待中を同時に返す操作を持たないためである。相手Contextに新しい操作を足さず、既存の操作を2回呼ぶ形を選んだ。
+**②からの補足**: 手順2・3で同じメソッドを2回呼ぶのは、`user`の公開操作が招待完了状態を絞り込み条件として受け取る形であり（ユーザー基盤③「6. Application層設計」の`SearchCondition.InvitationCompleted`）、1回の集計で受諾済みと招待中を同時に返す操作を持たないためである。相手Contextに新しい操作を足さず、既存の操作を2回呼ぶ形を選んだ。
 
 ---
 
@@ -277,7 +277,7 @@ sequenceDiagram
 ### UserCountDirectory実装（`contextadapter/user_count_directory.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewUserCountDirectory`
-- 委譲先: `user`の`CountUsers`（ユーザー基盤③「3. 公開操作の定義」）
+- 委譲先: `user`の`CountUsers`（ユーザー基盤③「6. Application層設計」）
 - 委譲内容:
 
 |メソッド|`CountUsers`へ渡す条件|
@@ -285,7 +285,7 @@ sequenceDiagram
 |`CountByRole(ctx, invitationCompleted)`|`InvitationCompleted`に指定された真偽値、`Deactivated`に「有効のみ」、集計の単位に「役割別」。返った`[]CountResult`から`student`・`teacher`・`admin`の3つを取り出して`RoleCounts`へ移す|
 |`CountActiveStudents(ctx, userIDs)`|`IDs`に識別子の集合、`Roles`に生徒、`InvitationCompleted`に`true`、`Deactivated`に「有効のみ」、集計の単位に「なし」。返った1件の人数をそのまま返す|
 
-`CountResult.Key`は集計単位に応じた識別子であり、役割別では役割の識別子が入る（ユーザー基盤③「3. 公開操作の定義」）。役割の名前との対応は`user`の公開する属性（`Role`）で解決する。
+`CountResult.Key`は集計単位に応じた識別子であり、役割別では役割の識別子が入る（ユーザー基盤③「6. Application層設計」）。役割の名前との対応は`user`の公開する属性（`Role`）で解決する。
 
 **②からの補足**: 人数が0の役割は集計結果に含まれない（同書の`CountUsers`の定義）。該当しない役割は`0`として扱う。
 

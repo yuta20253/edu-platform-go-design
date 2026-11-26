@@ -114,7 +114,7 @@ internal/drafttask/presentation/routes.go
 
 |メソッド|引数|戻り値|責務|
 |-|-|-|-|
-|`(d *DraftTask) Validate() error`|なし|`error`|Title・Contentの必須チェック、Titleの長さ（100文字以内）、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。ロジックの実装内容は本書では規定しない|
+|`(d *DraftTask) Validate() error`|なし|`error`|Title・Contentの必須チェック、Titleの長さ（100文字以内）、DueDateの設定有無と妥当性、Priority・Statusの許容値チェックを行う（②「15. Validation設計」）。最初の失敗で打ち切らず、検出したすべてのエラーを`errors.Join`でまとめて返す（「9. Presentation層設計」の「検証結果の集約」）。ロジックの実装内容は本書では規定しない|
 
 不変条件: Title・Contentが空でないこと、DueDateが設定済みかつ妥当な値であること、Priority・Statusが許容値の範囲内であること。
 
@@ -170,7 +170,7 @@ internal/drafttask/presentation/routes.go
 |生成方法|文字列から生成するコンストラクタ相当の関数（引数・戻り値のみ規定し、パース処理の実装内容は本書では規定しない）|
 |公開メソッド|`String() string`（`YYYY/MM/DD`形式の表示用文字列を返す。未設定なら空文字列）、`IsZero() bool`|
 
-入力はRailsと同じく**文字列**で受け取り、日付として解釈できるかを検証する。Rails現行は`Date.parse`で検証しており、特定のフォーマットに限定していない（①「5. API / 処理詳細」`#create`）。したがって本書でも単一のフォーマットに固定せず、日付として解釈できることを条件とする。解釈できない場合は`ErrInvalidDueDate`を返し、メッセージは`Due date は正しい日付を入力してください`を踏襲する。
+入力はRailsと同じく**文字列**で受け取り、日付として解釈できるかを検証する。Rails現行は`Date.parse`で検証しており、特定のフォーマットに限定していない（①「5. API / 処理詳細」`#create`）。したがって本書でも単一のフォーマットに固定せず、日付として解釈できることを条件とする。解釈できない場合は`ErrInvalidDueDate`を返し、メッセージは`期限は正しい日付を入力してください`を踏襲する。
 
 型としては未設定（`nil`）を許容する。`draft_tasks.due_date`がNULL可で既存データに未設定の下書きタスクが存在しうるためである。一方、作成のRequest DTOでは必須とする（①「5. API / 処理詳細」`#create`）。
 
@@ -494,7 +494,7 @@ flowchart TD
 
 **②からの補足**: 相手Contextが公開する操作の具体的なシグネチャは、各機能の③で確定する。本書では消費者側のインターフェースをコーディング規約「7. インターフェース」の方針に従って本Contextに置き、実装をアダプタに閉じ込める。
 
-タスク管理機能の③も同じ2つの参照手段を必要とする。インターフェースは各Contextが自身の`dependency.go`に持つため共有しないが、相手Contextが公開する操作は同一のものを呼ぶ。シグネチャを合わせる（同機能③「8. Infrastructure層設計」）。
+タスク管理機能の③も同じ2つの参照手段を必要とする。インターフェースは各Contextが自身の`dependency.go`に持つため共有しないが、相手Contextが公開する操作は同一のものを呼ぶ。シグネチャを合わせる（タスク管理機能③「8. Infrastructure層設計」）。
 
 ## 外部連携実装
 
@@ -537,13 +537,22 @@ flowchart TD
 
 1. current userを取得する
 2. `CreateDraftTaskRequest`へバインドする（`draft_task`キーでネストした本文。②「15. Validation設計」）
-3. `NewDraftTaskPriority`で優先度を変換する。未入力なら`ErrPriorityRequired`（422）、`1`〜`5`以外なら`ErrInvalidPriority`（422）
-4. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`（①「5. API / 処理詳細」`#create`）
-5. `unit_ids`が指定されている場合、`unitDirectory.ExistsAll`で存在確認する。偽なら`ErrUnitNotFound`（1件）
+3. `NewDraftTaskPriority`で優先度を変換する。未入力なら`ErrPriorityRequired`、`1`〜`5`以外なら`ErrInvalidPriority`を検証結果に加える
+4. `goalDirectory.IsOwnedByUser`で指定された目標が操作者自身のものか確認する。偽なら`ErrGoalNotOwned`を検証結果に加える（①「5. API / 処理詳細」`#create`）
+5. `unit_ids`が指定されている場合、`unitDirectory.ExistsAll`で存在確認する。偽なら`ErrUnitNotFound`（1件）を検証結果に加える
 6. Request DTOからDraftTaskを組み立てる。`UserID`はcurrent userのID、`Status`は`DraftTaskStatusNotStarted`、`EstimatedTime`は`0`、`CompletedAt`は未設定とする
-7. `draftTask.Validate()`で業務ルール検証を行う。エラーは422のAppErrorへ変換する
-8. `gormtx.RunInTx`でトランザクションを開始し、`store.Create`と`unitStore.Add`を順に呼ぶ（②「14. Transaction設計」）
-9. 作成された下書きタスクの識別子を**201 Created**で返す（①「5. API / 処理詳細」`#create`）
+7. `draftTask.Validate()`で業務ルール検証を行い、返された個々のエラーを検証結果に加える
+8. 手順3〜7の検証結果が1件以上ある場合は、全件のメッセージを持つ422のAppErrorを`c.Error(err)`で返し、手順9以降に進まない。各検証は失敗した時点で打ち切らず、すべて実行したうえで集約する（下記「検証結果の集約」）
+9. `gormtx.RunInTx`でトランザクションを開始し、`store.Create`と`unitStore.Add`を順に呼ぶ（②「14. Transaction設計」）
+10. 作成された下書きタスクの識別子を**201 Created**で返す（①「5. API / 処理詳細」`#create`）
+
+### 検証結果の集約
+
+`CreateDraftTask`は、Presentation・Model・他Contextの参照手段による検証の失敗を、最初の1件で打ち切らずにすべて集め、1つのレスポンスにまとめて返す。Rails現行のFormが全検証を実行して全件を返すためである（①「6. データモデル」の「エラーレスポンスの本文」、②「17. Error設計」）。
+
+- `draftTask.Validate()`は、検出したすべてのエラーを`errors.Join`でまとめて返す（コーディング規約「18. エラーハンドリング」の「複数のエラーをまとめる」）。Handlerは内包された個々のエラーを取り出し、メッセージを検証結果に加える
+- 検証結果は、`Messages`（アーキテクチャ規約「12. Error変換パターン（AppError）」の「複数のメッセージを同時に返すエラー」）を実装する422の`AppError`に詰め、`c.Error(err)`を1回だけ呼ぶ。ミドルウェアが`errors`配列に全件を入れる（Gin規約「8. エラーハンドリングミドルウェア」）
+- **推測**: Request DTOのバインドで必須項目の失敗が検出された場合も、そのメッセージを検証結果に加える。同じ項目について`Validate()`が同じメッセージを返す場合は重複させない。実装手段が①②に記載されていないため、タスク管理機能③と同じ扱いにそろえる
 
 ## Request / Response DTO
 
@@ -727,6 +736,8 @@ Model単体では完結しない検証は、Handlerが他Contextの参照手段�
 
 Active Record採用のためDomain Errorに相当する層がなく、`errors.go`のセンチネルエラーをそのままApplication Error相当として扱う（アーキテクチャ規約「12. Error変換パターン（AppError）」の「Transaction Script / Active Record採用時の変換」）。センチネルエラーから`internal/shared/apperror`の`AppError`を実装した型への変換は、Storeまたは呼び出し元のHandlerで`errors.Is`により判別して行う。
 
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`draft_task`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
+
 ## Application Error → HTTPレスポンスへの変換方針
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。
@@ -817,6 +828,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`DraftTask.Validate`|Title・Contentが空の場合にそれぞれのエラーを返すこと|
 |`DraftTask.Validate`|Titleが101文字でもエラーにならないこと（長さを検証しない）|
 |`DraftTask.Validate`|DueDateが未設定の場合に`ErrDueDateRequired`を返すこと|
+|`DraftTask.Validate`|複数の項目が同時に不正な場合（例: Titleが空でDueDateが未設定）、すべてのエラーが`errors.Is`で判別できる形でまとめて返ること|
 |`DraftTask.Validate`|すべての項目が妥当な場合にエラーにならないこと|
 
 ## UseCase Test
@@ -852,6 +864,7 @@ Value Objectを独自の型のままGORMで永続化する方式は、Gorm規約
 |`DraftTaskHandler.CreateDraftTask`|異常系: 必須項目の未入力時に422と`{"errors": [...]}`が返ること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: `priority`未入力、`0`・`9`・優先度名のいずれも422が返ること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: 他の生徒の目標を指定した場合に422が返ること|
+|`DraftTaskHandler.CreateDraftTask`|異常系: 複数の検証が同時に失敗した場合（例: タイトルが未入力で、存在しない単元を指定し、他の生徒の目標を指定した）、失敗したすべてのメッセージが`errors`配列に含まれて422が返ること。永続化が行われないこと|
 |`DraftTaskHandler.CreateDraftTask`|異常系: 存在しない単元を指定した場合に422が返り、メッセージが**1件**であること|
 |`DraftTaskHandler.CreateDraftTask`|異常系: `title`が100文字を超えた場合に422が返ること|
 

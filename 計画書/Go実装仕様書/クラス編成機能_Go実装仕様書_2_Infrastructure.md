@@ -260,7 +260,7 @@ internal/schoolclass/presentation/routes.go
 
 - 実装struct名: 非公開struct + コンストラクタ`NewStudentOccupancyDirectory`
 - 責務: `dependency.go`の`StudentOccupancyDirectory`インターフェースを、`user` Contextの公開操作`CountUsers`の呼び出しへ委譲する
-- 委譲内容: `CountUsers`に「クラス＝対象クラスID、無効化の扱い＝無効化済みを含む、集計の単位＝なし」を指定して呼び出し、人数が0より大きければ真を返す（ユーザー基盤③「3. 公開操作の定義」の`SearchCondition.SchoolClassID`・`DeactivatedScope`・`AggregateNone`）
+- 委譲内容: `CountUsers`に「クラス＝対象クラスID、無効化の扱い＝無効化済みを含む、集計の単位＝なし」を指定して呼び出し、人数が0より大きければ真を返す（ユーザー基盤③「6. Application層設計」の`SearchCondition.SchoolClassID`・`DeactivatedScope`・`AggregateNone`）
 - 本アダプタはGORMに依存せず、`users`へクエリを発行しない（アーキテクチャ規約「4. Bounded Context構成」「5. Context間連携ルール」）
 
 ### TeacherPermissionRepository実装（`infrastructure/contextadapter/teacher_permission_repository.go`）

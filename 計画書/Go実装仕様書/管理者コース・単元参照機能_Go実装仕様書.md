@@ -225,7 +225,7 @@ type ImportHistorySummary struct {
 |インターフェース|委譲先|所有Context側の定義|
 |-|-|-|
 |`CurriculumDirectory`|`curriculum`の管理者向け参照操作|コース参照機能②「11. Repository設計」、同③「6. Application層設計」「8. Infrastructure層設計」|
-|`ImportHistoryDirectory`|`question-import`の直近インポート履歴参照|管理者インポート履歴管理機能③「4. Application層設計」|
+|`ImportHistoryDirectory`|`question-import`の直近インポート履歴参照|管理者インポート履歴管理機能③「6. Application層設計」|
 
 **②からの補足**: `CurriculumDirectory`の3つのメソッド（`SearchCourses`・`FindCourseDetail`・`FindUnitDetail`）は、コース参照機能②「11. Repository設計」の「他Contextへ公開する参照手段」に「コース一覧の検索」「コース詳細の取得」「単元詳細の取得」として追加され、`curriculum`が公開する操作として公式に確定した。本書が暫定で前提としていたシグネチャ・戻り値の型と一致する（同②「11. Repository設計」が「本書が暫定で前提としていた`CurriculumDirectory`...が、本Contextの公開操作として公式なものになる」と明記している）。コース参照機能③「6. Application層設計」「8. Infrastructure層設計」が実装を定める。
 
@@ -468,7 +468,7 @@ flowchart TD
 ### ImportHistoryDirectory実装（`contextadapter/import_history_directory.go`）
 
 - 実装struct名: 非公開struct + コンストラクタ`NewImportHistoryDirectory`
-- 委譲先: `question-import`が公開する直近インポート履歴の参照操作（管理者インポート履歴管理機能③「4. Application層設計」の`SearchImportHistoriesUseCase`相当）
+- 委譲先: `question-import`が公開する直近インポート履歴の参照操作（管理者インポート履歴管理機能③「6. Application層設計」の`SearchImportHistoriesUseCase`相当）
 - 委譲内容: 対象単元の識別子と件数の上限（5）を渡し、`UnitID`による絞り込み・`created_at`降順・`Page=1`・`PerPage=limit`として呼び出す。戻り値の一覧項目を`ImportHistorySummary`へ移す
 - 本アダプタはGORMに依存せず、`import_histories`へクエリを発行しない
 
@@ -591,7 +591,8 @@ flowchart TD
 |-|-|-|
 |未認証|401|認証Middlewareが返す|
 |adminロールでない|403|認可Middlewareが返す|
-|`page`, `per_page`, `subject_id`, `id`, `course_id`が数値でない|400|入力形式エラー|
+|`page`・`per_page`・`subject_id`が整数に変換できない|200|エラーにしない。`page`・`per_page`は既定値で処理し、`subject_id`は一致するデータ無しとして扱う（結果は0件。①「5. API / 処理詳細」）|
+|`id`・`course_id`が整数に変換できない|404|`ErrCourseNotFound`・`ErrUnitNotFound`（存在しないIDと同じ扱い）|
 |指定`id`の対象コースが存在しない|404|`ErrCourseNotFound`|
 |指定`course_id`/`id`の対象単元が存在しない、またはroute上のコースに属さない|404|`ErrUnitNotFound`|
 |`curriculum`・`question-import`への問い合わせ失敗|500|Infrastructure Error|
@@ -620,7 +621,7 @@ flowchart TD
 
 ②「15. Validation設計」のPresentation節を実装レベルに落とし込む。
 
-- 型チェック: `subject_id`, `course_id`, `id`, `page`, `per_page`をGinのクエリ/パスバインド時に整数として検証する（バインド失敗時は400）
+- 型の扱い: `subject_id`, `course_id`, `id`, `page`, `per_page`は、整数に変換できない値をエラー（400）にしない。`page`・`per_page`は既定値として、`subject_id`は一致するデータ無しとして、`id`・`course_id`は存在しないIDとして扱う（①「5. API / 処理詳細」）
 - 必須チェック: コース詳細の`id`・単元詳細の`course_id`/`id`はパスパラメータとして必須。ルーティング定義上、値が欠落するとGinのルーティング自体が一致しないため、バインド後の型検証で担保する
 - フォーマットチェック: `page`/`per_page`が正の整数であることをHandler内のガード節で検証する。`per_page`の上限（100件）は`application.ListCourses`が呼び出す`CurriculumDirectory.SearchCourses`側で丸め込む。`sort`/`order`は文字列であることのみを検証し、許可値かどうかの判定は`application.ListCourses`のガード節で行う
 
@@ -659,14 +660,13 @@ Handler側で`errors.Is(err, application.ErrCourseNotFound)` / `errors.Is(err, a
 |-|-|-|
 |`ErrCourseNotFound`|Application（application関数のガード節）|404|
 |`ErrUnitNotFound`|Application（application関数のガード節）|404|
-|クエリバインド・型検証エラー|Presentation（Handler）|400|
 |認証エラー|Middleware|401|
 |認可エラー（adminでない）|Middleware|403|
 |`curriculum`・`question-import`への問い合わせ失敗|Infrastructure|500|
 
 ## Infrastructure Errorのハンドリング方針
 
-アダプタ内で相手Contextの公開操作が返したエラーは、コーディング規約「6. エラーハンドリング」に従い`fmt.Errorf`と`%w`でラップして返す。application関数はさらにラップせずにそのまま呼び出し元へ伝播させ、Handlerで`ErrCourseNotFound`/`ErrUnitNotFound`以外のエラーとして一律500に変換する（②「17. Error設計」「技術的な障害を業務エラーと切り分ける」）。
+アダプタ内で相手Contextの公開操作が返したエラーは、コーディング規約「18. エラーハンドリング」に従い`fmt.Errorf`と`%w`でラップして返す。application関数はさらにラップせずにそのまま呼び出し元へ伝播させ、Handlerで`ErrCourseNotFound`/`ErrUnitNotFound`以外のエラーとして一律500に変換する（②「17. Error設計」「技術的な障害を業務エラーと切り分ける」）。
 
 ---
 
@@ -726,8 +726,8 @@ Handler側で`errors.Is(err, application.ErrCourseNotFound)` / `errors.Is(err, a
 
 |対象|テストケース|
 |-|-|
-|`CourseHandler.List`|クエリパラメータの解釈（`subject_id`, `q`, `sort`, `order`, `page`, `per_page`）が正しいこと／不正な`page`/`per_page`で400が返ること／正常系で200と期待するレスポンス構造が返ること|
-|`CourseHandler.Show`|存在しない`id`で404が返ること／不正な`id`（数値以外）で400が返ること／正常系で200が返ること|
+|`CourseHandler.List`|クエリパラメータの解釈（`subject_id`, `q`, `sort`, `order`, `page`, `per_page`）が正しいこと／整数に変換できない`page`/`per_page`で、エラーにならず既定値で処理されること／整数に変換できない`subject_id`で、200と空の一覧が返ること／正常系で200と期待するレスポンス構造が返ること|
+|`CourseHandler.Show`|存在しない`id`で404が返ること／整数に変換できない`id`で404が返ること／正常系で200が返ること|
 |`UnitHandler.Show`|存在しない`course_id`/`id`の組み合わせで404が返ること／正常系で200が返ること|
 
 ## Integration Test

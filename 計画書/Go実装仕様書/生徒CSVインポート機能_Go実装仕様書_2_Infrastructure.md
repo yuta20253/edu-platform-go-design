@@ -142,8 +142,8 @@ internal/studentimport/infrastructure/storage/csv_file_storage.go
 - 実装struct名: 非公開struct（例: `studentAccountCreator`）+ コンストラクタ`NewStudentAccountCreator(userContext *user.Context) studentimport.StudentAccountCreator`
 - `CreateStudentAccount`: `user` Contextが公開する`CreateStudentAccount`を呼び出し、`CreateStudentAccountParams`を`user`の入力へ、`user`が返す基本属性を`CreateStudentAccountResult`へ変換する。本Contextでは`users`へINSERTしない（仮パスワードの生成・生徒番号の発行・招待メール送信依頼の登録は`user`が行う）
 - `IssueStudentNumber`: `user`の`IssueStudentNumber(ctx, highSchoolID)`をそのまま呼び出す
-- トランザクション: `ExecuteStudentImportUseCase`が開始したトランザクションに`user`の操作が参加するよう、`ctx`をそのまま渡す（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」。ユーザー基盤機能③「4. トランザクションの引き継ぎ」のとおり、`user`側は`ctx`にトランザクションがあればそれに参加する）
-- 入出力の型・エラー種別の判別（メールアドレス重複のValidation等）: ユーザー基盤機能③「3. 公開操作の定義」のとおり
+- トランザクション: `ExecuteStudentImportUseCase`が開始したトランザクションに`user`の操作が参加するよう、`ctx`をそのまま渡す（アーキテクチャ規約「11. Transaction実装パターン（TransactionManager）」の「呼び出し側トランザクションの引き継ぎ」。ユーザー基盤機能③「11. Transaction実装方針」のとおり、`user`側は`ctx`にトランザクションがあればそれに参加する）
+- 入出力の型・エラー種別の判別（メールアドレス重複のValidation等）: ユーザー基盤機能③「6. Application層設計」のとおり
 
 ## 外部連携実装
 
