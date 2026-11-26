@@ -415,7 +415,7 @@ internal/schoolclass/presentation/routes.go
 |`ErrSelfApprovalNotAllowed`|申請者自身が自分の申請を承認・却下しようとした|
 |`ErrRequestActionMismatch`|申請区分に応じた入力項目（クラス名・対象クラス）が不整合|
 |`ErrClassHasOccupants`|削除申請の対象クラスに在籍者・所属教員が存在する|
-|`ErrDuplicatePendingRequest`|同一クラスへの承認待ち申請が既に存在する|
+|`ErrDuplicatePendingRequest`|同一クラスへの承認待ち申請が既に存在する（メッセージ: 「学級に対して承認待ちの申請が既に存在します」）|
 
 `domainerror.ErrOptimisticLockConflict`（Gorm規約「12. 楽観ロック（Optimistic Locking）」の共有エラー、配置場所`internal/shared/domainerror`）は本機能固有のエラーではないため上記一覧には含めない。
 
@@ -638,6 +638,8 @@ Domain Model採用のため、Entity／Value Object生成時・UseCase内で以�
 ## Domain Error → Application Errorへの変換方針
 
 各UseCaseは、`domain/errors`のセンチネルエラー（および`domainerror.ErrOptimisticLockConflict`）を`errors.Is`で判定し、必要に応じてApplication層独自のラップを行った上でHandlerへ伝播させる。「対象申請未存在」「操作権限欠如」は②「17. Error設計」によりApplication Errorとして扱うため、`application/usecase/errors.go`に`ErrRequestNotFound`・`ErrRequestAlreadyProcessed`・`ErrApprovalPermissionRequired`・`ErrGradeNotFound`・`ErrSchoolClassNotFound`をセンチネルエラー変数として定義する。
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`school_class_request`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## Application Error → HTTPレスポンスへの変換方針
 

@@ -438,12 +438,12 @@ flowchart TD
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
 |status|Domain|許可値（pending/processing/completed/failed）以外は絞り込み条件として無視|（形式エラーとしては扱わない）|
-|unit_id / course_id / user_id|Presentation|任意項目。整数形式であること|「検索条件の形式が不正です」|
-|from / to|Presentation|任意項目。日付形式であること|「期間の指定形式が不正です」|
+|unit_id / course_id / user_id|Presentation|任意項目。整数に変換できない値は、どのデータにも一致しない値として扱う（結果は0件）|エラーにしない|
+|from / to|Presentation|任意項目。日付として解釈できない値は無視し、その条件では絞り込まない|エラーにしない|
 |sort|Domain|許可値以外は`created_at`にフォールバック|（形式エラーとしては扱わない）|
 |order|Domain|`asc`/`desc`以外は`desc`にフォールバック|（形式エラーとしては扱わない）|
-|per_page|Presentation|正の整数、上限100件|「1ページあたりの件数が不正です」|
-|import_history_id（詳細・エクスポート）|Presentation|必須。整数形式であること|「対象インポート履歴のIDが不正です」|
+|per_page|Presentation|整数に変換できない値・0以下は既定値として扱う。100を超える値は100として扱う|エラーにしない|
+|import_history_id（詳細・エクスポート）|Presentation|整数に変換できない値は、存在しないIDとして扱う|404「インポート履歴が見つかりません」|
 |対象履歴の種別|Domain|`import_type`が問題インポートであること（生徒インポートの履歴IDを指定した場合は取得不可）|（存在しないものとして404を返す）|
 
 ## 責務分離

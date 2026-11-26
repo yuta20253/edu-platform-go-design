@@ -821,6 +821,8 @@ Domain Model採用のため、Entity／Value Object生成時とUseCase内で以�
 
 Domain Errorをそのままレスポンス層まで伝播させない。ステータスコードの決定は、組織運用ルールを表すDomain層の関心事ではないためである（②「17. Error設計」の「層間の変換」）。
 
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`teacher_permission`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
+
 ## Application Error → HTTPレスポンスへの変換方針
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換を集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでステータスコードを判定しない。ミドルウェアが`errors.As`で`AppError`を1回だけ判定し、`StatusCode()`でステータス、`LogLevel()`でログレベルを決める。

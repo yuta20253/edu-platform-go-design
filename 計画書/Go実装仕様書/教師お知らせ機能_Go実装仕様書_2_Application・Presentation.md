@@ -846,13 +846,13 @@ Gin規約「1. ルーティング」「2. ルートグルーピング」に従�
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|`announcement`キーがない|400|`{"errors": ["お知らせの内容を指定してください"]}`|
-|`id`が符号なし整数でない|422|`{"errors": ["お知らせの指定が不正です"]}`|
-|`scheduled_at`が日時でない|422|`{"errors": ["配信日時の指定が不正です"]}`|
-|`announcement_targets`が配列でない|422|`{"errors": ["Announcement targets 配列で指定してください"], "fields": [...]}`|
+|`announcement`キーがない|400|`{"errors": ["必須パラメータ「announcement」がありません"]}`|
+|`id`が整数に変換できない|404|`{"errors": ["お知らせが見つかりません"]}`（存在しないIDと同じ扱い）|
+|`scheduled_at`が日時に変換できない|—|エラーにしない。未指定として扱う（状態が予約のときは`配信日時を指定してください`の422）|
+|`announcement_targets`が配列でない|422|`{"errors": ["配信先は配列で指定してください"], "fields": [...]}`|
 |件名・本文・状態・予約日時の検証失敗|422|`{"errors": [最初のメッセージ], "fields": [全件]}`|
 |配信先の指定が不正|422|同|
-|状態遷移が許されない|422|`{"errors": ["status は {遷移元} から {遷移先} へは変更できません"]}`|
+|状態遷移が許されない|422|`{"errors": ["状態は{遷移元の表示名}から{遷移先の表示名}へは変更できません"]}`|
 |配信済みのため編集できない（更新）|422|`{"errors": ["配信済みのお知らせは編集できません"]}`|
 |他の教員が作成した、存在しない|404|`{"errors": ["お知らせが見つかりません"]}`|
 |**配信済みのため編集できない（編集フォームの取得）**|404|同|
@@ -889,13 +889,13 @@ Gin規約「1. ルーティング」「2. ルートグルーピング」に従�
 
 |フィールド|struct名|バリデーションタグ|エラーメッセージ|Status|
 |-|-|-|-|-|
-|`Announcement`|`CreateAnnouncementRequest` / `UpdateAnnouncementRequest`|なし（`nil`判定をHandlerで行う）|お知らせの内容を指定してください|400|
-|`ScheduledAt`|`announcementBody`|なし（`*time.Time`へのバインド失敗で検出）|配信日時の指定が不正です|422|
-|`AnnouncementTargets`|同|なし（配列へのバインド失敗で検出）|Announcement targets 配列で指定してください|422|
+|`Announcement`|`CreateAnnouncementRequest` / `UpdateAnnouncementRequest`|なし（`nil`判定をHandlerで行う）|必須パラメータ「announcement」がありません|400|
+|`ScheduledAt`|`announcementBody`|なし（変換できない値は未指定として扱う）|—（エラーにしない）|—|
+|`AnnouncementTargets`|同|なし（配列へのバインド失敗で検出）|配信先は配列で指定してください|422|
 |`Tab`|`ListAnnouncementsRequest`|なし（検証しない）|-|-|
 |`Keyword`|`FormOptionsRequest`|なし（検証しない）|-|-|
-|`Page`・`PerPage`|両Request|なし（`*int`へのバインド失敗で検出）|ページの指定が不正です|422|
-|`id`（パスパラメータ）|-|Handlerで符号なし整数として解釈|お知らせの指定が不正です|422|
+|`Page`・`PerPage`|両Request|なし（変換できない値・0以下は既定値として扱う）|—（エラーにしない）|—|
+|`id`（パスパラメータ）|-|Handlerで整数に変換する。変換できない値は存在しないIDとして扱う|お知らせが見つかりません|404|
 
 ページ指定の正規化はHandlerで行う。
 

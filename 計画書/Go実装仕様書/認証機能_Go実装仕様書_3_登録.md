@@ -145,7 +145,7 @@ internal/authentication/presentation/request/registration_request.go
 - コンストラクタが受け取る依存: `UserRoleRepository`, `dependency.HighSchoolDirectory`, `dependency.GradeDirectory`, `AccountRepository`, `*service.RegistrationEligibilityPolicy`, `*service.ProvisionalAccountActivationPolicy`, `PasswordHasher`, `transaction.Manager`, `AuthNotifier`（Interface、パスワードリセット編）
 - 公開メソッド: `(u *RegisterUseCase) Execute(ctx context.Context, cmd dto.RegisterCommand) (dto.RegisterResult, error)`
 - 処理ステップ（②「13. シーケンス図・処理フロー図」のフローチャートに対応、分岐は`cmd.StudentNumber`の有無）:
-  1. `valueobject.NewEmail` / `NewRawPassword`で入力形式を検証し、`RawPassword.Matches`でパスワード確認一致を検証する
+  1. `valueobject.NewEmail` / `NewRawPassword`で入力形式を検証し、`RawPassword.ValidateLength`で文字数を、`RawPassword.Matches`でパスワード確認一致を検証する
   2. `UserRoleRepository.FindByName`でロールの存在確認・ID取得を行う（不正時は`ErrInvalidRole`）
   3. `cmd.StudentNumber`が指定されている場合（仮アカウント有効化パス）:
      1. `valueobject.NewStudentNumber(*cmd.StudentNumber)`で形式検証する
@@ -165,7 +165,7 @@ internal/authentication/presentation/request/registration_request.go
      5. `transaction.Manager.WithinTransaction`内で`AccountRepository.Create`を実行する
   5. `RegisterResult`を返す
 - トランザクション境界: 分岐ごとに「11. Transaction実装方針」で詳述
-- 発生しうるApplication Error: `ErrInvalidRole`, `ErrRegistrationRequirementNotMet`, `ErrPasswordConfirmationMismatch`, `ErrProvisionalAccountNotFound`, `ErrProvisionalAccountAlreadyActivated`, `ErrStudentNumberSchoolMismatch`
+- 発生しうるApplication Error: `ErrInvalidRole`, `ErrRegistrationRequirementNotMet`, `ErrPasswordConfirmationMismatch`, `ErrPasswordTooShort`, `ErrPasswordTooLong`, `ErrProvisionalAccountNotFound`, `ErrProvisionalAccountAlreadyActivated`, `ErrStudentNumberSchoolMismatch`
 
 ---
 
@@ -304,6 +304,8 @@ Response DTO（`UserResponse`）は基盤編「9. Presentation層設計」の「
 |ロール名が不正（本書内のルーティングでは発生しないが、UseCase単体では検証対象）|422|`ErrInvalidRole`|
 |ロール別必須項目（高校・学年・生徒コード）の欠如、または指定IDが実在しない|422|`ErrRegistrationRequirementNotMet`|
 |パスワードと確認用パスワードが一致しない|422|`ErrPasswordConfirmationMismatch`|
+|パスワードが6文字未満|422|`ErrPasswordTooShort`|
+|パスワードが128文字超|422|`ErrPasswordTooLong`|
 |生徒コードに一致する仮アカウントが存在しない|422|`ErrProvisionalAccountNotFound`|
 |生徒コードに一致するアカウントが既に有効化済み|422|`ErrProvisionalAccountAlreadyActivated`|
 |生徒コードの学校コードが選択高校と不一致|422|`ErrStudentNumberSchoolMismatch`|
@@ -368,7 +370,7 @@ Response DTO（`UserResponse`）は基盤編「9. Presentation層設計」の「
 
 |対象|テストケース|
 |-|-|
-|`RegisterUseCase`（通常登録）|student/teacher/adminそれぞれで正しく作成されること／ロール別必須項目の欠如で`ErrRegistrationRequirementNotMet`になること／パスワード確認不一致で`ErrPasswordConfirmationMismatch`になること|
+|`RegisterUseCase`（通常登録）|student/teacher/adminそれぞれで正しく作成されること／ロール別必須項目の欠如で`ErrRegistrationRequirementNotMet`になること／パスワード確認不一致で`ErrPasswordConfirmationMismatch`に、6文字未満・128文字超で`ErrPasswordTooShort`・`ErrPasswordTooLong`になること|
 |`RegisterUseCase`（仮アカウント有効化）|正しい生徒コード・学校コードで有効化が成功すること／仮アカウント不存在・既に有効化済み・学校コード不一致のそれぞれでエラーが区別されること／成功時に`AuthNotifier.NotifyAccountActivated`が呼ばれること|
 
 ## contextadapter Test

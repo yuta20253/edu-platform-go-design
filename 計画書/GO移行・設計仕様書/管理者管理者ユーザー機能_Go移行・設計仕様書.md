@@ -507,13 +507,13 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|email|Presentation|作成時必須・メール形式|「メールアドレスの形式が不正です」|
+|email|Presentation|作成時必須・メール形式|「メールアドレスを入力してください」（未入力。メール形式の検証はRails現行に無く、Go側で加える場合の文言は規約の形式に従う）|
 |email（重複）|`user` Context（`CreateAdminAccount`）|論理削除済みを含む全アカウントで未使用であること。違反は`user`のValidationエラーとして返り、本Contextは422へ変換する|「メールアドレスは既に使用されています」（`user`②の文言）|
-|name（作成時）|`user` Context（`CreateAdminAccount`）|任意。未入力（空白のみを含む）ならメールアドレスの`@`より前を氏名にする。100文字以内|「氏名は100文字以内で入力してください」（`user`②の文言）|
-|name（更新時）|Presentation|必須（Rails現行の`Admin::AdminForm`が更新時に必須とする）|「氏名は必須です」|
-|phone_number|Presentation/Domain|数字のみ、10〜11桁|「電話番号は10〜11桁の数字で入力してください」|
-|birthday|Presentation/Domain|日付形式かつ未来日でないこと|「生年月日は現在より過去の日付にしてください」|
-|gender|Domain|定義済みの列挙値のいずれか|「性別の指定が不正です」|
+|name（作成時）|`user` Context（`CreateAdminAccount`）|任意。未入力（空白のみを含む）ならメールアドレスの`@`より前を氏名にする。100文字以内|（Rails現行に100文字の検証は無い。`user`②の検証であり、利用者向けの文言は呼び出し側が決める）|
+|name（更新時）|Presentation|必須（Rails現行の`Admin::AdminForm`が更新時に必須とする）|「名前を入力してください」|
+|phone_number|Presentation/Domain|数字のみ、10〜11桁|「電話番号が不正です」|
+|birthday|Presentation/Domain|日付形式かつ未来日でないこと|「生年月日は未来日付にできません。」|
+|gender|Domain|定義済みの列挙値のいずれか|「性別は一覧にありません」|
 |prefecture_id（住所候補検索）|Presentation|必須・整数形式|「都道府県は必須です。」|
 |削除対象（自分自身/最後の管理者）|Domain|操作者自身でない、かつ削除後も有効な管理者が1人以上残ること|「自分自身は削除できません」「最後の管理者は削除できません」|
 

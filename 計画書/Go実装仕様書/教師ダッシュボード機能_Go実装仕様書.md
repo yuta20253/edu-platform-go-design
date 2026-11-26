@@ -413,7 +413,7 @@ JSONキー名は①「5. API / 処理詳細」Responseのとおりとする。Ra
 
 |条件|Status Code|本文|
 |-|-|-|
-|未認証|401|認証Middlewareが返す（Gin規約「5. 認証・認可Middleware」）|
+|未認証|401|認証Middlewareが返す（Gin規約「3. ミドルウェア」）|
 |`teacher`ロールでない|403|認可Middlewareが返す|
 |操作者に所属校が設定されていない|500|`{"errors": ["予期しないエラーが発生しました"]}`|
 |他Contextの参照に失敗|500|同上|
@@ -489,12 +489,12 @@ Domain Errorを定義しない（②「17. Error設計」、「3. Domain層設�
 
 ## Application Error → HTTPレスポンスへの変換方針
 
-- `ShowTeacherDashboard`が返すエラーは、Handlerで`apperror`の内部エラーへ変換し、`c.Error(err)`でエラーMiddlewareへ渡す（規約「7. エラー設計」・Gin規約「4. エラーハンドリング」）
+- `ShowTeacherDashboard`が返すエラーは、Handlerで`apperror`の内部エラーへ変換し、`c.Error(err)`でエラーMiddlewareへ渡す（アーキテクチャ規約「12. Error変換パターン（AppError）」・Gin規約「8. エラーハンドリングミドルウェア」）
 - ②「19. API仕様」のとおり、業務エラーという区分を持たず、すべて500へ変換する
 
 ## Infrastructure Errorのハンドリング方針
 
-- アダプタ内で相手Contextの公開操作が返したエラーは、コーディング規約「6. エラーハンドリング」に従い`fmt.Errorf`と`%w`でラップして返す
+- アダプタ内で相手Contextの公開操作が返したエラーは、コーディング規約「18. エラーハンドリング」に従い`fmt.Errorf`と`%w`でラップして返す
 - application層はさらに文脈を付けてHandlerへ伝える。途中で握り潰さない（「6. Application層設計」）
 
 |Error種別|発生箇所|HTTP Status|

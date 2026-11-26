@@ -462,7 +462,7 @@ stateDiagram-v2
 
 ### AccountRepository実装（`infrastructure/gormrepo/account_repository.go`）
 
-- 実装struct名: 非公開struct（`accountRepository`）+ コンストラクタ`NewAccountRepository(db *gorm.DB) repository.AccountRepository`（規約「9. 命名規約」により`Impl`接尾辞を付けない）
+- 実装struct名: 非公開struct（`accountRepository`）+ コンストラクタ`NewAccountRepository(db *gorm.DB) repository.AccountRepository`（アーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」により`Impl`接尾辞を付けない）
 - 対応するGORMモデル: `UserModel`（`infrastructure/gormrepo/user_model.go`、`users`テーブルに対応。統合元候補・統合先いずれも同一テーブルへの異なる役割でのアクセスである）
 - 各メソッドで発行するクエリ内容:
   - `FindMergeCandidateByStudentNumber`: `student_number`が指定値と一致し、`deleted_at`が未設定（未削除）である行を1件取得する。該当なしは`gorm.ErrRecordNotFound`を`errors.Is`で判定し`domainerrors.ErrMergeCandidateNotFound`へ変換する（Gorm規約「9. エラーハンドリング」の標準変換パターン）
@@ -552,7 +552,7 @@ stateDiagram-v2
 
 |フィールド|struct名|バリデーションタグ|エラーメッセージ|
 |-|-|-|-|
-|`StudentNumber`|`AccountLinkRequest`|`binding:"required"`|「生徒番号を入力してください」|
+|`StudentNumber`|`AccountLinkRequest`|`binding:"required"`|「不正な生徒番号です」（未指定も形式不正と同じ扱い。Rails現行は未指定を別に検証しない）|
 
 ## 業務ルール検証
 
@@ -606,7 +606,7 @@ Presentation層は、Gin規約「8. エラーハンドリングミドルウェ�
 
 ## Infrastructure Errorのハンドリング方針
 
-GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf`によりラップし（コーディング規約「6. エラーハンドリング」）、`AppError`に変換されていない未分類エラーとして共通エラーハンドリングミドルウェアが500として応答する。
+GORMが返すDB接続エラー等は、Repository実装内で`fmt.Errorf`によりラップし（コーディング規約「18. エラーハンドリング」）、`AppError`に変換されていない未分類エラーとして共通エラーハンドリングミドルウェアが500として応答する。
 
 |業務シナリオ|Error変数名／型|発生層|HTTP Status|
 |-|-|-|-|

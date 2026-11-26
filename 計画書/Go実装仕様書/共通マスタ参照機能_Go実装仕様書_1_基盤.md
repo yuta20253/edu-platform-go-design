@@ -464,7 +464,7 @@ flowchart TD
 |`Search`|`ctx context.Context, prefectureID uint, city, town string`|`([]addressWithPrefecture, error)`|`prefecture_id`で絞り込む。`city`が空でなければ`city`に対する部分一致、`town`が空でなければ`town`に対する部分一致を加える。`prefectures`と`LEFT JOIN`して都道府県名を取得する。並び替え・ページネーションを行わない|
 |`FindByIDs`|`ctx context.Context, ids []uint`|`([]addressModel, error)`|`id IN (...)`で取得する。`prefectures`と結合しない|
 
-**`deleted_at`を条件に含めない。** `addresses`は論理削除の列を持つが、Rails現行は既定の絞り込みを定義しておらず論理削除済みの行も返す（①「5. API / 処理詳細」`Api::V1::AddressesController#index`）。
+**`Search`は`deleted_at IS NULL`を条件に含める。** Rails現行の`AddressesQuery`は`active`スコープ（`deleted_at`がNULL）を既定で適用し、論理削除済みの行を返さない（①「5. API / 処理詳細」`Api::V1::AddressesController#index`）。**`FindByIDs`は`deleted_at`を条件に含めない。** 実在確認の用途であり、Rails現行の`Address.exists?`が絞り込みを持たないためである。
 
 `prefectures`との結合に`LEFT JOIN`を使う。`addresses.prefecture_id`が未設定を許すためである（①「6. データモデル」）。内部結合にすると都道府県が未設定の住所が結果から落ちる。ただし`Search`は`prefecture_id`で絞り込むため、実際には未設定の行が対象になることはない。それでも`LEFT JOIN`とするのは、絞り込みの条件が将来変わったときに行が静かに落ちないようにするためである。
 
@@ -557,7 +557,7 @@ NULL可のカラムはポインタとする。
 
 `AddressRef`と`AddressCandidate`を分けるのは、前者が都道府県の識別子までを返し、後者が名称を含む点が異なるためである。1つの型にまとめて名称を任意にすると、どの呼び出し元で名称が入るのかが型から読めなくなる。
 
-いずれの型も`DeletedAt`を含めない。論理削除の状態を呼び出し元に判断させないためである。住所については論理削除済みも返す仕様であり、呼び出し元は区別せずに扱う（②「11. Repository設計」）。
+いずれの型も`DeletedAt`を含めない。論理削除の状態を呼び出し元に判断させないためである。住所の属性の取得は論理削除済みも返す仕様であり、呼び出し元は区別せずに扱う。住所の候補検索は論理削除済みを返さない（②「11. Repository設計」）。
 
 ## 依存関係の組み立てと公開操作（`context.go`）
 
@@ -675,7 +675,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 |業務シナリオ|Error変数名／型|発生層|HTTP Status|
 |-|-|-|-|
 |住所検索で都道府県が未指定|Request DTOのバリデーションエラー（文書2）|Presentation|400|
-|クエリ・パスパラメータが整数として解釈できない|同|Presentation|422|
+|クエリ・パスパラメータが整数に変換できない|エラーにしない（結果は0件）|—|200|
 |住所検索で未認証|認証ミドルウェアが返す|Middleware|401|
 |DBアクセスの失敗|包まずそのまま返す|Infrastructure|500|
 |該当する行がない|エラーにしない|-|200（空の配列）|
@@ -779,7 +779,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 ||都道府県の名称が`Prefecture`に入ること|
 ||都道府県が未設定の住所で`Prefecture`が`nil`になること|
 ||`StreetAddress`を返さないこと|
-||**論理削除済みの住所も返ること**|
+||**論理削除済みの住所が返らないこと**|
 ||`city`・`town`が空文字のときもそのまま渡ること|
 ||都道府県が未指定であることの検証を行わないこと（`uint`で受け取り、`0`でもそのまま検索へ渡すこと）|
 ||0件のとき空スライス（`nil`ではない）を返すこと|
@@ -796,7 +796,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 ||`town`が部分一致であること|
 ||`city`・`town`が同時に効くこと|
 ||空文字の`city`・`town`で絞り込まれないこと|
-||**論理削除済みの住所も返ること**|
+||**論理削除済みの住所が返らないこと**|
 ||都道府県名が取得できること|
 ||該当なしのとき空のスライスが返ること|
 ||検索語に`%`・`_`が含まれてもパターンとして解釈されないこと|

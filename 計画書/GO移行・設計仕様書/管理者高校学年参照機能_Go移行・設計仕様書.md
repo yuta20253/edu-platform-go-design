@@ -451,11 +451,11 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|`prefecture_id`|Presentation|任意。指定された場合は整数として解釈できること。空文字は未指定として扱う|「都道府県の指定が不正です」|
+|`prefecture_id`|Presentation|任意。空文字は未指定として扱う。整数に変換できない値は、どのデータにも一致しない値として扱う（結果は0件）|エラーにしない|
 |`page`|Presentation|任意。整数として解釈できること。0以下・数値以外は未指定として扱う|エラーにしない。既定値を使う|
 |`per_page`|Presentation|任意。整数として解釈できること。0以下・数値以外は既定値（20）、上限（100）を超える値は上限に丸める|エラーにしない|
-|`id`（詳細取得）|Presentation|整数として解釈できること|「高校の指定が不正です」|
-|`high_school_id`（学年一覧）|Presentation|整数として解釈できること|「高校の指定が不正です」|
+|`id`（詳細取得）|Presentation|整数に変換できない値は、存在しないIDとして扱う|404「高校が見つかりません」|
+|`high_school_id`（学年一覧）|Presentation|整数に変換できない値は、存在しないIDとして扱う|404「高校が見つかりません」|
 
 `page`・`per_page`の不正値をエラーにせず既定値で処理するのは、Rails現行がそうしているためである（①「5. API / 処理詳細」`#index`）。
 
@@ -509,7 +509,8 @@ flowchart TD
 |業務シナリオ|エラー種別|発生層|想定するHTTPステータス|
 |-|-|-|-|
 |指定された高校が存在しない|NotFound|Application|404|
-|`prefecture_id`・`id`・`high_school_id`が整数として解釈できない|Validation|Presentation|422|
+|`prefecture_id`が整数に変換できない|—|—|200（エラーにしない。結果は0件）|
+|`id`・`high_school_id`が整数に変換できない|NotFound|Application|404|
 |本Contextの参照の失敗|Internal|Infrastructure|500|
 |他Contextの参照手段の呼び出しの失敗|Internal|Infrastructure|500|
 |未認証|Unauthorized|Middleware|401|

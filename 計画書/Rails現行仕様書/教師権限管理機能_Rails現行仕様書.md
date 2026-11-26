@@ -183,6 +183,7 @@
 
 |条件|HTTP Status|内容|
 |-|-|-|
+|`teacher_permission` パラメータ自体が存在しない|400|`{"errors": ["必須パラメータ「teacher_permission」がありません"]}`|
 |権限なし|403|`他教員を編集する権限がありません`|
 |対象教員が存在しない、または論理削除済み|404|`ActiveRecord::RecordNotFound` ハンドラのメッセージ|
 |`lock_version` の指定がない|422|`lock_versionは必須です`|

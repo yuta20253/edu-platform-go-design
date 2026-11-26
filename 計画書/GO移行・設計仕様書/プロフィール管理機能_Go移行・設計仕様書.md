@@ -450,11 +450,11 @@ flowchart TD
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
 |name|Presentation|必須|「氏名を入力してください」|
-|name_kana|Presentation|必須、かつカタカナ・長音符・中黒・空白のみ|「氏名カナの形式が不正です」|
-|gender|Presentation|必須、かつmale / female / other のいずれか|「性別を指定してください」|
-|phone_number|Presentation|任意。指定する場合は10〜11桁の数字|「電話番号の形式が不正です」|
-|birthday|Domain|任意。指定する場合は未来日でないこと|「生年月日は未来の日付にできません」|
-|address_id|Domain|任意。指定する場合は存在する住所であること（master-data Context参照）|「指定された住所が存在しません」|
+|name_kana|Presentation|必須、かつカタカナ・長音符・中黒・空白のみ|「氏名カナはカタカナで入力してください」|
+|gender|Presentation|必須、かつmale / female / other のいずれか|「性別は一覧にありません」|
+|phone_number|Presentation|任意。指定する場合は10〜11桁の数字|「電話番号が不正です」|
+|birthday|Domain|任意。指定する場合は未来日でないこと|「生年月日は未来日付にできません。」|
+|address_id|Domain|任意。指定する場合は存在する住所であること（master-data Context参照）|「住所が不正です。」|
 |name / name_kana / gender / address_id / phone_number / birthday|Domain|一括更新（全項目置換）であり、任意項目のうち未指定の項目は空値になることを前提とした整合性|（個別のエラーメッセージは持たず、更新結果としてそのまま反映する）|
 
 ---

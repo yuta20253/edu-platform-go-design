@@ -518,11 +518,11 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|course_id / unit_id|Presentation|整数形式であること（route由来）|「対象コース・単元が不正です」|
+|course_id / unit_id|Presentation|整数に変換できない値は、存在しないIDとして扱う（route由来）|404「コースが見つかりません」「単元が見つかりません」|
 |file|Presentation|必須。拡張子・Content-Typeがcsvであること|「CSVファイルを指定してください」|
-|CSVヘッダー|Domain|問題インポートで要求される列が過不足なく存在すること|「CSVの形式が不正です」|
+|CSVヘッダー|Domain|必須の列が存在すること（任意の列の欠落・余分な列は許容する）|「CSVのフォーマットが不正です」|
 |mode|Presentation|`append`または`overwrite`のいずれか。それ以外は`append`へ正規化|（形式エラーとしては扱わない）|
-|CSV行データ|Domain|必須項目の充足、正解番号・選択肢数等の業務的な形式妥当性（QuestionCsvRowValidator）|「〇行目: 〇〇が不正です」|
+|CSV行データ|Domain|必須項目の充足、正解番号・選択肢数等の業務的な形式妥当性（QuestionCsvRowValidator）|行番号とあわせて、`Admin::QuestionImportForm`のメッセージ（`問題文を入力してください`・`正解番号は一覧にありません`・`選択肢は4個でなければなりません`など）を行エラーとして記録する|
 
 ## 責務分離
 

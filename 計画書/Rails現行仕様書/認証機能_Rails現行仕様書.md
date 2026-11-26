@@ -150,6 +150,7 @@
    - `name_kana` はカタカナ形式であることを検証する。
    - `student` かつ選択した高校が生徒コード管理対象校（`csv_managed`）の場合、`student_number` の入力を必須とする。
    - `student_number` が入力されている場合、所定のフォーマット（学校コードとコード本体をハイフンで連結した形式）であることを検証する。
+   - `password` の長さは `User` モデル（Devise の `validatable`、`config.password_length = 6..128`）が検証する。6文字未満は `パスワードは6文字以上で入力してください`、128文字を超えると `パスワードは128文字以内で入力してください` を422で返す。ログインでは長さを検証しない（必須のみ）。
 2. `Auth::SignUpService` で次の処理を実行する。
    - `UserRole.find_by(name: user_role_name)` を検索し、存在しない場合は `SignUpError` を返す。
    - 生徒が `student_number` を入力した場合は新規ユーザーを作成せず、生徒コードに対応する既存ユーザー（学校側で事前登録済みの仮アカウント）を検索し、生徒コードに含まれる学校コードと選択した高校が一致すること、対象ユーザーが未有効化（`password_reset_required` が true）であることを確認したうえで、入力内容で更新し `activated_at` を設定してアカウントを有効化する。有効化に伴い、元のメールアドレス宛にアカウント有効化完了のメールを送信する。
@@ -165,6 +166,8 @@
 
 ### Errorケース
 
+- 400 Bad Request
+  - `user` キー自体が存在しない（本文は `{"errors": ["必須パラメータ「user」がありません"]}`）
 - 422 Unprocessable Content
   - `Auth::SignUpService::SignUpError`
   - ActiveRecord バリデーションエラー
@@ -213,7 +216,7 @@
 
 ### 処理内容
 
-1. `Auth::PasswordResetForm` で入力値を検証する。
+1. `Auth::PasswordResetForm` で入力値を検証する。新しいパスワードの長さは `User` モデルが検証し、6文字未満は `パスワードは6文字以上で入力してください`、128文字を超えると `パスワードは128文字以内で入力してください` を422で返す。
 2. `Auth::ChangePasswordService` で `User.reset_password_by_token` を呼び出す。
 3. 更新できた場合、対象ユーザーのロールが管理者・教員・生徒のいずれかであれば `password_reset_required` を false に更新する。これにより招待されたユーザーの招待完了（利用開始）が成立する。
 4. 正常に更新できた場合は `パスワードを更新しました。` を返却する。
@@ -230,6 +233,8 @@
 
 ### Errorケース
 
+- 400 Bad Request
+  - `password_reset` キー自体が存在しない（本文は `{"errors": ["必須パラメータ「password_reset」がありません"]}`）
 - 422 Unprocessable Content
   - `ValidationError`（トークン不正、パスワード未入力、確認パスワード不一致など）
 
@@ -285,6 +290,8 @@
 
 ### Errorケース
 
+- 401 Unauthorized
+  - 未認証（Cookieの認証情報が無い・無効）。本文は `{"errors": ["ログインしてください"]}`（`ApiFailureApp`。`devise.ja.yml` の `unauthenticated`）。他機能のエンドポイントも同じ（Go設計では規約「15. API規約」の「全機能に共通するエラー」に従う）
 - 401 Unauthorized
   - 未ログインの場合
 

@@ -621,7 +621,7 @@ Transaction Script採用のため、application関数内のガード節で検証
 |分析タイプの指定（`analytics`オブジェクト）がない|Request DTOのバインド失敗をバリデーションエラーへ変換したもの|Presentation|400|
 |既知でない分析タイプを指定した|`ErrInvalidAnalyticsType`（指定値を含むメッセージを持つ）|Application|400|
 |`from`・`to`の形式が不正、前後が逆、期間が上限超過|Request DTOのバリデーションエラー|Presentation|422|
-|`course_id`・`unit_id`が整数として解釈できない|Request DTOのバリデーションエラー|Presentation|422|
+|`course_id`・`unit_id`が整数に変換できない|エラーにしない（一致するデータ無しとして扱う）|—|200|
 |`grade_average`で生徒に学年が設定されていない|`ErrGradeNotSet`|Application|500|
 |他Contextの参照手段の呼び出しに失敗|包まずそのまま返す|Infrastructure|500|
 |未認証|認証ミドルウェアが返す|Middleware|401|
@@ -801,6 +801,6 @@ application関数も同様に、参照手段のエラーをそのまま呼び出
 |`RankAnswerStatsDirectory.AggregateAnswersByUserForCourse` / `ForUnit`|`question-answering`の「ユーザーごとの解答数・正答数の集計」（同）|
 |`CurriculumDirectory.FindCourseSubjects`|`curriculum`の「コースの所属教科の取得」（コース参照機能②「11. Repository設計」の「他Contextへ公開する参照手段」）|
 |`CurriculumDirectory.FindUnitHierarchies`|`curriculum`の`FindUnitsByIDs`と`FindCourseSubjects`をアダプタが組み合わせる（上記「他Contextの参照手段の実装（アダプタ）」）|
-|`UserGradeDirectory` / `ActiveUserDirectory`の3操作|`user`の`GetUserAttributes`（学年の識別子）と`SearchUsers`（学年IDの集合で絞り込み／ID指定・有効のみ）。新しい公開操作は不要（ユーザー基盤機能③「3. 公開操作の定義」）|
+|`UserGradeDirectory` / `ActiveUserDirectory`の3操作|`user`の`GetUserAttributes`（学年の識別子）と`SearchUsers`（学年IDの集合で絞り込み／ID指定・有効のみ）。新しい公開操作は不要（ユーザー基盤機能③「6. Application層設計」）|
 |`GradeDirectory.FindGradeYear`|`master-data`の`FindGrades`に1件分の集合を渡し、返った属性の年次を取り出す（共通マスタ参照機能③基盤編「8. Infrastructure層設計」）|
 |`GradeDirectory.FindGradeIDsByYear`|`master-data`の同名の操作（同）|

@@ -115,7 +115,7 @@ type CreateStudentAccountResult struct {
 
 **既存のコース参照機能③等と同じ理由で、本Contextからは`grades`・`school_classes`へ直接クエリを発行しない**（アーキテクチャ規約「5. Context間連携ルール」）。`GradeDirectory`は既存の公開操作（`FindGradesByHighSchoolID`。高校配下の学年一覧を表示名付きで返す）で解決できるため、新しい公開操作の追加は不要である（共通マスタ参照機能③_1「他Contextからの依存の集約」が`student-import`を同操作の利用者として既に記載している）。一方`SchoolClassDirectory`は、クラス編成機能③_3「6. Application層設計」「他Contextへ公開する参照手段」が`Context.ResolveClassByName(ctx context.Context, gradeID uint, className string) (schoolClassID uint, found bool, err error)`を本Contextへ公開する操作として定めており、本インターフェースのシグネチャはこの公開操作と一致する。
 
-`StudentAccountCreator`の`CreateStudentAccount`・`IssueStudentNumber`は、いずれも`user` Contextの既存の公開操作への委譲である（ユーザー基盤機能③「3. 公開操作の定義」）。
+`StudentAccountCreator`の`CreateStudentAccount`・`IssueStudentNumber`は、いずれも`user` Contextの既存の公開操作への委譲である（ユーザー基盤機能③「6. Application層設計」）。
 
 ## 作成するディレクトリ一覧
 

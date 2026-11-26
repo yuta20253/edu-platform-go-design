@@ -869,7 +869,7 @@ Domain層・Infrastructure層は生徒視点・教員視点で共有するため
 
 |インターフェース|委譲先|状態|
 |-|-|-|
-|`UserNameDirectory`|`user`の`GetUserAttributes`（複数ID。ユーザー基盤③「3. 公開操作の定義」）。返った属性から氏名を取り出す|確定|
+|`UserNameDirectory`|`user`の`GetUserAttributes`（複数ID。ユーザー基盤③「6. Application層設計」）。返った属性から氏名を取り出す|確定|
 |`StudentDirectory`|同じ`GetUserAttributes`。結果に含まれるかどうかで存在確認を兼ね、学年の識別子を取り出す（ユーザー基盤②「12. UseCase設計」は該当しない識別子を結果に含めない）|確定|
 |`GradeRestrictionDirectory`|`teacher-permission`の担当学年の制限の参照|**同②に公開操作が未定義**（教師面談②「3. Bounded Context」）。インターフェース名・シグネチャは教師生徒参照③「3. Domain層設計」・教師お知らせ機能③_1「8. Infrastructure層設計」と同一にし、所有Context側に操作が定まった時点でそこへ委譲する|
 |`TeacherAssignmentDirectory`|`school-class`のクラスの担当教員の参照（単一教員の担当確認・クラスの担当教員一覧の両方）|**同②に公開操作が未定義**（②「3. Bounded Context」）。同上。クラス編成②「12. UseCase設計」のクラス詳細取得が同じ`teacher_school_classes`を自Context内の参照専用Repositoryとして直接読んでおり、本Contextも同じ扱い（所有Contextが現行の②群に定義されていないテーブルへの参照専用の依存）とする（②「3. Bounded Context」）|
@@ -1069,10 +1069,10 @@ Error Response方針: 面談機能②「19. API仕様」の「既存のerrors形
 
 |フィールド|struct名|バリデーションタグ|エラーメッセージ方針|
 |-|-|-|-|
-|teacher_id|CreateInterviewRequestRequest|`binding:"required"`|「申請先教員を指定してください」|
-|reason_category|CreateInterviewRequestRequest|`binding:"required"`|「相談理由の種別を選択してください」|
-|reason_detail|CreateInterviewRequestRequest|`binding:"required,max=2000"`|「相談理由を入力してください」|
-|lock_version|CancelInterviewRequestRequest|`binding:"required"`|「版数を指定してください」|
+|teacher_id|CreateInterviewRequestRequest|`binding:"required"`|「先生を入力してください」|
+|reason_category|CreateInterviewRequestRequest|`binding:"required"`|「相談カテゴリを入力してください」「相談カテゴリは一覧にありません」|
+|reason_detail|CreateInterviewRequestRequest|`binding:"required,max=2000"`|「相談内容を入力してください」「相談内容は2000文字以内で入力してください」|
+|lock_version|CancelInterviewRequestRequest|`binding:"required"`|「lock_versionは必須です」|
 |body|CreateInterviewRequestMessageRequest|`binding:"required,max=2000"`|「メッセージを入力してください」|
 |status（クエリ）|ListInterviewRequestsRequest|`binding:"omitempty,oneof=requested scheduling confirmed completed cancelled"`|（クエリ絞り込みのため未指定時は無視。不正値のみ422）|
 
@@ -1128,6 +1128,8 @@ Domain Model採用のため、以下はDomain（Entity／Value Object／Domain S
 ## Domain Error → Application Errorへの変換方針
 
 UseCaseは、Repository/Domainから返されたエラーを`errors.Is`で判別し、`AppError`を実装した型（`internal/shared/apperror`。規約「12. Error変換パターン（AppError）」）に変換して返す。Domain Error自体にStatusCode/LogLevelを持たせない（規約「12. Error変換パターン（AppError）」Domain Model採用時の変換）。
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`interview_request`・`interview_request_message`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## Application Error → HTTPレスポンスへの変換方針（Status Code対応表）
 

@@ -476,7 +476,11 @@ Rails現行仕様も「`current_user`本人の下書きタスク」「`current_u
 |`title`が100文字を超えた|Validation|Domain|422|
 |DB接続・永続化の失敗|Internal|Infrastructure → Application（変換）|500|
 
+複数の検証が同時に失敗した場合は、最初の失敗で打ち切らず、失敗したすべてのメッセージを`errors`配列に含めて422で返す。Rails現行のFormは全検証を実行して全件を返すためである（①「6. データモデル」の「エラーレスポンスの本文」）。複数メッセージを持つ`AppError`の表現は、アーキテクチャ規約「12. Error変換パターン（AppError）」の「複数のメッセージを同時に返すエラー」に従う。Presentation・Domain・他Contextの参照手段（`GoalDirectory`・`UnitDirectory`）による検証の結果を1つにまとめる。
+
 目標が操作者自身のものでない場合を403ではなく422とするのは、Rails現行が入力値の不正（`goal_id`に対する検証エラー）として422を返しているためである（①「5. API / 処理詳細」`#create`）。
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`draft_task`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## エラーレスポンスの本文
 

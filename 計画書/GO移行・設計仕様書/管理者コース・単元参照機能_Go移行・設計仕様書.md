@@ -361,12 +361,12 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|subject_id|Presentation|任意項目。整数形式であること|「科目IDの形式が不正です」|
+|subject_id|Presentation|任意項目。整数に変換できない値は、どのデータにも一致しない値として扱う（結果は0件）|エラーにしない|
 |q|Presentation|任意項目。文字列であること|-|
 |sort|Domain|`level_name`/`created_at`/`id`のいずれか。それ以外は`created_at`にフォールバック|（形式エラーとしては扱わない）|
 |order|Domain|`asc`/`desc`のいずれか。それ以外は`desc`にフォールバック|（形式エラーとしては扱わない）|
-|per_page|Presentation|任意項目。正の整数、上限100件|「1ページあたりの件数が不正です」|
-|course_id / unit_id|Presentation|必須（詳細取得時）。整数形式であること|「対象コース・単元が不正です」|
+|per_page|Presentation|任意項目。整数に変換できない値・0以下は既定値として扱う。100を超える値は100として扱う|エラーにしない|
+|course_id / unit_id|Presentation|必須（詳細取得時）。整数に変換できない値は、存在しないIDとして扱う|404「コースが見つかりません」「単元が見つかりません」|
 |単元スコープ|Domain|指定単元がroute上のcourse_idに属していること|（存在しないものとして404を返す）|
 
 ## 責務分離

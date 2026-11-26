@@ -275,11 +275,11 @@ stateDiagram-v2
 |`UpdateAnnouncement`|`UpdateContent`・`ChangeStatus`|指定があれば変更|配信済みへの遷移で設定|
 |`PublishAnnouncement`|`PublishManually`|**消す**|設定|
 |`DeleteAnnouncement`|`EnsureDeletable`|-|-|
-|`PublishScheduledAnnouncements`|**呼ばない**（`PublishIfScheduled`が更新条件付きの更新で行う）|**消さない**|更新と同時に設定|
+|`PublishScheduledAnnouncements`|**呼ばない**（`PublishIfScheduled`が更新条件付きの更新で行う）|**消す**|更新と同時に設定|
 
 **予約のまま予約日時だけを変更する経路がある。** `ChangeStatus`に現在と同じ状態が渡された場合は遷移の判定を行わず、予約日時のみを変更する（基盤編「3. Domain層設計」）。
 
-**配信済みのお知らせに予約日時が残っているかどうかで、どちらの経路で配信されたかが分かる。** 手動配信は消し、自動切替は残す（①「7. 状態管理」）。
+**手動配信と自動切替のどちらも予約日時を消す。** 配信済みのお知らせには経路を問わず予約日時が残らない（①「7. 状態管理」）。
 
 ---
 
@@ -443,7 +443,7 @@ stateDiagram-v2
 4. `a.EnsureDeletable()`を呼ぶ。配信済みなら`ErrNotDeletable`
 5. トランザクション内で`repo.Delete(ctx, a)`を呼ぶ
 
-**`EnsureDeletable`を呼ぶ。** `EnsureEditable`ではない。Rails現行のメッセージが「配信済みのため削除できません」であり、編集時の文言と異なる（①「5. API / 処理詳細」`#destroy`）。
+**`EnsureDeletable`を呼ぶ。** `EnsureEditable`ではない。Rails現行のメッセージが「配信済みのお知らせは削除できません」であり、編集時の文言と異なる（①「5. API / 処理詳細」`#destroy`）。
 
 **トランザクションで囲む。** 配信先とお知らせの2テーブルから削除する（②「14. Transaction設計」）。
 
@@ -534,7 +534,7 @@ stateDiagram-v2
 
 **`Announcement` Entityを経由しない。** 更新条件に遷移前の状態を含めた更新を1回で発行するためである（基盤編「3. Domain層設計」）。Entityを取得してから更新すると、取得と更新の間に他のインスタンスが処理する余地が生まれる。`PublishByScheduler`は呼ばない。
 
-**予約日時を消さない**（①「9. 非同期処理」）。`PublishIfScheduled`が`scheduled_at`を更新しない（基盤編「8. Infrastructure層設計」）。
+**予約日時を消す**（①「9. 非同期処理」）。`PublishIfScheduled`が`scheduled_at`を`NULL`にする（基盤編「8. Infrastructure層設計」）。
 
 **発行者のロールを問わない。** 管理者が作成した予約も教員が作成した予約も対象になる（①「9. 非同期処理」）。`FindDuePublications`に発行者の条件を渡さない。
 
@@ -571,7 +571,7 @@ sequenceDiagram
         U->>U: ParseAnnouncementStatus
         alt 既知でない状態
             U-->>H: ErrInvalidStatus
-            H-->>C: 422（Status は一覧にありません）
+            H-->>C: 422（状態は一覧にありません）
         else 既知の状態
             U->>A: NewAnnouncementTarget（全員・識別子なし）
             Note over U,A: ScopeToHighSchool を呼ばない
@@ -626,7 +626,7 @@ sequenceDiagram
             U->>A: EnsureEditable()
             alt 配信済み
                 A-->>U: ErrNotEditable
-                H-->>C: 422（is 配信済みのため編集できません）
+                H-->>C: 422（配信済みのお知らせは編集できません）
             else 編集できる
                 U->>A: UpdateContent(title, content)
                 opt 状態または予約日時の指定がある
@@ -881,7 +881,7 @@ flowchart TD
 
 **`announcement`に`required`を付ける。** キーが存在しない場合に`400`を返す（①「5. API / 処理詳細」`#create`）。Gin規約「6. Model BindingとValidation」のタグによる検証を使う。
 
-**作成用の件名・本文・状態に`binding:"required"`を付けない。** 必須の検証はDomain層で行い、Rails現行のメッセージ（`Title を入力してください`）を維持する（②「15. Validation設計」）。Ginのタグによる検証では文言を再現できない。
+**作成用の件名・本文・状態に`binding:"required"`を付けない。** 必須の検証はDomain層で行い、Rails現行のメッセージ（`タイトルを入力してください`）を維持する（②「15. Validation設計」）。Ginのタグによる検証では文言を再現できない。
 
 **更新用はすべて`*`型にする。** `nil`が「渡されなかった」を表す（②「12. UseCase設計」）。
 
@@ -898,7 +898,7 @@ flowchart TD
 ||`Page int`|`page`|
 ||`PerPage int`|`per_page`|
 
-`ShouldBindQuery`でバインドする。`Page`・`PerPage`が整数として解釈できない場合は`422`を返す。
+`ShouldBindQuery`でバインドする。`Page`・`PerPage`が整数に変換できない場合はエラーにせず、既定値（`page`=1、`per_page`=20）として扱う（Rails `sanitize_page`・`sanitize_per_page`と同じ）。
 
 **`Status`を文字列で受け取る。** `binding`による値域の検証を付けない。既知でない値を`422`にせず、絞り込まない値として扱う（①「5. API / 処理詳細」`#index`）。
 
@@ -1019,22 +1019,22 @@ flowchart TD
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|`announcement`キーがない（作成・更新）|400|`{"errors": ["お知らせの内容を指定してください"]}`|
-|`id`・`high_school_id`が符号なし整数として解釈できない|422|`{"errors": ["お知らせの指定が不正です"]}` / `{"errors": ["高校の指定が不正です"]}`|
-|`page`・`per_page`が整数として解釈できない|422|`{"errors": ["ページの指定が不正です"]}`|
-|`scheduled_at`が日時として解釈できない|422|`{"errors": ["配信日時の指定が不正です"]}`|
-|件名が未入力（作成）|422|`{"errors": ["Title を入力してください"]}`|
-|件名が256文字以上|422|`{"errors": ["Title は255文字以内で入力してください"]}`|
-|本文が未入力（作成）|422|`{"errors": ["Content を入力してください"]}`|
-|本文が10,001文字以上|422|`{"errors": ["Content は10000文字以内で入力してください"]}`|
-|状態が未入力（作成）|422|`{"errors": ["Status を入力してください"]}`|
-|状態が既知でない|422|`{"errors": ["Status は一覧にありません"]}`|
-|予約状態で予約日時が未設定|422|`{"errors": ["配信日時 を指定してください"]}`|
-|予約日時が未来でない|422|`{"errors": ["配信日時 は未来日時を指定してください"]}`|
-|状態遷移が許されない|422|`{"errors": ["status は {遷移元} から {遷移先} へは変更できません"]}`|
-|配信済みのため編集できない|422|`{"errors": ["is 配信済みのため編集できません"]}`|
-|配信済みのため削除できない|422|`{"errors": ["is 配信済みのため削除できません"]}`|
-|既に配信済み（手動配信）|422|`{"errors": ["status はすでに配信済みです"]}`|
+|`announcement`キーがない（作成・更新）|400|`{"errors": ["必須パラメータ「announcement」がありません"]}`|
+|`id`・`high_school_id`が整数に変換できない|404|`{"errors": ["お知らせが見つかりません"]}` / `{"errors": ["高校が見つかりません"]}`（存在しないIDと同じ扱い）|
+|`page`・`per_page`が整数に変換できない・0以下|200|エラーにしない。既定値で処理する（①「5. API / 処理詳細」`#index`）|
+|`scheduled_at`が日時に変換できない|—|エラーにしない。未指定として扱う（状態が予約のときは`配信日時を指定してください`の422）|
+|件名が未入力（作成）|422|`{"errors": ["タイトルを入力してください"]}`|
+|件名が256文字以上|422|`{"errors": ["タイトルは255文字以内で入力してください"]}`|
+|本文が未入力（作成）|422|`{"errors": ["本文を入力してください"]}`|
+|本文が10,001文字以上|422|`{"errors": ["本文は10000文字以内で入力してください"]}`|
+|状態が未入力（作成）|422|`{"errors": ["状態を入力してください"]}`|
+|状態が既知でない|422|`{"errors": ["状態は一覧にありません"]}`|
+|予約状態で予約日時が未設定|422|`{"errors": ["配信日時を指定してください"]}`|
+|予約日時が未来でない|422|`{"errors": ["配信日時は未来日時を指定してください"]}`|
+|状態遷移が許されない|422|`{"errors": ["状態は{遷移元の表示名}から{遷移先の表示名}へは変更できません"]}`|
+|配信済みのため編集できない|422|`{"errors": ["配信済みのお知らせは編集できません"]}`|
+|配信済みのため削除できない|422|`{"errors": ["配信済みのお知らせは削除できません"]}`|
+|既に配信済み（手動配信）|422|`{"errors": ["状態はすでに配信済みです"]}`|
 |操作する権限がない|403|`{"errors": ["この操作を行う権限がありません"]}`|
 |教員が発行した、存在しない|404|`{"errors": ["お知らせが見つかりません"]}`|
 |高校が存在しない|404|`{"errors": ["高校が見つかりません"]}`|
@@ -1087,12 +1087,12 @@ flowchart TD
 
 |フィールド|置き場所|ルール|エラーメッセージ|Status|
 |-|-|-|-|-|
-|`announcement`|`binding:"required"`|キーが存在すること|お知らせの内容を指定してください|400|
-|`id`|Handler|符号なし整数として解釈できること|お知らせの指定が不正です|422|
-|`high_school_id`|Handler|同|高校の指定が不正です|422|
-|`scheduled_at`|`ShouldBindJSON`|日時として解釈できること|配信日時の指定が不正です|422|
-|`page`|Handler|整数として解釈できること。0以下・未指定は既定値|ページの指定が不正です|422|
-|`per_page`|Handler|同。0以下・未指定は既定値20、101以上は100に丸める|同|422|
+|`announcement`|`binding:"required"`|キーが存在すること|必須パラメータ「announcement」がありません|400|
+|`id`|Handler|整数に変換できない値は存在しないIDとして扱う|お知らせが見つかりません|404|
+|`high_school_id`|Handler|同|高校が見つかりません|404|
+|`scheduled_at`|`ShouldBindJSON`|変換できない値は未指定として扱う|—（エラーにしない）|—|
+|`page`|Handler|整数に変換できない値・0以下・未指定は既定値|—（エラーにしない）|—|
+|`per_page`|Handler|同。整数に変換できない値・0以下・未指定は既定値20、101以上は100に丸める|—（エラーにしない）|—|
 |`status`（一覧）|Handler|**検証しない。** 既知でない値は絞り込まない値として扱う|-|-|
 
 ページ指定の正規化:
@@ -1195,7 +1195,7 @@ Domain層で行う（基盤編「12. Validation実装方針」）。本機能が
 |業務シナリオ|Error変数名|分類|発生層|HTTP Status|
 |-|-|-|-|-|
 |`announcement`キーがない|Handlerが組み立てる|Validation|Presentation|400|
-|`id`・`high_school_id`・`page`・`per_page`・`scheduled_at`が解釈できない|同|Validation|Presentation|422|
+|`id`・`high_school_id`が整数に変換できない|存在しないIDと同じ扱い|NotFound|Application|404|
 |件名・本文の必須・長さ|`ErrTitleRequired`・`ErrTitleTooLong`・`ErrContentRequired`・`ErrContentTooLong`|BusinessRule|Domain|422|
 |状態が既知でない|`ErrInvalidStatus`|BusinessRule|Domain|422|
 |状態遷移が許されない|`ErrInvalidStatusTransition`|BusinessRule|Domain|422|
@@ -1241,14 +1241,14 @@ Domain層で行う（基盤編「12. Validation実装方針」）。本機能が
 |`FindByIDAndPublisherRole`|`id`、発行者の`user_role_id`が管理者|同|不要|
 |`FindByHighSchool`|`announcement_targets.high_school_id`が一致、重複を除く|同|`created_at`降順・`id`降順、`LIMIT`/`OFFSET`|
 |`FindDuePublications`|`status`が予約、`scheduled_at <= ?`|なし|不要。`id`のみ取得|
-|`PublishIfScheduled`|`id`、`status`が予約、`scheduled_at <= ?`|なし|`status`・`published_at`を更新。**`scheduled_at`を更新しない**。更新行数を返す|
+|`PublishIfScheduled`|`id`、`status`が予約、`scheduled_at <= ?`|なし|`status`・`published_at`・`scheduled_at`（`NULL`）を更新。更新行数を返す|
 |`Save`|新規は作成、既存は更新|-|-|
 |`Delete`|`announcement_targets`を`announcement_id`で全件削除し、`announcements`を`id`で削除|-|-|
 
 - **並び順が`created_at`降順である。** 生徒向け・教員向けの一覧が`published_at`降順であるのとは異なる（①「5. API / 処理詳細」`#index`）。下書き・予約を含むため配信日時では並べられない
 - **件名の部分一致でワイルドカード文字（`%`・`_`）をエスケープする。** Rails現行も`sanitize_sql_like`でエスケープしている（同）
 - **`FindByHighSchool`で配信先の全件を読み込む。** 絞り込みはUseCaseで行う（「6. Application層設計」）
-- **`PublishIfScheduled`が`scheduled_at`を更新しない**（①「9. 非同期処理」）
+- **`PublishIfScheduled`が`scheduled_at`を`NULL`にする**（①「9. 非同期処理」）
 - 予約日時の比較がずれないよう、接続のタイムゾーンを固定する（Gorm規約「4. タイムスタンプのトラッキング」の「接続のタイムゾーン」）
 
 本書が担当するGORMモデル・クエリの実装はない。
@@ -1340,7 +1340,7 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 - `FindByIDAndPublisherRole`: 発行者のロールが異なるお知らせが`ErrAnnouncementNotFound`になること
 - `FindByHighSchool`: 配信先の高校が一致するお知らせが返ること、複数の配信先が同じ高校を指しても1件として返ること
 - `FindDuePublications`: `scheduled_at`がちょうど引数の時刻の行が含まれること、下書き・配信済みが含まれないこと
-- `PublishIfScheduled`: 予約のお知らせが配信済みになり行数1が返ること、既に配信済みなら行数0が返ること、**`scheduled_at`が残ること**
+- `PublishIfScheduled`: 予約のお知らせが配信済みになり行数1が返ること、既に配信済みなら行数0が返ること、**`scheduled_at`が`NULL`になること**
 - `Delete`: お知らせと配信先の両方が削除されること
 
 ## アダプタ Test
@@ -1353,7 +1353,7 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 |-|-|
 |`AnnouncementHandler.Index`|`per_page`の既定値が20になること、101以上が100に丸められること|
 ||`status`が既知でないとき絞り込まれず`200`が返ること|
-||`page`・`per_page`が整数として解釈できないとき`422`が返ること|
+||`page`・`per_page`が整数に変換できない・0以下のとき、エラーにならず既定値で処理されること|
 ||各要素に`content`が含まれないこと|
 ||`target_type`が`null`で返りうること|
 ||`publisher`に`deactivated`が含まれないこと|
@@ -1372,12 +1372,12 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 ||`announcement`キーがないとき`400`が返ること|
 ||`200`と`{"message": "お知らせを更新しました。"}`が返ること|
 |`AnnouncementHandler.Destroy`|**`204`で本文が空であること**|
-||`ErrNotDeletable`のとき`422`と`is 配信済みのため削除できません`が返ること|
+||`ErrNotDeletable`のとき`422`と`配信済みのお知らせは削除できません`が返ること|
 |`AnnouncementHandler.Publish`|`200`と`{"message": "お知らせを配信しました。"}`が返ること|
-||`ErrAlreadyPublished`のとき`422`と`status はすでに配信済みです`が返ること|
+||`ErrAlreadyPublished`のとき`422`と`状態はすでに配信済みです`が返ること|
 |共通|application層のエラーを`c.Error`へ渡し、自身で`c.JSON`しないこと|
 ||`c.Error`を1回だけ呼ぶこと|
-|`HighSchoolAnnouncementHandler.Index`|`high_school_id`が符号なし整数として解釈できないとき`422`が返ること|
+|`HighSchoolAnnouncementHandler.Index`|`high_school_id`が整数に変換できないとき404が返ること|
 ||`ErrHighSchoolNotFound`のとき`404`と`{"errors": ["高校が見つかりません"]}`が返ること|
 ||各要素に`content`が含まれること|
 ||**配信先のキーが`targets`であること**|
@@ -1405,7 +1405,7 @@ Repositoryと他Contextの参照手段をテストダブルに差し替えて検
 |手動配信|予約日時が`null`になること、配信日時が設定されること|
 |手動配信|**配信後に生徒・教員のお知らせ一覧に現れること**|
 |定期実行|予約日時を過ぎた予約が配信済みになること|
-|定期実行|**予約日時が残ること**（手動配信との違い）|
+|定期実行|**予約日時が消えること**（手動配信と同じ）|
 |定期実行|予約日時が未来の予約が対象にならないこと|
 |定期実行|**教員が作成した予約も対象になること**|
 |定期実行|**同じ対象に対して2回実行しても2回目は行数0で何も変わらないこと**|

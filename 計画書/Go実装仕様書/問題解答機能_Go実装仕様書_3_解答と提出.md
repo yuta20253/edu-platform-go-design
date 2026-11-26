@@ -642,12 +642,12 @@ flowchart TD
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|`question_id` / `question_choice_id`の未入力|422|`{"errors": ["Question を入力してください", ...]}`|
-|タスクが操作者自身のものでない（存在しない場合を含む）|**422**|`ErrInvalidTask`。`Task が不正です`。**404ではない**|
-|単元がそのタスクに紐づかない|**422**|`ErrInvalidUnit`。`Unit が不正です`|
-|問題がその単元に紐づかない|**422**|`ErrInvalidQuestion`。`Question が不正です`|
-|選択肢が対象問題のものでない|422|`ErrInvalidQuestionChoice`。`Question choice はこの問題の選択肢ではありません`|
-|`time_spent_sec`が0未満または3600超|422|`ErrInvalidTimeSpentSec`|
+|`question_id` / `question_choice_id`の未入力|422|`{"errors": ["問題を入力してください", ...]}`|
+|タスクが操作者自身のものでない（存在しない場合を含む）|**422**|`ErrInvalidTask`。`タスクが不正です`。**404ではない**|
+|単元がそのタスクに紐づかない|**422**|`ErrInvalidUnit`。`単元が不正です`|
+|問題がその単元に紐づかない|**422**|`ErrInvalidQuestion`。`問題が不正です`|
+|選択肢が対象問題のものでない|422|`ErrInvalidQuestionChoice`。`選択肢はこの問題の選択肢ではありません`|
+|`time_spent_sec`が0未満または3600超|422|`ErrInvalidTimeSpentSec`。`解答時間は0以上の値にしてください`・`解答時間は3600以下の値にしてください`|
 |問題の正解を整数に変換できない|500|`ErrInvalidCorrectAnswer`。データ不整合|
 |当日の解答件数の加算に失敗した|—|**エラーにしない。** 201を返し、ログに記録する|
 
@@ -662,7 +662,7 @@ flowchart TD
 |`question_id` / `question_choice_id`の未入力|422|`{"errors": [...]}`|
 |対象の解答履歴が見つからない|**422**|`ErrQuestionHistoryNotFound`。`解答履歴が見つかりません`。**404ではない**|
 |選択肢が対象問題のものでない|422|`ErrInvalidQuestionChoice`|
-|`time_spent_sec`が0未満または3600超|422|`ErrInvalidTimeSpentSec`|
+|`time_spent_sec`が0未満または3600超|422|`ErrInvalidTimeSpentSec`。`解答時間は0以上の値にしてください`・`解答時間は3600以下の値にしてください`|
 
 **タスク・単元・問題の紐づきを検証しない。** 解答履歴の検索条件がその役割を兼ねている。存在しないタスクを指定した場合も「解答履歴が見つからない」として422になる（①「5. API / 処理詳細」`#update`（解答））。
 

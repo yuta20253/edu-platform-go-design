@@ -529,16 +529,16 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|teacher_id|Presentation|必須・数値形式|「申請先教員を指定してください」|
-|reason_category|Presentation|必須（生徒申請時）|「相談理由の種別を選択してください」|
-|reason_detail|Presentation|必須・2000文字以内|「相談理由を入力してください」|
-|teacher_id|Domain|生徒の所属クラスの担当教員であること|「指定された教員は担当教員ではありません」|
-|student_id + teacher_id|Domain|進行中の面談が重複していないこと|「既に進行中の面談があります」|
-|lock_version|Presentation|必須（取り消し時）|「版数を指定してください」|
-|status|Domain|取り消し時は進行中であること|「進行中の面談のみ取り消せます」|
-|lock_version|Domain|最新の版数と一致すること|「他の操作によって情報が更新されています」|
+|teacher_id|Presentation|必須・数値形式|「先生を入力してください」|
+|reason_category|Presentation|必須（生徒申請時）|「相談カテゴリを入力してください」「相談カテゴリは一覧にありません」|
+|reason_detail|Presentation|必須・2000文字以内|「相談内容を入力してください」「相談内容は2000文字以内で入力してください」|
+|teacher_id|Domain|生徒の所属クラスの担当教員であること|「先生は申請可能な教員ではありません」|
+|student_id + teacher_id|Domain|進行中の面談が重複していないこと|「この教員との進行中の面談が既に存在します」（Model検証で検出されるときは「この生徒との進行中の面談が既に存在します」）|
+|lock_version|Presentation|必須（取り消し時）|「lock_versionは必須です」|
+|status|Domain|取り消し時は進行中であること|「進行中の面談のみキャンセルできます」|
+|lock_version|Domain|最新の版数と一致すること|「他のユーザーによってデータが更新されています。再読み込みしてください」|
 |body|Presentation|必須・2000文字以内|「メッセージを入力してください」|
-|status|Domain|メッセージ投稿時は未終了であること|「終了した面談にはメッセージを投稿できません」|
+|status|Domain|メッセージ投稿時は未終了であること|「面談申請が終了しているためメッセージを投稿できません」|
 
 ---
 
@@ -587,6 +587,8 @@ flowchart TD
 
 - 責務: DB接続失敗・永続化失敗を表現する
 - 判断理由: 永続化層の失敗をドメインに漏らさず、技術的な障害として切り分けるため
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`interview_request`・`interview_request_message`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## エラー仕様
 

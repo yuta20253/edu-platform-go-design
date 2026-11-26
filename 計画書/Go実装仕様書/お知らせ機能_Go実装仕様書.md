@@ -409,8 +409,8 @@ sequenceDiagram
 
 |条件|Status Code|Error内容|
 |-|-|-|
-|`id`が符号なし整数として解釈できない|422|`{"errors": ["お知らせの指定が不正です"]}`|
-|`page`・`per_page`が整数として解釈できない|422|`{"errors": ["ページの指定が不正です"]}`|
+|`id`が整数に変換できない|404|`{"errors": ["お知らせが見つかりません"]}`（存在しないIDと同じ扱い）|
+|`page`・`per_page`が整数に変換できない・0以下|200|エラーにしない。既定値で処理する（①「5. API / 処理詳細」`#index`）|
 |`page`・`per_page`が0以下|200|エラーにしない。既定値を使う（①「5. API / 処理詳細」`#index`）|
 |自分に配信されていない、配信済みでない、存在しない|404|`{"errors": ["お知らせが見つかりません"]}`|
 |`user`の参照手段の呼び出しに失敗|500|`{"errors": ["internal server error"]}`|
@@ -446,9 +446,9 @@ Repository実装は`gormtx.DBFromContext`で接続を取得する（基盤編「
 
 |フィールド|置き場所|ルール|エラーメッセージ|Status|
 |-|-|-|-|-|
-|`id`（パスパラメータ）|Handler|符号なし整数として解釈できること|お知らせの指定が不正です|422|
-|`page`|Handler|整数として解釈できること。0以下・未指定は既定値|ページの指定が不正です|422|
-|`per_page`|Handler|同。**0以下・未指定は既定値5**、101以上は100に丸める|同|422|
+|`id`（パスパラメータ）|Handler|整数に変換できない値は存在しないIDとして扱う|お知らせが見つかりません|404|
+|`page`|Handler|整数に変換できない値・0以下・未指定は既定値|—（エラーにしない）|—|
+|`per_page`|Handler|同。**整数に変換できない値・0以下・未指定は既定値5**、101以上は100に丸める|—（エラーにしない）|—|
 
 ページ指定の正規化:
 
@@ -460,7 +460,7 @@ Repository実装は`gormtx.DBFromContext`で接続を取得する（基盤編「
 
 **既定値が5件である点が本機能固有である。** 他のAPIの既定値（20件）と異なる（①「5. API / 処理詳細」`#index`）。Rails現行がControllerで`DEFAULT_PER_PAGE = 5`として上書きしている（①「10. Rails実装対応表」）。上限（100）は全APIで共通であり規約に従う。
 
-`page`・`per_page`の不正値をエラーにせず既定値で処理するのは、Rails現行がそうしているためである。ただし**整数として解釈できない値は`422`とする**（Rails現行は`to_i`で`0`になり既定値が使われるため差分が生じる。「17. ②からの補足事項」参照）。
+`page`・`per_page`の不正値（整数に変換できない値を含む）は、エラーにせず既定値で処理する。Rails現行の`sanitized_page`・`sanitized_per_page`と同じである（①「5. API / 処理詳細」`#index`）。
 
 ## 業務ルール検証
 
@@ -503,7 +503,7 @@ Repository実装は`gormtx.DBFromContext`で接続を取得する（基盤編「
 
 |業務シナリオ|Error変数名／型|発生層|HTTP Status|
 |-|-|-|-|
-|`id`・`page`・`per_page`が整数として解釈できない|Handlerが組み立てるバリデーションエラー|Presentation|422|
+|`id`が整数に変換できない|存在しないIDと同じ扱い（`ErrAnnouncementNotFound`）|Application|404|
 |指定されたお知らせが取得できない|`ErrAnnouncementNotFound`（基盤編の`domain/errors.go`）|Domain|404|
 |`user`の参照手段の呼び出しに失敗|包まずそのまま返す|Infrastructure|500|
 |DBアクセスの失敗|同|Infrastructure|500|
@@ -589,7 +589,7 @@ Repositoryと`user`の参照手段をテストダブルに差し替えて検証�
 |`Index`|**`per_page`の既定値が5になること**（未指定・0以下のとき）|
 ||`per_page`が101以上のとき100に丸められること|
 ||`page`が未指定・0以下のとき1になること|
-||`page`・`per_page`が整数として解釈できないとき`422`が返ること|
+||`page`・`per_page`が整数に変換できない・0以下のとき、エラーにならず既定値で処理されること|
 ||`announcements`キーと`meta`を持つこと|
 ||`meta`が`current_page`・`total_pages`・`total_count`・`per_page`を持つこと|
 ||各要素に`content`が含まれること|
@@ -601,7 +601,7 @@ Repositoryと`user`の参照手段をテストダブルに差し替えて検証�
 |`Show`|**最上位が単体のオブジェクトで返ること**（`announcements`等のキーで包まないこと）|
 ||項目が一覧の各要素と同じであること|
 ||`ErrAnnouncementNotFound`のとき`404`と`{"errors": ["お知らせが見つかりません"]}`が返ること|
-||`id`が符号なし整数として解釈できないとき`422`が返ること|
+||`id`が整数に変換できないとき`404`が返ること|
 
 ## Integration Test
 
@@ -635,31 +635,25 @@ Repositoryと`user`の参照手段をテストダブルに差し替えて検証�
 - 判断理由: 受け取る値が3つのみで、いずれも整数として解釈して正規化するだけである。`ShouldBindQuery`でstructへバインドしても、`page`・`per_page`は正規化のために個別に扱うことになる。教師お知らせ機能③_2がRequest DTOを設けるのは、ボディを受け取り項目が多いためである
 - 推測かどうか: 推測ではない。規約に定めのない範囲での実装手段の選択である
 
-## 2. `page`・`per_page`が整数として解釈できないとき`422`とする
-
-- 判断した内容: 数値以外の値（`page=abc`）を`422`で返す
-- 判断理由: Rails現行は`sanitized_page`・`sanitized_per_page`が`to_i`で変換するため、`"abc".to_i`は`0`になり既定値が使われる。つまりRails現行は`200`を返す。Go側で`strconv.Atoi`が失敗した場合に既定値を使う形にすれば同じ挙動になるが、**不正な入力を黙って無視する形になる**
-- 推測かどうか: **②からの補足**。②「15. Validation設計」は「整数として解釈できること」をルールとしているが、解釈できない場合のステータスまでは定めていない。**Rails現行は`200`を返すため挙動が変わる。** フロントエンドが数値以外を送る経路は想定されないが、差分として記録する。他機能（管理者高校学年参照機能③「12. Validation実装方針」）も同じ扱いにしており、Context間で揃っている
-
-## 3. `AnnouncementItem.PublishedAt`を`*time.Time`にする
+## 2. `AnnouncementItem.PublishedAt`を`*time.Time`にする
 
 - 判断した内容: 配信日時をポインタとし、`nil`を許す型にする
 - 判断理由: Entityのフィールドが`*time.Time`であり、変換で値型にすると`nil`の場合の扱いを決めることになる。本機能が返すのは配信済みのお知らせのみであり実際には常に値が入るが、**型で保証せずEntityの不変条件に委ねる**
 - 推測かどうか: **②からの補足**。レスポンスの`published_at`は常に値が入る前提だが、型としては`null`を許す。Rails現行も同じ形である（`published_at`がカラムとしてNULL可）
 
-## 4. 一覧と詳細でResponse DTOを共用する
+## 3. 一覧と詳細でResponse DTOを共用する
 
 - 判断した内容: `AnnouncementResponse`を一覧の要素と詳細の両方に使う
 - 判断理由: 返す項目が同一である（①「5. API / 処理詳細」）。同じ項目を持つstructを2つ定義すると、項目の追加時に片方だけ変更される。管理者高校学年参照機能③「9. Presentation層設計」も同じ判断をしている
 - 推測かどうか: 推測ではない。①の実体に基づく実装上の整理である
 
-## 5. 本機能の業務はTransaction Script相当だがDomain Modelの構造に従う
+## 4. 本機能の業務はTransaction Script相当だがDomain Modelの構造に従う
 
 - 判断した内容: UseCase structとRepository Interfaceを使い、`application/`直下の関数と`infrastructure/`の検索関数にしない
 - 判断理由: 規約「4. Bounded Context構成」の「1つのContextに複数の設計パターンが混在する場合」が、Contextディレクトリの構成を最も複雑なパターンに合わせることと、パターンの異なる構造を併存させないことを定めている。併存させると同じ`announcements`テーブルに対する永続化の経路が2つになり、業務ルールの置き場所が決まらなくなる
 - 推測かどうか: 推測ではない。規約の適用である。②「24. 採用しなかった設計」の「本機能をTransaction Scriptの構造で実装する」に理由を記載している
 
-## 6. `PublisherRef`の`Deactivated`を使わない
+## 5. `PublisherRef`の`Deactivated`を使わない
 
 - 判断した内容: `dependency.go`の`PublisherRef`が在籍状態を持つが、本機能では読まない
 - 判断理由: 発行者の在籍状態を生徒に見せる要件がなく、絞り込みにも使わない（②「21. DB操作仕様」）。**論理削除済みの発行者のお知らせも返す**ため、絞り込みに使うと挙動が変わる

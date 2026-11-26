@@ -168,7 +168,7 @@ internal/authentication/presentation/request/password_reset_request.go
 - コンストラクタが受け取る依存: `AccountRepository`, `UserRoleRepository`, `*service.PasswordResetLifecyclePolicy`, `PasswordHasher`, `transaction.Manager`
 - 公開メソッド: `(u *ChangePasswordUseCase) Execute(ctx context.Context, cmd dto.ChangePasswordCommand) (dto.ChangePasswordResult, error)`
 - 処理ステップ:
-  1. `valueobject.NewRawPassword`で入力を検証し、確認用パスワードとの一致を検証する
+  1. `valueobject.NewRawPassword`で入力を検証し、`ValidateLength`で文字数を検証し、確認用パスワードとの一致を検証する
   2. `AccountRepository.FindByResetToken`で対象アカウントを検索する
   3. `PasswordResetLifecyclePolicy.CanConsume`でトークンの有効性を判定する
   4. `UserRoleRepository.FindByID(ctx, account.UserRoleID)`でアカウントのロール名を取得する（ロールが見つからない場合はInfrastructure Error扱い。アカウントのロールIDはマスタに存在する前提）
@@ -177,7 +177,7 @@ internal/authentication/presentation/request/password_reset_request.go
   7. `transaction.Manager.WithinTransaction`内で`AccountRepository.UpdatePasswordAndConsumeResetToken(ctx, account.ID, newPasswordHash, account.PasswordResetRequired)`を実行する（パスワードハッシュ更新・トークン消費・招待状態の反映を1操作で行う）
   8. `ChangePasswordResult`を返す
 - トランザクション境界: トークン検証からパスワード更新・トークン消費・招待待ちの解消（教員・生徒の場合）までを1トランザクションとする
-- 発生しうるApplication Error: `ErrResetTokenNotFound`, `ErrResetTokenExpired`, `ErrResetTokenNotIssued`, `ErrPasswordConfirmationMismatch`
+- 発生しうるApplication Error: `ErrResetTokenNotFound`, `ErrResetTokenExpired`, `ErrResetTokenNotIssued`, `ErrPasswordConfirmationMismatch`, `ErrPasswordTooShort`, `ErrPasswordTooLong`
 
 > **②からの補足**: 招待メールのリンクからのパスワード設定は、パスワードリセットと同じトークンの消費であるため、`ChangePasswordUseCase`が招待待ち→招待完了の遷移を担う（②「10. 状態遷移図」「12. UseCase設計」）。招待待ちの解消の対象ロールは、Rails現行の`Auth::ChangePasswordService`に従い管理者・教員・生徒である。既に招待完了のアカウント（招待とは無関係の通常のパスワードリセット）では、`PasswordResetRequired`は偽のまま変化しない。②の「トークン有効性検証からパスワード更新・トークン消費までを1トランザクション」という記載は、招待待ちの解消を含む範囲として実装する。新たなDomain Errorは追加しない。
 
@@ -322,6 +322,8 @@ type AuthNotifier interface {
 |リセットトークンが有効期限切れ|422|`ErrResetTokenExpired`|
 |リセットトークンが発行されていない状態での消費操作|422|`ErrResetTokenNotIssued`|
 |パスワードと確認用パスワードが一致しない|422|`ErrPasswordConfirmationMismatch`|
+|パスワードが6文字未満|422|`ErrPasswordTooShort`|
+|パスワードが128文字超|422|`ErrPasswordTooLong`|
 |`RequestReset`の対象ユーザー不存在|200|エラーにしない。常に固定の成功メッセージを返す（②「17. Error設計」）|
 |`VerifyResetToken`の不正・期限切れ|200|エラーにしない。`Valid: false`を返す|
 |Request DTOバリデーションエラー|422|Presentation Validation|

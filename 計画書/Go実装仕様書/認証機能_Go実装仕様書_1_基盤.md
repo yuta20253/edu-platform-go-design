@@ -300,10 +300,8 @@ internal/authentication/presentation/request/password_reset_request.go
 
 - struct名: `RawPassword`
 - フィールド: `value string`（非公開）
-- 生成時に検証するルール: 登録時の最小文字数等のポリシー（②「7. Value Object設計」により、具体的な文字数はRails現行のDevise標準ポリシーを踏襲する前提。②で「推測」と明記されているため本書でも数値を確定しない）
-- 公開メソッド: `NewRawPassword(raw string) (RawPassword, error)` / `(p RawPassword) Matches(confirmation RawPassword) bool` / `(p RawPassword) String() string`
-
-> **②からの補足**: 具体的な最小文字数は②でも「推測」とされ確定していない。本書でも数値は確定せず、実装時にRails現行DBのバリデーション実態を別途確認する必要がある旨を明記する（①未提供のため参照不可）。
+- 生成時に検証するルール: 未入力でないこと。文字数は`NewRawPassword`では検証しない（ログインで使うため）
+- 公開メソッド: `NewRawPassword(raw string) (RawPassword, error)` / `(p RawPassword) ValidateLength() error`（6文字以上128文字以内。登録・パスワードリセットのUseCaseだけが呼ぶ。文字数は`utf8.RuneCountInString`で数える）/ `(p RawPassword) Matches(confirmation RawPassword) bool` / `(p RawPassword) String() string`
 
 ### StudentNumber（`domain/valueobject/student_number.go`）
 
@@ -380,6 +378,8 @@ internal/authentication/presentation/request/password_reset_request.go
 |`ErrInvalidRole`|指定されたロール名が存在しない|
 |`ErrRegistrationRequirementNotMet`|ロール別必須項目（高校・学年・生徒コード）の欠如、または指定IDが実在しない|
 |`ErrPasswordConfirmationMismatch`|パスワードと確認用パスワードが一致しない|
+|`ErrPasswordTooShort`|パスワードが6文字未満（メッセージ: 「パスワードは6文字以上で入力してください」）|
+|`ErrPasswordTooLong`|パスワードが128文字超（メッセージ: 「パスワードは128文字以内で入力してください」）|
 |`ErrResetTokenNotFound`|リセットトークンに一致するアカウントが存在しない|
 |`ErrResetTokenExpired`|リセットトークンが有効期限切れ|
 |`ErrResetTokenNotIssued`|リセットトークンが発行されていない状態での消費操作|
@@ -609,7 +609,7 @@ stateDiagram-v2
 
 ### AccountRepository実装（`infrastructure/gormrepo/account_repository.go`）
 
-- 実装struct名: 非公開struct（例: `accountRepository`）+ コンストラクタ`NewAccountRepository(db *gorm.DB) repository.AccountRepository`（規約「9. 命名規約」により`Impl`接尾辞を付けない）
+- 実装struct名: 非公開struct（例: `accountRepository`）+ コンストラクタ`NewAccountRepository(db *gorm.DB) repository.AccountRepository`（アーキテクチャ規約「8. 命名規約（アーキテクチャレベル）」により`Impl`接尾辞を付けない）
 - 対応するGORMモデル: `UserModel`（`infrastructure/gormrepo/user_model.go`）
 - 各メソッドで発行するクエリ内容:
 
@@ -751,14 +751,14 @@ Handler・Request DTOは各スライス編を参照する。
 
 |フィールド|struct名|バリデーションタグ|エラーメッセージ方針|
 |-|-|-|-|
-|`Email`|`LoginRequest`|`binding:"required,email"`|「入力内容を確認してください」|
-|`Password`|`LoginRequest`|`binding:"required"`|「入力内容を確認してください」|
-|`Email`|`SignUpUserParams`|`binding:"required,email"`|「メールアドレスの形式が不正です」|
-|`Password`/`PasswordConfirmation`/`Name`/`NameKana`|`SignUpUserParams`|`binding:"required"`|「入力内容を確認してください」|
-|`StudentNumber`|`SignUpUserParams`|`binding:"omitempty"`＋カスタム形式チェック|「生徒コードの形式が不正です」|
-|`Email`|`PasswordResetRequestRequest`|`binding:"required,email"`|「メールアドレスの形式が不正です」|
-|`ResetPasswordToken`/`Password`/`PasswordConfirmation`|`ChangePasswordRequest`|`binding:"required"`|「入力内容を確認してください」|
-|`ResetPasswordToken`|`VerifyResetTokenRequest`|`binding:"required"`|「入力内容を確認してください」|
+|`Email`|`LoginRequest`|`binding:"required,email"`|「メールアドレスを入力してください」（未入力）／「メールアドレスが不正です」（形式不正。Railsは未入力にも両方返す）|
+|`Password`|`LoginRequest`|`binding:"required"`|「パスワードを入力してください」|
+|`Email`|`SignUpUserParams`|`binding:"required,email"`|「メールアドレスが不正です」|
+|`Password`/`PasswordConfirmation`/`Name`/`NameKana`|`SignUpUserParams`|`binding:"required"`|（Railsの新規登録フォームは、これらの未入力を検証しない。氏名カナは入力があるときのみ「氏名カナはカタカナで入力してください」。ロール未指定は「ロールを入力してください」）|
+|`StudentNumber`|`SignUpUserParams`|`binding:"omitempty"`＋カスタム形式チェック|「生徒コードの形式が正しくありません」|
+|`Email`|`PasswordResetRequestRequest`|`binding:"required,email"`|「メールアドレスが不正です」|
+|`ResetPasswordToken`/`Password`/`PasswordConfirmation`|`ChangePasswordRequest`|`binding:"required"`|「リセットトークンを入力してください」「新しいパスワードを入力してください」「新しいパスワード（確認）を入力してください」|
+|`ResetPasswordToken`|`VerifyResetTokenRequest`|`binding:"required"`|「リセットトークンを入力してください」|
 
 ## 業務ルール検証
 
@@ -804,6 +804,8 @@ Handler・Request DTOは各スライス編を参照する。
 
 アーキテクチャ規約「12. Error変換パターン（AppError）」の標準パターンに従う。各UseCaseは、`domain/errors`のセンチネルエラーを`errors.Is`で判定し、`internal/shared/apperror`の`AppError`を実装した型へ変換して返す。Domain Error自体にStatusCode/LogLevelを持たせない。本Contextでは`application/apperror`を独自に持たず、共通の`apperror`パッケージをそのまま使う。`RequestPasswordResetUseCase`のみ、内部的な「対象ユーザー不存在」を外部エラーとして伝播させず、常に固定の成功結果（`dto.RequestPasswordResetResult`）に変換する（②「17. Error設計」のApplication Errorの方針どおり）。
 
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`user`・`password_reset`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
+
 ## Application Error → HTTPレスポンスへの変換方針
 
 Gin規約「8. エラーハンドリングミドルウェア」の集中エラーハンドリングミドルウェアに変換ロジックを集約する。Handlerは`c.Error(err)`でエラーを登録するのみとし、個々のHandlerでStatus Codeを判定しない。
@@ -814,6 +816,8 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 |`ErrInvalidRole`|Domain|422|
 |`ErrRegistrationRequirementNotMet`|Domain|422|
 |`ErrPasswordConfirmationMismatch`|Domain|422|
+|`ErrPasswordTooShort`|Domain|422|
+|`ErrPasswordTooLong`|Domain|422|
 |`ErrResetTokenNotFound`|Domain|422|
 |`ErrResetTokenExpired`|Domain|422|
 |`ErrResetTokenNotIssued`|Domain|422|
@@ -828,7 +832,7 @@ Gin規約「8. エラーハンドリングミドルウェア」の集中エラ�
 
 ## Infrastructure Errorのハンドリング方針
 
-Infrastructure層（Repository実装・security・mail）で発生したエラーは、`fmt.Errorf`でラップしてApplication層へ伝播させ、Presentation層側の集中エラーハンドリングミドルウェアで未分類のエラーとして500に変換する。業務エラー（Domain Error）と技術的障害（Infrastructure Error）を`errors.Is` / `errors.As`で明確に区別する（コーディング規約「6. エラーハンドリング」）。
+Infrastructure層（Repository実装・security・mail）で発生したエラーは、`fmt.Errorf`でラップしてApplication層へ伝播させ、Presentation層側の集中エラーハンドリングミドルウェアで未分類のエラーとして500に変換する。業務エラー（Domain Error）と技術的障害（Infrastructure Error）を`errors.Is` / `errors.As`で明確に区別する（コーディング規約「18. エラーハンドリング」）。
 
 ---
 

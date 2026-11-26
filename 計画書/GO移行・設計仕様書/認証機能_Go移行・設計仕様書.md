@@ -201,7 +201,7 @@ Domain Model
 
 - 採用理由: パスワードは「入力された生の値」と「保存されたハッシュ値」で扱いが大きく異なり、混同を防ぐ必要があるため
 - 独自ルール:
-  - 最小文字数等の登録時ポリシーを表現する（Rails現行仕様に具体的な文字数ルールの明記はないため、既存のDevise標準ポリシーを踏襲する前提とする。推測）
+  - 登録・リセット時のパスワード長（6文字以上128文字以内。①「5. API / 処理詳細」`#create`・`PasswordResetsController#update`）を表現する。ログインでは長さを検証しない
   - 登録・リセット時の確認用パスワードとの一致を検証する
 - Entity属性ではなくValue Objectにする理由: 生パスワードをEntityの永続属性として持たせないことを型で保証し、誤ってハッシュ化前の値を保存してしまう事故を防ぐため
 
@@ -654,15 +654,16 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|email / password|Presentation|必須・型チェック|「入力内容を確認してください」|
-|email|Presentation|メール形式|「メールアドレスの形式が不正です」|
+|email / password|Presentation|必須・型チェック|「メールアドレスを入力してください」「パスワードを入力してください」（Railsは未入力のメールアドレスに「メールアドレスが不正です」も同時に返す）|
+|email|Presentation|メール形式|「メールアドレスが不正です」|
 |user_role_name|Domain|実在するロール名であること|`Auth::SignUpService::SignUpError` 相当のメッセージ|
 |high_school_id / grade_id|Domain|通常登録時、role要件に応じて必須かつ実在すること|`Auth::SignUpService::SignUpError` 相当のメッセージ|
-|student_number|Presentation|学校コード-コード本体のハイフン区切り形式|「生徒コードの形式が不正です」|
+|student_number|Presentation|学校コード-コード本体のハイフン区切り形式|「生徒コードの形式が正しくありません」|
 |student_number|Domain|一致する未有効化の仮アカウントが存在し、学校コードが選択高校と一致すること|`Auth::SignUpService::SignUpError` 相当のメッセージ|
 |reset_password_token|Domain|有効期限内かつ未消費であること|「トークンの有効期限が切れています。」|
 |email（パスワードリセット対象検索）|Domain|退会（論理削除）済みでないこと|（存在有無を開示しないため専用メッセージは出さず、常に成功メッセージを返す）|
-|password / password_confirmation|Domain|一致すること|「パスワードが確認用と一致しません」|
+|password / password_confirmation|Domain|一致すること|「新しいパスワード（確認）と一致しません」|
+|password|Domain|登録・パスワードリセットで6文字以上128文字以内であること（ログインでは検証しない）|「パスワードは6文字以上で入力してください」「パスワードは128文字以内で入力してください」|
 
 ---
 
@@ -714,6 +715,8 @@ flowchart TD
 
 - 責務: DB接続失敗、JWT署名処理の失敗、メール送信基盤への連携失敗を表現する
 - 判断理由: 技術的な障害を業務エラーと切り分け、5xx系のレスポンスとして扱うため
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`user`・`password_reset`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## エラー仕様
 

@@ -404,15 +404,15 @@ DBにも他Contextの呼び出しにも依存せず、与えられた3つの値�
 
 |エラー|発生条件|メッセージ|
 |-|-|-|
-|`ErrTaskIDRequired`|`task_id`が未入力|`Task を入力してください`|
-|`ErrUnitIDRequired`|`unit_id`が未入力|`Unit を入力してください`|
-|`ErrQuestionIDRequired`|`question_id`が未入力|`Question を入力してください`|
-|`ErrQuestionChoiceIDRequired`|`question_choice_id`が未入力|`Question choice を入力してください`|
-|`ErrInvalidTask`|指定のタスクが操作者自身のものでない（存在しない場合を含む）。**解答の登録で用いる**|`Task が不正です`|
-|`ErrInvalidUnit`|指定の単元がそのタスクに紐づかない。**解答の登録で用いる**|`Unit が不正です`|
-|`ErrInvalidQuestion`|指定の問題がその単元に紐づかない。**解答の登録で用いる**|`Question が不正です`|
-|`ErrInvalidQuestionChoice`|指定の選択肢が対象問題のものでない|`Question choice はこの問題の選択肢ではありません`|
-|`ErrInvalidTimeSpentSec`|解答時間が0未満または3600超|`Time spent sec は0から3600の範囲で入力してください`|
+|`ErrTaskIDRequired`|`task_id`が未入力|`タスクを入力してください`|
+|`ErrUnitIDRequired`|`unit_id`が未入力|`単元を入力してください`|
+|`ErrQuestionIDRequired`|`question_id`が未入力|`問題を入力してください`|
+|`ErrQuestionChoiceIDRequired`|`question_choice_id`が未入力|`選択肢を入力してください`|
+|`ErrInvalidTask`|指定のタスクが操作者自身のものでない（存在しない場合を含む）。**解答の登録で用いる**|`タスクが不正です`|
+|`ErrInvalidUnit`|指定の単元がそのタスクに紐づかない。**解答の登録で用いる**|`単元が不正です`|
+|`ErrInvalidQuestion`|指定の問題がその単元に紐づかない。**解答の登録で用いる**|`問題が不正です`|
+|`ErrInvalidQuestionChoice`|指定の選択肢が対象問題のものでない|`選択肢はこの問題の選択肢ではありません`|
+|`ErrInvalidTimeSpentSec`|解答時間が0未満または3600超|`解答時間は0以上の値にしてください`（0未満）／`解答時間は3600以下の値にしてください`（3600超）|
 |`ErrQuestionHistoryNotFound`|解答の更新で対象の解答履歴が見つからない|`解答履歴が見つかりません`（`base`に積まれるため項目名が付かない）|
 |`ErrTaskNotFound`|問題一覧・確認表示・提出で対象のタスクが見つからない|—（「14. Error実装方針」で404へ変換する。本文の名称は`タスク`）|
 |`ErrUnitNotFound`|問題一覧・確認表示で対象の単元が見つからない|—（同。本文の名称は`単元`）|
@@ -916,6 +916,8 @@ Domain Model採用のため、`domain/errors.go`のセンチネルエラーをUs
 他Contextのアダプタが返すエラーも、アダプタの中で本Contextのセンチネルエラーへ変換する。相手Contextのエラー型を本Contextのハンドリングに持ち込まない（規約「5. Context間連携ルール」）。
 
 **同じ原因のエラーを、UseCaseによって別のセンチネルエラーへ変換する。** アダプタは「タスクが見つからない」という事実のみを返し、それを`ErrTaskNotFound`（404）とするか`ErrInvalidTask`（422）とするかはUseCaseが決める（「12. Validation実装方針」）。アダプタにステータスの判断を持たせない。
+
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`answered_question_ids`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
 
 ## Application Error → HTTPレスポンスへの変換方針
 

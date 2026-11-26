@@ -587,12 +587,11 @@ flowchart TD
 
 |フィールド|検証層|ルール|エラーメッセージ方針|
 |-|-|-|-|
-|task_id / unit_id / question_id|Presentation|必須・数値形式|「タスク・単元・問題の指定が不正です」|
-|question_choice_id|Presentation|選択式の場合は必須|「選択肢を指定してください」|
-|answer_text|Presentation|テキスト解答の場合は必須|「解答内容を入力してください」|
-|question_choice_id と answer_text|Domain|少なくとも一方が設定されていること|「解答形式が不正です」|
-|question_choice_id|Domain|対象問題に属する選択肢であること|「選択肢が対象の問題と一致しません」|
-|task_id / unit_id / question_id|Domain|current userのタスクに紐づく組み合わせであること|「指定された問題にアクセスできません」|
+|task_id / unit_id / question_id|Presentation|必須・数値形式|「タスクを入力してください」「単元を入力してください」「問題を入力してください」|
+|question_choice_id|Presentation|必須（Rails現行は解答の形式を問わず必須）|「選択肢を入力してください」|
+|answer_text|Presentation|任意（Rails現行は検証しない）|—|
+|question_choice_id|Domain|対象問題に属する選択肢であること|「選択肢はこの問題の選択肢ではありません」|
+|task_id / unit_id / question_id|Domain|current userのタスクに紐づく組み合わせであること|「タスクが不正です」「単元が不正です」「問題が不正です」|
 
 ---
 
@@ -650,7 +649,7 @@ flowchart TD
 |解答の登録で、タスク・単元・問題の紐づきが不正|Validation|Application|**422**（404ではない。①「5. API / 処理詳細」`#create`）|
 |選択肢が対象問題に属さない|Validation|Domain|422|
 |必須項目の未入力|Validation|Presentation|422|
-|`time_spent_sec`が0未満または3600超|Validation|Domain|422|
+|`time_spent_sec`が0未満または3600超|Validation|Domain|422（`解答時間は0以上の値にしてください`・`解答時間は3600以下の値にしてください`）|
 |`explanation_viewed`が真偽値でない|Validation|Presentation|422|
 |解答の更新で、対象の解答履歴が見つからない|Validation|Application|**422**（404ではない。①「5. API / 処理詳細」`#update`（解答））|
 |提出で、タスクに目標が紐づいていない|NotFound|Application|404（目標として扱われる。①「5. API / 処理詳細」`#update`（提出））|
@@ -663,6 +662,8 @@ flowchart TD
 
 **同じ「対象が見つからない」でもステータスが分かれる。** 問題一覧・確認表示・提出は404、解答の登録・更新は422である。Rails現行が、前者はControllerの検索で例外を投げ、後者はFormの検証エラーとして扱っているためである（①「5. API / 処理詳細」）。フロントエンドを変更しない方針により、この分かれ方を維持する。
 
+**必須のルートキーが存在しない場合は400を返す。** 対象のキーは`answered_question_ids`で、本文は`{"errors": ["必須パラメータ「<キー>」がありません"]}`である（①「5. API / 処理詳細」の各Errorケース）。
+
 ## エラーレスポンスの本文
 
 Rails現行の本文の形をそのまま維持する。いずれの条件でも本文の形は同じである（①「6. データモデル」の「エラーレスポンスの本文」）。
@@ -673,7 +674,7 @@ Rails現行の本文の形をそのまま維持する。いずれの条件でも
 |対象不存在（確認表示を含む）|404|`{"errors": ["〇〇が見つかりません"]}`。`〇〇`は`タスク`・`目標`・`単元`のいずれか|
 |認可エラー|403|`{"errors": ["この操作を行う権限がありません"]}`|
 
-①のとおり項目名の日本語訳が定義されている（`タスクが不正です`・`選択肢はこの問題の選択肢ではありません`等）。
+①のとおり項目名の日本語訳が定義されている（`タスクが不正です`・`選択肢 はこの問題の選択肢ではありません`等）。
 
 ## Rails現行の挙動を維持するもの
 
