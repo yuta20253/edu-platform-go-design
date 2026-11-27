@@ -519,7 +519,12 @@ func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
                 resp.Fields = fieldErr.Fields()
             }
 
-            logger.Log(ctx, appErr.LogLevel(), "request failed", "error", appErr)
+            attrs := []any{"error", appErr}
+            if cause := errors.Unwrap(appErr); cause != nil {
+                attrs = append(attrs, "cause", cause) // 500のように利用者向けメッセージが原因を隠す場合に備え、原因はログにだけ出す
+            }
+
+            logger.Log(ctx, appErr.LogLevel(), "request failed", attrs...)
             c.JSON(appErr.StatusCode(), resp)
             return
         }
